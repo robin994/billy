@@ -4,11 +4,15 @@
 
 # Billy
 
-## Billy 0.11.9
+## Billy 0.11.10
 
 Billy keeps the Lovelace `custom:bill-tracker-card`, while `/billy` is the full-size application.
 
 Billy is a Home Assistant bill manager focused on household expenses: provider bills, recurring costs, forecasts, payment tracking, shared expenses, reimbursements and automatic bill parsing from email.
+
+### What's new in 0.11.10
+
+- **Localized error messages** — the websocket API now returns stable error codes with an English fallback instead of hardcoded Italian text, and the Billy panel, Lovelace card and parser manager translate them into the user's language (English, Italian, Spanish, French, German, Portuguese).
 
 ### What's new in 0.11.9
 

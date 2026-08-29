@@ -1,6 +1,9 @@
-import { BILLY_PARSER_EXTRA_TEXT } from './billy-extra-i18n.js?v=0.11.9-r4'
+import {
+  BILLY_ERROR_TEXT,
+  BILLY_PARSER_EXTRA_TEXT,
+} from './billy-extra-i18n.js?v=0.11.10-r1'
 
-const BILLY_PARSER_MANAGER_VERSION = '0.11.9'
+const BILLY_PARSER_MANAGER_VERSION = '0.11.10'
 
 const TEXT = {
   en: {
@@ -247,6 +250,17 @@ function languageOf(hass) {
     : 'en'
 }
 
+// Resolve a websocket/runtime error to a localized message via its stable code,
+// falling back to the English message the backend sends with it.
+function errorText(hass, error) {
+  const code = error?.code
+  if (code) {
+    const table = BILLY_ERROR_TEXT[languageOf(hass)] || BILLY_ERROR_TEXT.en || {}
+    if (table[code]) return table[code]
+  }
+  return String(error?.message || error)
+}
+
 function esc(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -329,7 +343,7 @@ class BillyParserManagerPanel extends HTMLElement {
         return
       }
     } catch (error) {
-      this._error = `${this._t('loadError')} ${error?.message || error}`
+      this._error = `${this._t('loadError')} ${errorText(this._hass, error)}`
     } finally {
       this._loading = false
       this._render()
@@ -346,7 +360,7 @@ class BillyParserManagerPanel extends HTMLElement {
       this._loading = false
       await this._load({ refreshIfEmpty: false })
     } catch (error) {
-      this._error = `${this._t('actionError')}: ${error?.message || error}`
+      this._error = `${this._t('actionError')}: ${errorText(this._hass, error)}`
     } finally {
       this._refreshing = false
       this._render()
@@ -902,7 +916,7 @@ fields:
       this._customEditor.loading = false
     } catch (error) {
       this._customEditor.loading = false
-      this._customEditor.error = `${this._t('actionError')}: ${error?.message || error}`
+      this._customEditor.error = `${this._t('actionError')}: ${errorText(this._hass, error)}`
     }
     this._render()
   }
@@ -1025,7 +1039,7 @@ fields:
         data: result.data || {},
       }
     } catch (error) {
-      editor.result = { ok: false, message: error?.message || String(error) }
+      editor.result = { ok: false, message: errorText(this._hass, error) }
     } finally {
       editor.testing = false
       this._render()
@@ -1052,7 +1066,7 @@ fields:
       this._customEditor = null
       await this._load({ refreshIfEmpty: false })
     } catch (error) {
-      editor.error = `${this._t('yamlInvalid')}: ${error?.message || error}`
+      editor.error = `${this._t('yamlInvalid')}: ${errorText(this._hass, error)}`
       this._render()
     }
   }
@@ -1078,7 +1092,7 @@ fields:
       link.remove()
       URL.revokeObjectURL(url)
     } catch (error) {
-      this._error = `${this._t('actionError')}: ${error?.message || error}`
+      this._error = `${this._t('actionError')}: ${errorText(this._hass, error)}`
       this._render()
     }
   }
@@ -1122,7 +1136,7 @@ fields:
         await this._hass.callWS({ type, parser_id: String(id) })
         await this._load({ refreshIfEmpty: false })
       } catch (error) {
-        this._error = `${this._t('actionError')}: ${error?.message || error}`
+        this._error = `${this._t('actionError')}: ${errorText(this._hass, error)}`
       } finally {
         this._busy = ''
         this._render()
@@ -1166,7 +1180,7 @@ fields:
         'noopener,noreferrer',
       )
     } catch (error) {
-      this._error = `${this._t('actionError')}: ${error?.message || error}`
+      this._error = `${this._t('actionError')}: ${errorText(this._hass, error)}`
       this._render()
     }
   }
@@ -1194,7 +1208,7 @@ fields:
         'noopener,noreferrer',
       )
     } catch (error) {
-      this._error = `${this._t('actionError')}: ${error?.message || error}`
+      this._error = `${this._t('actionError')}: ${errorText(this._hass, error)}`
       this._render()
     }
   }
@@ -1319,7 +1333,7 @@ fields:
       }
       await this._load({ refreshIfEmpty: false })
     } catch (error) {
-      this._error = `${this._t('actionError')}: ${error?.message || error}`
+      this._error = `${this._t('actionError')}: ${errorText(this._hass, error)}`
     } finally {
       this._busy = ''
       this._render()

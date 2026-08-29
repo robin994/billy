@@ -204,8 +204,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 def _manager(hass: HomeAssistant) -> BillTrackerManager:
     manager = hass.data.get(DOMAIN, {}).get("manager")
     if manager is None:
-        raise RuntimeError("Bill Tracker non è configurato")
+        raise RuntimeError("Billy is not configured yet")
     return manager
+
+
+def _ws_error(connection, msg, err, default_code):
+    """Forward a business error to the frontend with a stable code."""
+    code = getattr(err, "code", None) or default_code
+    connection.send_error(msg["id"], code, str(err))
 
 
 @websocket_api.websocket_command(
@@ -226,7 +232,7 @@ async def ws_list(hass, connection, msg):
                 parser_manager.imports_snapshot("pending", 500)
             )
     except RuntimeError as err:
-        connection.send_error(msg["id"], "not_configured", str(err))
+        _ws_error(connection, msg, err, "not_configured")
         return
     connection.send_result(msg["id"], result)
 
@@ -293,7 +299,7 @@ async def ws_add(hass, connection, msg):
     try:
         item = await _manager(hass).async_add(**_expense_kwargs(msg))
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_expense", str(err))
+        _ws_error(connection, msg, err, "invalid_expense")
         return
     connection.send_result(msg["id"], item)
 
@@ -312,10 +318,10 @@ async def ws_update(hass, connection, msg):
             msg["expense_id"], **_expense_kwargs(msg)
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_expense", str(err))
+        _ws_error(connection, msg, err, "invalid_expense")
         return
     if item is None:
-        connection.send_error(msg["id"], "not_found", "Spesa non trovata")
+        connection.send_error(msg["id"], "expense_not_found", "Expense not found")
         return
     connection.send_result(msg["id"], item)
 
@@ -332,10 +338,10 @@ async def ws_set_paid(hass, connection, msg):
     try:
         item = await _manager(hass).async_set_paid(msg["expense_id"], msg["paid"])
     except RuntimeError as err:
-        connection.send_error(msg["id"], "not_configured", str(err))
+        _ws_error(connection, msg, err, "not_configured")
         return
     if item is None:
-        connection.send_error(msg["id"], "not_found", "Spesa non trovata")
+        connection.send_error(msg["id"], "expense_not_found", "Expense not found")
         return
     connection.send_result(msg["id"], item)
 
@@ -354,10 +360,10 @@ async def ws_set_reimbursement(hass, connection, msg):
             msg["expense_id"], msg["done"]
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_reimbursement", str(err))
+        _ws_error(connection, msg, err, "invalid_reimbursement")
         return
     if item is None:
-        connection.send_error(msg["id"], "not_found", "Spesa non trovata")
+        connection.send_error(msg["id"], "expense_not_found", "Expense not found")
         return
     connection.send_result(msg["id"], item)
 
@@ -370,7 +376,7 @@ async def ws_delete(hass, connection, msg):
     try:
         deleted = await _manager(hass).async_delete(msg["expense_id"])
     except RuntimeError as err:
-        connection.send_error(msg["id"], "not_configured", str(err))
+        _ws_error(connection, msg, err, "not_configured")
         return
     connection.send_result(msg["id"], {"deleted": deleted})
 
@@ -428,7 +434,7 @@ async def ws_recurring_add(hass, connection, msg):
     try:
         item = await _manager(hass).async_add_recurring(**_recurring_kwargs(msg))
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_recurring", str(err))
+        _ws_error(connection, msg, err, "invalid_recurring")
         return
     connection.send_result(msg["id"], item)
 
@@ -447,10 +453,10 @@ async def ws_recurring_update(hass, connection, msg):
             msg["recurring_id"], **_recurring_kwargs(msg)
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_recurring", str(err))
+        _ws_error(connection, msg, err, "invalid_recurring")
         return
     if item is None:
-        connection.send_error(msg["id"], "not_found", "Spesa ricorrente non trovata")
+        connection.send_error(msg["id"], "recurring_not_found", "Recurring expense not found")
         return
     connection.send_result(msg["id"], item)
 
@@ -469,10 +475,10 @@ async def ws_recurring_set_active(hass, connection, msg):
             msg["recurring_id"], msg["active"]
         )
     except RuntimeError as err:
-        connection.send_error(msg["id"], "not_configured", str(err))
+        _ws_error(connection, msg, err, "not_configured")
         return
     if item is None:
-        connection.send_error(msg["id"], "not_found", "Spesa ricorrente non trovata")
+        connection.send_error(msg["id"], "recurring_not_found", "Recurring expense not found")
         return
     connection.send_result(msg["id"], item)
 
@@ -491,10 +497,10 @@ async def ws_recurring_set_reimbursement(hass, connection, msg):
             msg["occurrence_id"], msg["done"]
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_reimbursement", str(err))
+        _ws_error(connection, msg, err, "invalid_reimbursement")
         return
     if item is None:
-        connection.send_error(msg["id"], "not_found", "Scadenza ricorrente non trovata")
+        connection.send_error(msg["id"], "occurrence_not_found", "Recurring charge not found")
         return
     connection.send_result(msg["id"], item)
 
@@ -510,7 +516,7 @@ async def ws_recurring_delete(hass, connection, msg):
     try:
         deleted = await _manager(hass).async_delete_recurring(msg["recurring_id"])
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_recurring", str(err))
+        _ws_error(connection, msg, err, "invalid_recurring")
         return
     connection.send_result(msg["id"], {"deleted": deleted})
 
@@ -544,7 +550,7 @@ async def ws_category_add(hass, connection, msg):
             default_contract=msg.get("default_contract", ""),
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_category", str(err))
+        _ws_error(connection, msg, err, "invalid_category")
         return
     connection.send_result(msg["id"], category)
 
@@ -571,10 +577,10 @@ async def ws_category_update(hass, connection, msg):
             default_contract=msg.get("default_contract", ""),
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_category", str(err))
+        _ws_error(connection, msg, err, "invalid_category")
         return
     if category is None:
-        connection.send_error(msg["id"], "not_found", "Tipo di bolletta non trovato")
+        connection.send_error(msg["id"], "category_not_found", "Bill type not found")
         return
     connection.send_result(msg["id"], category)
 
@@ -587,7 +593,7 @@ async def ws_category_delete(hass, connection, msg):
     try:
         deleted = await _manager(hass).async_delete_category(msg["category_id"])
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "category_in_use", str(err))
+        _ws_error(connection, msg, err, "category_in_use")
         return
     connection.send_result(msg["id"], {"deleted": deleted})
 
@@ -619,7 +625,7 @@ async def ws_payer_add(hass, connection, msg):
             enabled=msg["enabled"],
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_payer", str(err))
+        _ws_error(connection, msg, err, "invalid_payer")
         return
     connection.send_result(msg["id"], payer)
 
@@ -644,10 +650,10 @@ async def ws_payer_update(hass, connection, msg):
             enabled=msg["enabled"],
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_payer", str(err))
+        _ws_error(connection, msg, err, "invalid_payer")
         return
     if payer is None:
-        connection.send_error(msg["id"], "not_found", "Pagante non trovato")
+        connection.send_error(msg["id"], "payer_not_found", "Payer not found")
         return
     connection.send_result(msg["id"], payer)
 
@@ -660,7 +666,7 @@ async def ws_payer_delete(hass, connection, msg):
     try:
         deleted = await _manager(hass).async_delete_payer(msg["payer_id"])
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "payer_in_use", str(err))
+        _ws_error(connection, msg, err, "payer_in_use")
         return
     connection.send_result(msg["id"], {"deleted": deleted})
 
@@ -684,7 +690,7 @@ async def ws_settlement_add(hass, connection, msg):
             note=msg["note"],
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_settlement", str(err))
+        _ws_error(connection, msg, err, "invalid_settlement")
         return
     connection.send_result(msg["id"], item)
 
@@ -700,7 +706,7 @@ async def ws_settlement_delete(hass, connection, msg):
     try:
         deleted = await _manager(hass).async_delete_settlement(msg["settlement_id"])
     except RuntimeError as err:
-        connection.send_error(msg["id"], "not_configured", str(err))
+        _ws_error(connection, msg, err, "not_configured")
         return
     connection.send_result(msg["id"], {"deleted": deleted})
 
@@ -722,7 +728,7 @@ async def ws_import_csv(hass, connection, msg):
             create_missing_payers=msg["create_missing_payers"],
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_csv", str(err))
+        _ws_error(connection, msg, err, "invalid_csv")
         return
     connection.send_result(msg["id"], result)
 
@@ -752,7 +758,7 @@ async def ws_export(hass, connection, msg):
             language=msg.get("language", "en"),
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "export_failed", str(err))
+        _ws_error(connection, msg, err, "export_failed")
         return
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     from_part = (msg.get("from_month") or "all").replace("-", "")
@@ -791,7 +797,7 @@ async def ws_export_recurring(hass, connection, msg):
             language=msg.get("language", "en"),
         )
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "export_failed", str(err))
+        _ws_error(connection, msg, err, "export_failed")
         return
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     connection.send_result(
@@ -810,7 +816,7 @@ async def ws_export_template(hass, connection, msg):
     try:
         payload = _manager(hass).export_csv_template()
     except RuntimeError as err:
-        connection.send_error(msg["id"], "not_configured", str(err))
+        _ws_error(connection, msg, err, "not_configured")
         return
     connection.send_result(
         msg["id"],
@@ -828,7 +834,7 @@ async def ws_backup_export(hass, connection, msg):
     try:
         payload = _manager(hass).export_backup()
     except RuntimeError as err:
-        connection.send_error(msg["id"], "not_configured", str(err))
+        _ws_error(connection, msg, err, "not_configured")
         return
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     connection.send_result(
@@ -852,6 +858,6 @@ async def ws_backup_import(hass, connection, msg):
     try:
         result = await _manager(hass).async_import_backup(msg["content"])
     except (ValueError, RuntimeError) as err:
-        connection.send_error(msg["id"], "invalid_backup", str(err))
+        _ws_error(connection, msg, err, "invalid_backup")
         return
     connection.send_result(msg["id"], result)

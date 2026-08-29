@@ -3,9 +3,22 @@ import {
   billyLanguage,
   billyLocale,
   billyT,
-} from './bill-tracker-i18n.js?v=0.11.9-r4'
+} from './bill-tracker-i18n.js?v=0.11.10-r1'
+import { BILLY_ERROR_TEXT } from './billy-extra-i18n.js?v=0.11.10-r1'
 
-const BILL_TRACKER_VERSION = '0.11.9'
+// Resolve a websocket/runtime error to a message in the user's language via its
+// stable `code`, falling back to the English text the backend sends with it.
+function billyErrorText(hass, error, fallback = '') {
+  const code = error?.code
+  if (code) {
+    const table =
+      BILLY_ERROR_TEXT[billyLanguage(hass)] || BILLY_ERROR_TEXT.en || {}
+    if (table[code]) return table[code]
+  }
+  return String(error?.message || fallback || error)
+}
+
+const BILL_TRACKER_VERSION = '0.11.10'
 
 class BillTrackerCard extends HTMLElement {
   constructor() {
@@ -130,7 +143,7 @@ class BillTrackerCard extends HTMLElement {
       })
       this._error = null
     } catch (err) {
-      this._error = String(err?.message || err)
+      this._error = billyErrorText(this._hass, err)
     } finally {
       this._loading = false
       this._render()
@@ -2001,7 +2014,7 @@ class BillTrackerCard extends HTMLElement {
       this._transferMessage = this._t('csv_ready', { name: file.name })
     } catch (err) {
       this._importCsvText = ''
-      this._transferMessage = String(err?.message || err)
+      this._transferMessage = billyErrorText(this._hass, err)
     }
     this._render()
   }
@@ -2037,7 +2050,7 @@ class BillTrackerCard extends HTMLElement {
       this._transferMessage = this._t('template_downloaded')
     } catch (err) {
       this._transferMessage = this._t('template_error', {
-        error: String(err?.message || err),
+        error: billyErrorText(this._hass, err),
       })
     } finally {
       this._transferBusy = false
@@ -2082,7 +2095,7 @@ class BillTrackerCard extends HTMLElement {
       this._transferOpen = true
     } catch (err) {
       this._transferMessage = this._t('import_failed', {
-        error: String(err?.message || err),
+        error: billyErrorText(this._hass, err),
       })
     } finally {
       this._transferBusy = false
@@ -2125,7 +2138,7 @@ class BillTrackerCard extends HTMLElement {
       })
     } catch (err) {
       this._transferMessage = this._t('export_failed', {
-        error: String(err?.message || err),
+        error: billyErrorText(this._hass, err),
       })
     } finally {
       this._transferBusy = false
@@ -2301,7 +2314,7 @@ class BillTrackerCard extends HTMLElement {
       this._error = null
       await this._load()
     } catch (err) {
-      this._error = String(err?.message || err)
+      this._error = billyErrorText(this._hass, err)
       this._render()
     }
   }
@@ -2322,7 +2335,7 @@ class BillTrackerCard extends HTMLElement {
     } catch (err) {
       input.checked = !paid
       input.disabled = false
-      this._error = String(err?.message || err)
+      this._error = billyErrorText(this._hass, err)
       this._render()
     }
   }
@@ -2352,7 +2365,7 @@ class BillTrackerCard extends HTMLElement {
       await this._hass.callWS({ type: 'bill_tracker/delete', expense_id: id })
       await this._load()
     } catch (err) {
-      this._error = String(err?.message || err)
+      this._error = billyErrorText(this._hass, err)
       this._render()
     }
   }
@@ -2386,7 +2399,7 @@ class BillTrackerCard extends HTMLElement {
       })
       await this._load()
     } catch (err) {
-      this._error = String(err?.message || err)
+      this._error = billyErrorText(this._hass, err)
       this._render()
     }
   }
@@ -2400,7 +2413,7 @@ class BillTrackerCard extends HTMLElement {
       })
       await this._load()
     } catch (err) {
-      this._error = String(err?.message || err)
+      this._error = billyErrorText(this._hass, err)
       this._render()
     }
   }

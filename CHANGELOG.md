@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.10
+
+- Backend error messages are no longer hardcoded in Italian: the websocket API returns stable error codes with an English fallback, and the Billy panel, Lovelace card and parser manager translate them into the user's language across English, Italian, Spanish, French, German and Portuguese.
+- Aligned frontend cache-busting and version constants to 0.11.10.
+
 ## 0.11.9
 
 - Added a parsed-bill review queue directly to the Bills section, with Accept/Reject actions before an automatic parser candidate becomes a real expense.

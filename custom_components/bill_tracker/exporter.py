@@ -14,6 +14,7 @@ from datetime import datetime
 from html import escape as xml_escape
 from typing import Any, Iterable
 
+from .errors import billy_error
 from .localization import category_label, report_labels
 
 CSV_HEADERS = [
@@ -75,7 +76,7 @@ def month_tuple(value: str | None) -> tuple[int, int] | None:
     try:
         dt = datetime.strptime(text, "%Y-%m")
     except ValueError as err:
-        raise ValueError(f"Mese non valido: {text}. Usa YYYY-MM") from err
+        raise billy_error("csv_invalid_month", text=text) from err
     return dt.year, dt.month
 
 
@@ -729,7 +730,7 @@ def _normalize_header(value: str) -> str:
 def parse_csv_records(text: str) -> list[tuple[int, dict[str, str]]]:
     raw_text = str(text or "").lstrip("\ufeff")
     if not raw_text.strip():
-        raise ValueError("Il CSV è vuoto")
+        raise billy_error("csv_empty")
     sample = raw_text[:4096]
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
@@ -737,7 +738,7 @@ def parse_csv_records(text: str) -> list[tuple[int, dict[str, str]]]:
         dialect = csv.excel
     reader = csv.DictReader(io.StringIO(raw_text), dialect=dialect)
     if not reader.fieldnames:
-        raise ValueError("Il CSV non contiene intestazioni")
+        raise billy_error("csv_no_headers")
     normalized_fields = {_normalize_header(name): name for name in reader.fieldnames if name is not None}
     alias_to_original: dict[str, str] = {}
     for canonical, aliases in CSV_ALIASES.items():
@@ -746,9 +747,9 @@ def parse_csv_records(text: str) -> list[tuple[int, dict[str, str]]]:
                 alias_to_original[canonical] = normalized_fields[alias]
                 break
     if "category" not in alias_to_original or "amount" not in alias_to_original:
-        raise ValueError("Il CSV deve contenere almeno le colonne category/tipo e amount/importo")
+        raise billy_error("csv_missing_columns")
     if "billing_month" not in alias_to_original and not ({"year", "month"} <= set(alias_to_original)):
-        raise ValueError("Il CSV deve contenere billing_month (YYYY-MM) oppure year + month")
+        raise billy_error("csv_missing_period_columns")
     result: list[tuple[int, dict[str, str]]] = []
     for line_no, raw in enumerate(reader, start=2):
         if not raw or not any(str(value or "").strip() for value in raw.values()):
@@ -758,7 +759,7 @@ def parse_csv_records(text: str) -> list[tuple[int, dict[str, str]]]:
             row[canonical] = str(raw.get(original, "") or "").strip()
         result.append((line_no, row))
     if not result:
-        raise ValueError("Il CSV non contiene righe da importare")
+        raise billy_error("csv_no_rows")
     return result
 
 
@@ -768,13 +769,13 @@ def parse_csv_bool(value: str) -> bool:
         return False
     if text in {"1", "true", "yes", "y", "paid", "pagata", "si", "sì"}:
         return True
-    raise ValueError(f"Valore paid non valido: {value}")
+    raise billy_error("csv_invalid_paid", value=value)
 
 
 def parse_csv_amount(value: str) -> float:
     text = str(value or "").strip().replace(" ", "")
     if not text:
-        raise ValueError("Importo mancante")
+        raise billy_error("amount_missing")
     if "," in text and "." in text:
         if text.rfind(",") > text.rfind("."):
             text = text.replace(".", "").replace(",", ".")

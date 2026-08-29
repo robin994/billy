@@ -26,6 +26,7 @@ from .const import (
     STORAGE_VERSION,
     SUPPORTED_INTERVALS,
 )
+from .errors import billy_error
 from .exporter import (
     csv_bytes,
     csv_template_bytes,
@@ -115,7 +116,7 @@ class BillTrackerManager:
         name = name.strip()
         self._validate_payer(name, share_percent)
         if self.payer_by_name(name):
-            raise ValueError("Esiste già un pagante con questo nome")
+            raise billy_error("payer_name_exists")
         methods = self._normalize_payment_methods(payment_methods, paypal_me)
         preferred = self._normalize_preferred_payment_method(
             preferred_payment_method, methods
@@ -148,7 +149,7 @@ class BillTrackerManager:
         self._validate_payer(name, share_percent)
         duplicate = self.payer_by_name(name)
         if duplicate and duplicate.get("id") != payer_id:
-            raise ValueError("Esiste già un pagante con questo nome")
+            raise billy_error("payer_name_exists")
         item = self.payer(payer_id)
         if item is None:
             return None
@@ -171,32 +172,32 @@ class BillTrackerManager:
 
     async def async_delete_payer(self, payer_id: str) -> bool:
         if any(x.get("payer_id") == payer_id for x in self.expenses):
-            raise ValueError("Questo pagante è presente nello storico: disattivalo invece di eliminarlo")
+            raise billy_error("payer_in_history")
         if any(
             any(part.get("payer_id") == payer_id for part in x.get("split", []))
             for x in self.expenses
         ):
-            raise ValueError("Questo pagante è presente nello storico: disattivalo invece di eliminarlo")
+            raise billy_error("payer_in_history")
         if any(x.get("payer_id") == payer_id for x in self.recurring_expenses):
-            raise ValueError("Questo pagante è usato da una spesa ricorrente: disattivalo invece di eliminarlo")
+            raise billy_error("payer_in_recurring")
         if any(
             any(part.get("payer_id") == payer_id for part in x.get("split", []))
             for x in self.recurring_expenses
         ):
-            raise ValueError("Questo pagante è usato da una spesa ricorrente: disattivalo invece di eliminarlo")
+            raise billy_error("payer_in_recurring")
         if any(
             x.get("payer_id") == payer_id
             or any(part.get("payer_id") == payer_id for part in x.get("split", []))
             for x in self.recurring_occurrences
         ):
-            raise ValueError("Questo pagante è presente nello storico delle spese ricorrenti: disattivalo invece di eliminarlo")
+            raise billy_error("payer_in_recurring_history")
         if any(x.get("default_payer_id") == payer_id for x in self.categories):
-            raise ValueError("Questo pagante è impostato come pagatore predefinito di una bolletta")
+            raise billy_error("payer_is_default")
         if any(
             x.get("from_payer_id") == payer_id or x.get("to_payer_id") == payer_id
             for x in self.settlements
         ):
-            raise ValueError("Questo pagante è presente nello storico rimborsi: disattivalo invece di eliminarlo")
+            raise billy_error("payer_in_settlements")
         before = len(self.payers)
         self.payers = [x for x in self.payers if x.get("id") != payer_id]
         changed = len(self.payers) != before
@@ -256,7 +257,7 @@ class BillTrackerManager:
         name = name.strip()
         self._validate_category(name, interval_months)
         if self.category_by_name(name):
-            raise ValueError("Esiste già una bolletta con questo nome")
+            raise billy_error("category_name_exists")
         payer_id = self._validate_optional_payer(default_payer_id)
         item = {
             "id": uuid4().hex,
@@ -290,7 +291,7 @@ class BillTrackerManager:
         self._validate_category(name, interval_months)
         duplicate = self.category_by_name(name)
         if duplicate and duplicate.get("id") != category_id:
-            raise ValueError("Esiste già una bolletta con questo nome")
+            raise billy_error("category_name_exists")
         item = self.category(category_id)
         if item is None:
             return None
@@ -312,7 +313,7 @@ class BillTrackerManager:
 
     async def async_delete_category(self, category_id: str) -> bool:
         if any(x.get("category_id") == category_id for x in self.expenses):
-            raise ValueError("Questa bolletta ha uno storico: disattivala invece di eliminarla")
+            raise billy_error("category_has_history")
         before = len(self.categories)
         self.categories = [x for x in self.categories if x.get("id") != category_id]
         changed = len(self.categories) != before
@@ -363,7 +364,7 @@ class BillTrackerManager:
         normalized_period_end_date = self._normalize_optional_iso_date(period_end_date)
         if normalized_period_start_date and normalized_period_end_date:
             if normalized_period_start_date > normalized_period_end_date:
-                raise ValueError("Il periodo di competenza iniziale è successivo a quello finale")
+                raise billy_error("period_start_after_end")
             start_date = date.fromisoformat(normalized_period_start_date)
             end_date = date.fromisoformat(normalized_period_end_date)
             sy, sm = start_date.year, start_date.month
@@ -452,7 +453,7 @@ class BillTrackerManager:
         )
         if normalized_period_start_date and normalized_period_end_date:
             if normalized_period_start_date > normalized_period_end_date:
-                raise ValueError("Il periodo di competenza iniziale è successivo a quello finale")
+                raise billy_error("period_start_after_end")
             start_date = date.fromisoformat(normalized_period_start_date)
             end_date = date.fromisoformat(normalized_period_end_date)
             sy, sm = start_date.year, start_date.month
@@ -546,11 +547,9 @@ class BillTrackerManager:
                 continue
             state = self._expense_reimbursement_state(item)
             if state["status"] == "none":
-                raise ValueError("Questa bolletta non prevede rimborsi tra utenti")
+                raise billy_error("expense_no_reimbursement")
             if state["has_recorded_settlement"]:
-                raise ValueError(
-                    "Questa bolletta è collegata a un rimborso registrato: gestiscilo dallo storico rimborsi"
-                )
+                raise billy_error("expense_settlement_linked")
             item["reimbursement_manual_done"] = bool(done)
             item["reimbursement_manual_at"] = (
                 datetime.now().astimezone().isoformat(timespec="seconds") if done else None
@@ -714,9 +713,7 @@ class BillTrackerManager:
             )
             for settlement in self.settlements
         ):
-            raise ValueError(
-                "Questa spesa ricorrente è presente nello storico rimborsi: disattivala invece di eliminarla"
-            )
+            raise billy_error("recurring_in_settlements")
         before = len(self.recurring_expenses)
         self.recurring_expenses = [
             x for x in self.recurring_expenses if x.get("id") != recurring_id
@@ -742,11 +739,9 @@ class BillTrackerManager:
             return None
         state = self._recurring_occurrence_reimbursement_state(item)
         if state["status"] == "none":
-            raise ValueError("Questa spesa ricorrente non prevede rimborsi tra utenti")
+            raise billy_error("recurring_no_reimbursement")
         if state["has_recorded_settlement"]:
-            raise ValueError(
-                "Questa rata ricorrente è collegata a un rimborso registrato: gestiscilo dallo storico rimborsi"
-            )
+            raise billy_error("recurring_settlement_linked")
         item["reimbursement_manual_done"] = bool(done)
         item["reimbursement_manual_at"] = (
             datetime.now().astimezone().isoformat(timespec="seconds") if done else None
@@ -770,7 +765,7 @@ class BillTrackerManager:
         """
         records = parse_csv_records(csv_text)
         if len(records) > 5000:
-            raise ValueError("Il CSV contiene più di 5000 righe")
+            raise billy_error("csv_too_many_rows")
 
         existing_ids = {str(x.get("id")) for x in self.expenses if x.get("id")}
         imported = 0
@@ -791,9 +786,9 @@ class BillTrackerManager:
             if category is not None:
                 return category
             if not create_missing_categories:
-                raise ValueError(f"Tipo di bolletta sconosciuto: {name}")
+                raise billy_error("csv_unknown_category", name=name)
             if interval not in SUPPORTED_INTERVALS:
-                raise ValueError(f"Frequenza non supportata per {name}: {interval} mesi")
+                raise billy_error("csv_unsupported_interval", name=name, interval=interval)
             category = {
                 "id": uuid4().hex,
                 "name": name,
@@ -817,7 +812,7 @@ class BillTrackerManager:
             if payer is not None:
                 return payer
             if not create_missing_payers:
-                raise ValueError(f"Pagante sconosciuto: {name}")
+                raise billy_error("csv_unknown_payer", name=name)
             payer = {
                 "id": uuid4().hex,
                 "name": name,
@@ -841,7 +836,7 @@ class BillTrackerManager:
 
                 category_name = str(row.get("category") or "").strip()
                 if not category_name:
-                    raise ValueError("tipo bolletta mancante")
+                    raise billy_error("csv_missing_category")
                 interval = int(row.get("interval_months") or 1)
                 category = ensure_category(
                     category_name, interval, str(row.get("consumption_unit") or ""),
@@ -894,7 +889,7 @@ class BillTrackerManager:
                         if not token:
                             continue
                         if ":" not in token:
-                            raise ValueError(f"quota non valida: {token}")
+                            raise billy_error("csv_invalid_share", token=token)
                         split_name, pct_text = token.rsplit(":", 1)
                         pct = float(pct_text.strip().replace(",", "."))
                         participant = ensure_payer(split_name.strip(), pct)
@@ -907,7 +902,7 @@ class BillTrackerManager:
                 due_date = self._normalize_optional_iso_date(row.get("due_date"))
                 incoming_currency = str(row.get("currency") or "").strip().upper()
                 if incoming_currency and incoming_currency != self.currency:
-                    raise ValueError(f"valuta {incoming_currency} diversa dalla valuta Home Assistant {self.currency}")
+                    raise billy_error("csv_currency_mismatch", incoming=incoming_currency, current=self.currency)
                 consumption_text = str(row.get("consumption") or "").strip()
                 consumption = self._normalize_optional_consumption(
                     float(consumption_text.replace(",", ".")) if consumption_text else None
@@ -977,7 +972,7 @@ class BillTrackerManager:
         """Return exported bytes, MIME type and extension for the requested format."""
         fmt = str(file_format or "csv").lower()
         if fmt not in {"csv", "xlsx", "pdf"}:
-            raise ValueError("Formato export non supportato")
+            raise billy_error("export_format_unsupported")
         public_rows = [self._public_expense(x) for x in self.expenses]
         rows = filter_expenses(
             public_rows,
@@ -1019,7 +1014,7 @@ class BillTrackerManager:
         """Export recurring rules in CSV, XLSX or PDF form."""
         fmt = str(file_format or "csv").lower()
         if fmt not in {"csv", "xlsx", "pdf"}:
-            raise ValueError("Formato export non supportato")
+            raise billy_error("export_format_unsupported")
 
         rows = [self._public_recurring_expense(x) for x in self.recurring_expenses]
         wanted_status = str(status or "all")
@@ -1084,14 +1079,14 @@ class BillTrackerManager:
         try:
             payload = json.loads(content)
         except json.JSONDecodeError as err:
-            raise ValueError("Backup JSON non valido") from err
+            raise billy_error("backup_invalid_json") from err
         if not isinstance(payload, dict) or payload.get("format") != "billy-backup":
-            raise ValueError("Il file non è un backup Billy")
+            raise billy_error("backup_not_billy")
         if int(payload.get("version", 0) or 0) != 1:
-            raise ValueError("Versione backup Billy non supportata")
+            raise billy_error("backup_unsupported_version")
         data = payload.get("data")
         if not isinstance(data, dict):
-            raise ValueError("Il backup Billy non contiene dati validi")
+            raise billy_error("backup_no_data")
 
         keys = (
             "categories",
@@ -1103,11 +1098,11 @@ class BillTrackerManager:
         )
         for key in keys:
             if not isinstance(data.get(key, []), list):
-                raise ValueError(f"Sezione backup non valida: {key}")
+                raise billy_error("backup_invalid_section", key=key)
         if len(data.get("expenses", [])) > 50_000:
-            raise ValueError("Il backup contiene troppe bollette")
+            raise billy_error("backup_too_many_bills")
         if len(data.get("recurring_expenses", [])) > 10_000:
-            raise ValueError("Il backup contiene troppe spese ricorrenti")
+            raise billy_error("backup_too_many_recurring")
 
         previous = {key: deepcopy(getattr(self, key)) for key in keys}
         try:
@@ -1159,7 +1154,7 @@ class BillTrackerManager:
         source = self.payer(from_payer_id)
         target = self.payer(to_payer_id)
         if source is None or target is None or from_payer_id == to_payer_id:
-            raise ValueError("Paganti non validi")
+            raise billy_error("settlement_invalid_payers")
         self._validate_amount(amount, allow_zero=False)
 
         debt = next(
@@ -1170,18 +1165,18 @@ class BillTrackerManager:
             None,
         )
         if debt is None or float(debt.get("amount", 0.0)) <= 0:
-            raise ValueError("Non esiste un rimborso aperto tra questi paganti")
+            raise billy_error("settlement_none_open")
 
         outstanding = float(debt["amount"])
         if abs(float(amount) - outstanding) > 0.01:
-            raise ValueError("Per ora Billy può registrare solo l'intero rimborso aperto")
+            raise billy_error("settlement_partial_unsupported")
 
         expense_ids = [str(x) for x in debt.get("expense_ids", []) if x]
         recurring_occurrence_ids = [
             str(x) for x in debt.get("recurring_occurrence_ids", []) if x
         ]
         if not expense_ids and not recurring_occurrence_ids:
-            raise ValueError("Nessuna spesa associata a questo rimborso")
+            raise billy_error("settlement_no_expense")
 
         item = {
             "id": uuid4().hex,
@@ -1919,34 +1914,34 @@ class BillTrackerManager:
     ) -> dict[str, Any]:
         normalized_name = self._normalize_optional_text(name, 120)
         if not normalized_name:
-            raise ValueError("Il nome della spesa ricorrente è obbligatorio")
+            raise billy_error("recurring_name_required")
         normalized_kind = str(kind or "").strip().lower()
         if normalized_kind not in RECURRING_KINDS:
-            raise ValueError("Tipo di spesa ricorrente non valido")
+            raise billy_error("recurring_invalid_kind")
         normalized_amount = float(amount)
         if not isfinite(normalized_amount) or normalized_amount <= 0:
-            raise ValueError("L'importo della spesa ricorrente deve essere maggiore di zero")
+            raise billy_error("recurring_amount_positive")
         normalized_interval = int(interval_months)
         if normalized_interval not in RECURRING_INTERVALS:
-            raise ValueError("Frequenza della spesa ricorrente non supportata")
+            raise billy_error("recurring_unsupported_interval")
         normalized_start = self._normalize_optional_iso_date(start_date)
         if not normalized_start:
-            raise ValueError("La data di attivazione è obbligatoria")
+            raise billy_error("recurring_start_required")
         normalized_end = self._normalize_optional_iso_date(end_date)
         start = date.fromisoformat(normalized_start)
         end = date.fromisoformat(normalized_end) if normalized_end else None
         if end is not None and end < start:
-            raise ValueError("La data di scadenza non può precedere la data di attivazione")
+            raise billy_error("recurring_end_before_start")
 
         renewal_interval = int(renewal_interval_months or 12)
         if renewal_interval < 1 or renewal_interval > 120:
-            raise ValueError("Intervallo di rinnovo non valido")
+            raise billy_error("recurring_invalid_renewal")
 
         normalized_installments: int | None = None
         if installment_count not in (None, ""):
             normalized_installments = int(installment_count)
             if normalized_installments < 1 or normalized_installments > 1200:
-                raise ValueError("Numero di rate non valido")
+                raise billy_error("recurring_invalid_installments")
         if normalized_kind != "installment":
             normalized_installments = None
         if normalized_kind == "installment":
@@ -2527,14 +2522,14 @@ class BillTrackerManager:
         if category is None and category_name:
             category = self.category_by_name(category_name)
         if category is None:
-            raise ValueError("Tipo di bolletta non valido")
+            raise billy_error("category_invalid")
         return category
 
     def _resolve_expense_payer(self, category: dict[str, Any], payer_id: str | None) -> str | None:
         wanted = str(payer_id or category.get("default_payer_id") or "")
         if wanted:
             if self.payer(wanted) is None:
-                raise ValueError("Pagatore non valido")
+                raise billy_error("payer_invalid")
             return wanted
         active = self.active_payers()
         return str(active[0]["id"]) if active else None
@@ -2552,16 +2547,16 @@ class BillTrackerManager:
             payer_id = str(raw.get("payer_id") or "")
             percentage = float(raw.get("percentage", 0.0) or 0.0)
             if self.payer(payer_id) is None:
-                raise ValueError("La divisione contiene un pagante non valido")
+                raise billy_error("split_invalid_payer")
             if not isfinite(percentage) or percentage < 0 or percentage > 100:
-                raise ValueError("Percentuale di divisione non valida")
+                raise billy_error("split_invalid_percentage")
             if percentage > 0:
                 combined[payer_id] += percentage
         if not combined:
-            raise ValueError("La divisione della spesa è vuota")
+            raise billy_error("split_empty")
         total = sum(combined.values())
         if abs(total - 100.0) > 0.05:
-            raise ValueError("Le quote della spesa devono sommare al 100%")
+            raise billy_error("split_must_total_100")
         result = [{"payer_id": payer_id, "percentage": round(value, 2)} for payer_id, value in combined.items() if value > 0]
         if result:
             delta = round(100.0 - sum(float(x["percentage"]) for x in result), 2)
@@ -2576,9 +2571,9 @@ class BillTrackerManager:
             start_year, start_month = self._add_months(int(end_year), int(end_month), -(max(1, interval) - 1))
         self._validate_date(int(start_year), int(start_month))
         if (int(start_year), int(start_month)) > (int(end_year), int(end_month)):
-            raise ValueError("Il periodo di competenza iniziale è successivo a quello finale")
+            raise billy_error("period_start_after_end")
         if len(self._month_range(int(start_year), int(start_month), int(end_year), int(end_month))) > 36:
-            raise ValueError("Periodo di competenza troppo lungo")
+            raise billy_error("period_too_long")
         return int(start_year), int(start_month), int(end_year), int(end_month)
 
     def _normalize_payers(self) -> bool:
@@ -2975,7 +2970,7 @@ class BillTrackerManager:
         if not value:
             return None
         if self.payer(value) is None:
-            raise ValueError("Pagatore predefinito non valido")
+            raise billy_error("default_payer_invalid")
         return value
 
     @staticmethod
@@ -2986,9 +2981,9 @@ class BillTrackerManager:
         try:
             parsed = date.fromisoformat(text)
         except ValueError as err:
-            raise ValueError("Data non valida") from err
+            raise billy_error("date_invalid") from err
         if parsed.year < 2000 or parsed.year > 2200:
-            raise ValueError("Data non valida")
+            raise billy_error("date_invalid")
         return parsed.isoformat()
 
     @staticmethod
@@ -3025,40 +3020,40 @@ class BillTrackerManager:
             return None
         amount = float(value)
         if not isfinite(amount) or amount < 0:
-            raise ValueError("Consumo non valido")
+            raise billy_error("consumption_invalid")
         return round(amount, 4)
 
     @staticmethod
     def _validate_payer(name: str, share_percent: float) -> None:
         if not name:
-            raise ValueError("Nome obbligatorio")
+            raise billy_error("name_required")
         if len(name) > 60:
-            raise ValueError("Nome troppo lungo")
+            raise billy_error("name_too_long")
         share = float(share_percent)
         if not isfinite(share) or share < 0 or share > 100:
-            raise ValueError("Quota predefinita non valida")
+            raise billy_error("share_invalid")
 
     @staticmethod
     def _validate_category(name: str, interval_months: int) -> None:
         if not name:
-            raise ValueError("Nome obbligatorio")
+            raise billy_error("name_required")
         if len(name) > 60:
-            raise ValueError("Nome troppo lungo")
+            raise billy_error("name_too_long")
         if int(interval_months) not in SUPPORTED_INTERVALS:
-            raise ValueError("Periodicità non supportata")
+            raise billy_error("interval_unsupported")
 
     @staticmethod
     def _validate_amount(amount: float, allow_zero: bool = True) -> None:
         value = float(amount)
         if not isfinite(value) or value < 0 or (not allow_zero and value <= 0):
-            raise ValueError("Importo non valido")
+            raise billy_error("amount_invalid")
 
     @staticmethod
     def _validate_date(year: int, month: int) -> None:
         if int(year) < 2000 or int(year) > 2200:
-            raise ValueError("Anno non valido")
+            raise billy_error("year_invalid")
         if int(month) < 1 or int(month) > 12:
-            raise ValueError("Mese non valido")
+            raise billy_error("month_invalid")
 
     @staticmethod
     def _normalize_paypal_me(value: str) -> str:

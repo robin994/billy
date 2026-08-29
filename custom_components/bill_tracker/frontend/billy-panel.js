@@ -1,7 +1,10 @@
-import './billy-parser-manager.js?v=0.11.9-r4'
-import { BILLY_PANEL_EXTRA_TEXT } from './billy-extra-i18n.js?v=0.11.9-r4'
+import './billy-parser-manager.js?v=0.11.10-r1'
+import {
+  BILLY_ERROR_TEXT,
+  BILLY_PANEL_EXTRA_TEXT,
+} from './billy-extra-i18n.js?v=0.11.10-r1'
 
-const BILLY_PANEL_VERSION = '0.11.9'
+const BILLY_PANEL_VERSION = '0.11.10'
 
 const TEXT = {
   en: {
@@ -589,6 +592,18 @@ function localeOf(hass) {
   return String(raw).replace('_', '-')
 }
 
+// Resolve a backend/runtime error to a localized message. Websocket errors carry
+// a stable `code`; unknown codes and plain JS errors fall back to the message.
+function errorText(hass, error, fallback = '') {
+  const code = error?.code
+  if (code) {
+    const lang = languageOf(hass)
+    const table = BILLY_ERROR_TEXT[lang] || BILLY_ERROR_TEXT.en || {}
+    if (table[code]) return table[code]
+  }
+  return String(error?.message || fallback || error)
+}
+
 function tFor(hass, key, vars = {}) {
   const lang = languageOf(hass)
   let text = TEXT[lang]?.[key] ?? TEXT.en[key] ?? key
@@ -727,7 +742,7 @@ class BillyDashboard extends HTMLElement {
       this._sanitizeChartPreferences()
       this._error = null
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
     } finally {
       this._loading = false
       this._render()
@@ -1527,7 +1542,7 @@ class BillyDashboard extends HTMLElement {
       })
       await this._load()
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -1542,7 +1557,7 @@ class BillyDashboard extends HTMLElement {
       })
       await this._load()
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -1839,7 +1854,7 @@ class BillyBills extends HTMLElement {
       this._imports = Array.isArray(imports) ? imports : imports?.imports || []
       this._error = null
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
     } finally {
       this._loading = false
       this._render()
@@ -1902,7 +1917,7 @@ class BillyBills extends HTMLElement {
       })
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -1916,7 +1931,7 @@ class BillyBills extends HTMLElement {
       })
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -2417,7 +2432,7 @@ class BillyBills extends HTMLElement {
       this._editing = null
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       close()
       this._render()
     }
@@ -2437,7 +2452,7 @@ class BillyBills extends HTMLElement {
     } catch (error) {
       input.checked = !paid
       input.disabled = false
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -2456,7 +2471,7 @@ class BillyBills extends HTMLElement {
     } catch (error) {
       input.checked = !done
       input.disabled = false
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -2467,7 +2482,7 @@ class BillyBills extends HTMLElement {
       await this._hass.callWS({ type: 'bill_tracker/delete', expense_id: id })
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -2538,7 +2553,7 @@ class BillyBills extends HTMLElement {
       this._error = null
     } catch (error) {
       this._error = this._t('exportFailed', {
-        error: String(error?.message || error),
+        error: errorText(this._hass, error),
       })
       this._render()
     }
@@ -2624,7 +2639,7 @@ class BillyRecurring extends HTMLElement {
       })
       this._error = null
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
     } finally {
       this._loading = false
       this._render()
@@ -3031,7 +3046,7 @@ class BillyRecurring extends HTMLElement {
       close()
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       close()
       this._render()
     }
@@ -3099,7 +3114,7 @@ class BillyRecurring extends HTMLElement {
     } catch (error) {
       input.checked = !done
       input.disabled = false
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -3114,7 +3129,7 @@ class BillyRecurring extends HTMLElement {
       })
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -3133,7 +3148,7 @@ class BillyRecurring extends HTMLElement {
       })
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -3188,7 +3203,7 @@ class BillyRecurring extends HTMLElement {
       this._error = null
     } catch (error) {
       this._error = this._t('exportFailed', {
-        error: String(error?.message || error),
+        error: errorText(this._hass, error),
       })
       this._render()
     }
@@ -3299,7 +3314,7 @@ class BillySettings extends HTMLElement {
         : rejectedImports?.imports || []
       this._error = null
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
     } finally {
       this._loading = false
       this._render()
@@ -3612,7 +3627,7 @@ class BillySettings extends HTMLElement {
       this._notice = this._t('backupCreated', { filename: result.filename })
     } catch (error) {
       this._error = this._t('backupFailed', {
-        error: String(error?.message || error),
+        error: errorText(this._hass, error),
       })
     } finally {
       this._backupBusy = false
@@ -3637,7 +3652,7 @@ class BillySettings extends HTMLElement {
       this._backupContent = await file.text()
       this._error = null
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
     }
     this._render()
   }
@@ -3664,7 +3679,7 @@ class BillySettings extends HTMLElement {
       this._section = 'transfer'
     } catch (error) {
       this._error = this._t('backupFailed', {
-        error: String(error?.message || error),
+        error: errorText(this._hass, error),
       })
     } finally {
       this._backupBusy = false
@@ -3731,7 +3746,7 @@ class BillySettings extends HTMLElement {
       this._error = null
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -3747,7 +3762,7 @@ class BillySettings extends HTMLElement {
       this._error = null
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || this._t('categoryInUse'))
+      this._error = errorText(this._hass, error, this._t('categoryInUse'))
       this._render()
     }
   }
@@ -3817,7 +3832,7 @@ class BillySettings extends HTMLElement {
       this._error = null
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -3833,7 +3848,7 @@ class BillySettings extends HTMLElement {
       this._error = null
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || this._t('payerInUse'))
+      this._error = errorText(this._hass, error, this._t('payerInUse'))
       this._render()
     }
   }
@@ -3851,7 +3866,7 @@ class BillySettings extends HTMLElement {
       this._error = null
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
@@ -3867,7 +3882,7 @@ class BillySettings extends HTMLElement {
       this._error = null
       await this._load(false)
     } catch (error) {
-      this._error = String(error?.message || error)
+      this._error = errorText(this._hass, error)
       this._render()
     }
   }
