@@ -489,6 +489,42 @@ class BillyParserManagerPanel extends HTMLElement {
         phone: 'Telefono',
         insurance: 'Assicurazione',
       },
+      es: {
+        electricity: 'Electricidad',
+        gas: 'Gas',
+        water: 'Agua',
+        internet: 'Internet',
+        mobile: 'Móvil',
+        phone: 'Teléfono',
+        insurance: 'Seguro',
+      },
+      fr: {
+        electricity: 'Électricité',
+        gas: 'Gaz',
+        water: 'Eau',
+        internet: 'Internet',
+        mobile: 'Mobile',
+        phone: 'Téléphone',
+        insurance: 'Assurance',
+      },
+      de: {
+        electricity: 'Strom',
+        gas: 'Gas',
+        water: 'Wasser',
+        internet: 'Internet',
+        mobile: 'Handy',
+        phone: 'Telefon',
+        insurance: 'Versicherung',
+      },
+      pt: {
+        electricity: 'Eletricidade',
+        gas: 'Gás',
+        water: 'Água',
+        internet: 'Internet',
+        mobile: 'Telemóvel',
+        phone: 'Telefone',
+        insurance: 'Seguro',
+      },
     }
     const language = languageOf(this._hass)
     const key = String(value || '')
