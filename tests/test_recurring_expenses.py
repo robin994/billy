@@ -32,6 +32,8 @@ def _recurring_helper_class():
         "recurring_history_items",
         "cashflow_monthly_totals",
         "_month_range",
+        "_next_month",
+        "_add_months",
         "_recurring_progress",
         "_next_renewal_date",
         "payer",
@@ -65,6 +67,8 @@ def _recurring_helper_class():
         "FALLBACK_COLORS": ("#5B8FF9", "#5AD8A6", "#5D7092", "#F6BD16"),
     }
     exec(compile(module, str(MANAGER), "exec"), ns)
+    # Some extracted static helpers reference the real class by name.
+    ns["BillTrackerManager"] = ns["RecurringHarness"]
     return ns["RecurringHarness"]
 
 

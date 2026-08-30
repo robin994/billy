@@ -3,7 +3,7 @@ import asyncio
 import hashlib
 import json
 from pathlib import Path
-from types import MethodType
+from types import MethodType, SimpleNamespace
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]

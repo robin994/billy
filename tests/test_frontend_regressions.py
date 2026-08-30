@@ -10,7 +10,7 @@ FRONTEND = ROOT / "custom_components" / "bill_tracker" / "frontend"
 def test_frontend_is_based_on_0_5_2_ui():
     js = (FRONTEND / "bill-tracker-card-impl.js").read_text(encoding="utf-8")
     for token in (
-        "_chart ()",
+        "_chart()",
         "toggle-current-bills",
         "open-all-bills",
         "all-bills-modal",
@@ -29,7 +29,7 @@ def test_frontend_is_based_on_0_5_2_ui():
         "export-category",
         "export-trend",
         'class="paypal"',
-        "pay_with_paypal",
+        "pay_with_method",
     ):
         assert token in js
 
@@ -91,9 +91,10 @@ def test_parser_manager_panel_is_scalable_and_has_bill_type_filter():
 
 def test_parser_search_does_not_rebuild_input_on_every_keystroke():
     panel = (FRONTEND / "billy-parser-manager.js").read_text(encoding="utf-8")
-    handler_start = panel.index("getElementById('search')?.addEventListener('input'")
-    handler_end = panel.index("getElementById('country')?.addEventListener", handler_start)
+    handler_start = panel.index("getElementById('search')")
+    handler_end = panel.index("getElementById('country')", handler_start)
     handler = panel[handler_start:handler_end]
+    assert "addEventListener('input'" in handler
     assert "this._renderList()" in handler
     assert "this._render()" not in handler
     assert "resets the caret to position 0" in handler
@@ -314,6 +315,9 @@ def test_parser_manager_community_publish_flow():
     api = (ROOT / "custom_components" / "bill_tracker" / "parser_api.py").read_text(
         encoding="utf-8"
     )
+    parser_manager = (
+        ROOT / "custom_components" / "bill_tracker" / "parser" / "manager.py"
+    ).read_text(encoding="utf-8")
     for token in (
         "Share with community",
         "Condividi con la community",
@@ -321,7 +325,6 @@ def test_parser_manager_community_publish_flow():
         "billy-parser-submission:v2",
         "requested_status: 'experimental'",
         "billy-parser-feedback:v1",
-        "installation_fingerprint",
         "feedback-working",
         "feedback-partial",
         "feedback-failed",
@@ -339,6 +342,8 @@ def test_parser_manager_community_publish_flow():
     assert "source_commit: String(row.source_commit || '')" not in manager
     assert '"bill_tracker/parser/feedback"' in api
     assert 'vol.In(["working", "partial", "failed"])' in api
+    # the anonymous fingerprint is built server-side from the installed state
+    assert '"installation_fingerprint": self.community_fingerprint(' in parser_manager
 
 
 def test_parser_manager_separates_catalog_and_installation_status():
@@ -453,9 +458,11 @@ def test_overview_chart_includes_recurring_expenses_in_actual_and_forecast_bars(
     panel = (FRONTEND / "billy-panel.js").read_text(encoding="utf-8")
     for token in (
         "_actualChartRows()",
+        "this._chartForecastRows()",
         "this._data?.recurring_history || []",
         "recurring_total: recurringTotal",
-        "current_month_recurring",
+        "row.recurring_items || []",
+        "forecast: row.kind === 'forecast'",
         "recurring_items",
         "data-chart-toggle",
         "_chartDisabled = new Set()",
@@ -473,8 +480,9 @@ def test_overview_chart_includes_recurring_expenses_in_actual_and_forecast_bars(
 
 def test_overview_chart_uses_independent_checkbox_filters():
     panel = (FRONTEND / "billy-panel.js").read_text(encoding="utf-8")
-    assert 'type="checkbox" data-chart-toggle="bill:' in panel
-    assert 'type="checkbox" data-chart-toggle="recurring:' in panel
+    assert 'const key = `bill:${category.id}`' in panel
+    assert 'const key = `recurring:${row.id}`' in panel
+    assert panel.count('type="checkbox" data-chart-toggle="${escapeHtml(key)}"') >= 2
     assert 'class="chart-filter-combobox"' in panel
     assert 'class="chart-option ${enabled ? \'active\' : \'\'}"' in panel
     assert "chartSelectedCount" in panel
@@ -557,12 +565,11 @@ def test_parser_configuration_supports_default_payer_and_split():
     manager = (
         ROOT / "custom_components" / "bill_tracker" / "parser" / "manager.py"
     ).read_text(encoding="utf-8")
-    for token in (
-        "dialog-payer",
-        "dialog-split",
-        "default_payer_id",
-        "default_split",
-    ):
+    # the configure dialog exposes payer + split controls
+    for token in ("dialog-payer", "dialog-split"):
+        assert token in panel
+    # and the values round-trip through the parser API / manager
+    for token in ("default_payer_id", "default_split"):
         assert token in panel
         assert token in api or token in manager
 

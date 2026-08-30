@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 import sys
 
@@ -37,36 +38,40 @@ def test_anchor_prefers_issue_date_when_period_is_missing():
     assert anchor.isoformat() == "2026-07-16"
 
 
-async def test_import_preserves_exact_billing_period_dates():
+def test_import_preserves_exact_billing_period_dates():
     manager = _Manager()
     coordinator = BillImportCoordinator(manager)
-    await coordinator.async_import(
-        {
-            "category_id": "electricity",
-            "data": {
-                "amount": 42.0,
-                "period_start": "2026-01-13",
-                "period_end": "2026-01-21",
-            },
-        }
+    asyncio.run(
+        coordinator.async_import(
+            {
+                "category_id": "electricity",
+                "data": {
+                    "amount": 42.0,
+                    "period_start": "2026-01-13",
+                    "period_end": "2026-01-21",
+                },
+            }
+        )
     )
     assert manager.kwargs["period_start_date"] == "2026-01-13"
     assert manager.kwargs["period_end_date"] == "2026-01-21"
 
 
-async def test_import_applies_parser_default_payer_and_split():
+def test_import_applies_parser_default_payer_and_split():
     manager = _Manager()
     coordinator = BillImportCoordinator(manager)
-    await coordinator.async_import(
-        {
-            "category_id": "electricity",
-            "default_payer_id": "payer-a",
-            "default_split": [
-                {"payer_id": "payer-a", "percentage": 60},
-                {"payer_id": "payer-b", "percentage": 40},
-            ],
-            "data": {"amount": 100, "due_date": "2026-08-31"},
-        }
+    asyncio.run(
+        coordinator.async_import(
+            {
+                "category_id": "electricity",
+                "default_payer_id": "payer-a",
+                "default_split": [
+                    {"payer_id": "payer-a", "percentage": 60},
+                    {"payer_id": "payer-b", "percentage": 40},
+                ],
+                "data": {"amount": 100, "due_date": "2026-08-31"},
+            }
+        )
     )
     assert manager.kwargs["payer_id"] == "payer-a"
     assert manager.kwargs["split"] == [
