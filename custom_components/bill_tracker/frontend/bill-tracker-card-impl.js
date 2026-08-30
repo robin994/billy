@@ -3,8 +3,8 @@ import {
   billyLanguage,
   billyLocale,
   billyT,
-} from './bill-tracker-i18n.js?v=0.12.0-r1'
-import { BILLY_ERROR_TEXT } from './billy-extra-i18n.js?v=0.12.0-r1'
+} from './bill-tracker-i18n.js?v=0.12.1-r1'
+import { BILLY_ERROR_TEXT } from './billy-extra-i18n.js?v=0.12.1-r1'
 
 // Resolve a websocket/runtime error to a message in the user's language via its
 // stable `code`, falling back to the English text the backend sends with it.
@@ -18,7 +18,7 @@ function billyErrorText(hass, error, fallback = '') {
   return String(error?.message || fallback || error)
 }
 
-const BILL_TRACKER_VERSION = '0.12.0'
+const BILL_TRACKER_VERSION = '0.12.1'
 
 class BillTrackerCard extends HTMLElement {
   constructor() {

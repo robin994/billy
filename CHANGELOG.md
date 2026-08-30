@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.1
+
+- Maintenance release: repaired the test suite (128 passing) and exercised the new built-in update check. No user-facing changes.
+
 ## 0.12.0
 
 - Added a built-in updater: an `update` entity surfaces new Billy versions in Settings > Updates with release notes, and Billy Settings > System has a "Billy updates" card that shows the changelog and installs the latest `main` build in place (a Home Assistant restart is still required to load it).

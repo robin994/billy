@@ -1,10 +1,10 @@
-import './billy-parser-manager.js?v=0.12.0-r1'
+import './billy-parser-manager.js?v=0.12.1-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.12.0-r1'
+} from './billy-extra-i18n.js?v=0.12.1-r1'
 
-const BILLY_PANEL_VERSION = '0.12.0'
+const BILLY_PANEL_VERSION = '0.12.1'
 
 const TEXT = {
   en: {

@@ -4,7 +4,7 @@
 
 # Billy
 
-## Billy 0.12.0
+## Billy 0.12.1
 
 Billy keeps the Lovelace `custom:bill-tracker-card`, while `/billy` is the full-size application.
 
