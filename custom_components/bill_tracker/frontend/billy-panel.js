@@ -604,6 +604,35 @@ function errorText(hass, error, fallback = '') {
   return String(error?.message || fallback || error)
 }
 
+// Recurring-frequency labels by language: known interval -> label, plus an
+// `other` builder for uncommon intervals. Falls back to English.
+const RECURRING_FREQUENCY_LABELS = {
+  en: {
+    labels: { 1: 'Monthly', 2: 'Every 2 months', 3: 'Quarterly', 4: 'Every 4 months', 6: 'Every 6 months', 12: 'Yearly' },
+    other: (n) => `Every ${n} months`,
+  },
+  it: {
+    labels: { 1: 'Mensile', 2: 'Bimestrale', 3: 'Trimestrale', 4: 'Quadrimestrale', 6: 'Semestrale', 12: 'Annuale' },
+    other: (n) => `Ogni ${n} mesi`,
+  },
+  es: {
+    labels: { 1: 'Mensual', 2: 'Cada 2 meses', 3: 'Trimestral', 4: 'Cada 4 meses', 6: 'Cada 6 meses', 12: 'Anual' },
+    other: (n) => `Cada ${n} meses`,
+  },
+  fr: {
+    labels: { 1: 'Mensuel', 2: 'Tous les 2 mois', 3: 'Trimestriel', 4: 'Tous les 4 mois', 6: 'Tous les 6 mois', 12: 'Annuel' },
+    other: (n) => `Tous les ${n} mois`,
+  },
+  de: {
+    labels: { 1: 'Monatlich', 2: 'Alle 2 Monate', 3: 'Vierteljährlich', 4: 'Alle 4 Monate', 6: 'Alle 6 Monate', 12: 'Jährlich' },
+    other: (n) => `Alle ${n} Monate`,
+  },
+  pt: {
+    labels: { 1: 'Mensal', 2: 'A cada 2 meses', 3: 'Trimestral', 4: 'A cada 4 meses', 6: 'A cada 6 meses', 12: 'Anual' },
+    other: (n) => `A cada ${n} meses`,
+  },
+}
+
 function tFor(hass, key, vars = {}) {
   const lang = languageOf(hass)
   let text = TEXT[lang]?.[key] ?? TEXT.en[key] ?? key
@@ -2687,72 +2716,10 @@ class BillyRecurring extends HTMLElement {
 
   _frequency(months) {
     const value = Number(months || 1)
-    if (languageOf(this._hass) === 'en') {
-      const labels = {
-      1: 'Monthly',
-      2: 'Every 2 months',
-      3: 'Quarterly',
-      4: 'Every 4 months',
-      6: 'Every 6 months',
-      12: 'Yearly',
-      }
-      return labels[value] || `Every ${value} months`
-    }
-    if (languageOf(this._hass) === 'it') {
-      const labels = {
-        1: 'Mensile',
-        2: 'Bimestrale',
-        3: 'Trimestrale',
-        4: 'Quadrimestrale',
-        6: 'Semestrale',
-        12: 'Annuale',
-      }
-      return labels[value] || `Ogni ${value} mesi`
-    }
-    if (languageOf(this._hass) === 'es') {
-      const labels = {
-        1: 'Mensual',
-        2: 'Cada 2 meses',
-        3: 'Trimestral',
-        4: 'Cada 4 meses',
-        6: 'Cada 6 meses',
-        12: 'Anual',
-      }
-      return labels[value] || `Cada ${value} meses`
-    }
-    if (languageOf(this._hass) === 'fr') {
-      const labels = {
-        1: 'Mensuel',
-        2: 'Tous les 2 mois',
-        3: 'Trimestriel',
-        4: 'Tous les 4 mois',
-        6: 'Tous les 6 mois',
-        12: 'Annuel',
-      }
-      return labels[value] || `Tous les ${value} mois`
-    }
-    if (languageOf(this._hass) === 'de') {
-      const labels = {
-        1: 'Monatlich',
-        2: 'Alle 2 Monate',
-        3: 'Vierteljährlich',
-        4: 'Alle 4 Monate',
-        6: 'Alle 6 Monate',
-        12: 'Jährlich',
-      }
-      return labels[value] || `Alle ${value} Monate`
-    }
-    if (languageOf(this._hass) === 'pt') {
-      const labels = {
-        1: 'Mensal',
-        2: 'A cada 2 meses',
-        3: 'Trimestral',
-        4: 'A cada 4 meses',
-        6: 'A cada 6 meses',
-        12: 'Anual',
-      }
-      return labels[value] || `A cada ${value} meses`
-    } 
+    const entry =
+      RECURRING_FREQUENCY_LABELS[languageOf(this._hass)] ||
+      RECURRING_FREQUENCY_LABELS.en
+    return entry.labels[value] || entry.other(value)
   }
 
   _statusLabel(status) {

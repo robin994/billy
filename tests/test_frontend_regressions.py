@@ -662,3 +662,30 @@ def test_home_assistant_translation_files_are_complete_and_localized():
             assert sorted(placeholders.findall(localized[key])) == sorted(
                 placeholders.findall(english_value)
             ), f"Placeholder mismatch in {language}.json at {key}"
+
+
+def test_recurring_frequency_labels_cover_all_languages_with_a_fallback():
+    panel = (FRONTEND / "billy-panel.js").read_text(encoding="utf-8")
+    block = re.search(
+        r"const RECURRING_FREQUENCY_LABELS = \{.*?\n\}", panel, re.DOTALL
+    )
+    assert block, "RECURRING_FREQUENCY_LABELS table is missing"
+    table = block.group(0)
+    for language in ("en", "it", "es", "fr", "de", "pt"):
+        assert f"  {language}: {{" in table
+        assert f"other:" in table
+    # the per-language if/else chain must be gone (it returned undefined for
+    # any language not explicitly handled)
+    assert "if (languageOf(this._hass) === 'es')" not in panel
+    assert panel.count("RECURRING_FREQUENCY_LABELS.en") == 1
+
+
+def test_parser_manager_bill_type_labels_cover_all_languages():
+    parser = (FRONTEND / "billy-parser-manager.js").read_text(encoding="utf-8")
+    block = re.search(r"const BILL_TYPE_LABELS = \{.*?\n\}", parser, re.DOTALL)
+    assert block, "BILL_TYPE_LABELS table is missing"
+    table = block.group(0)
+    for language in ("en", "it", "es", "fr", "de", "pt"):
+        assert f"  {language}: {{" in table
+    for bill_type in ("electricity", "gas", "water", "internet", "mobile", "phone", "insurance"):
+        assert table.count(f"{bill_type}:") == 6

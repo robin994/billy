@@ -250,6 +250,65 @@ function languageOf(hass) {
     : 'en'
 }
 
+// Localized labels for the built-in Billy bill types, keyed by language then by
+// bill-type id. Unknown ids fall back to a title-cased version of the id.
+const BILL_TYPE_LABELS = {
+  en: {
+    electricity: 'Electricity',
+    gas: 'Gas',
+    water: 'Water',
+    internet: 'Internet',
+    mobile: 'Mobile',
+    phone: 'Phone',
+    insurance: 'Insurance',
+  },
+  it: {
+    electricity: 'Elettricità',
+    gas: 'Gas',
+    water: 'Acqua',
+    internet: 'Internet',
+    mobile: 'Telefonia mobile',
+    phone: 'Telefono',
+    insurance: 'Assicurazione',
+  },
+  es: {
+    electricity: 'Electricidad',
+    gas: 'Gas',
+    water: 'Agua',
+    internet: 'Internet',
+    mobile: 'Móvil',
+    phone: 'Teléfono',
+    insurance: 'Seguro',
+  },
+  fr: {
+    electricity: 'Électricité',
+    gas: 'Gaz',
+    water: 'Eau',
+    internet: 'Internet',
+    mobile: 'Mobile',
+    phone: 'Téléphone',
+    insurance: 'Assurance',
+  },
+  de: {
+    electricity: 'Strom',
+    gas: 'Gas',
+    water: 'Wasser',
+    internet: 'Internet',
+    mobile: 'Handy',
+    phone: 'Telefon',
+    insurance: 'Versicherung',
+  },
+  pt: {
+    electricity: 'Eletricidade',
+    gas: 'Gás',
+    water: 'Água',
+    internet: 'Internet',
+    mobile: 'Telemóvel',
+    phone: 'Telefone',
+    insurance: 'Seguro',
+  },
+}
+
 // Resolve a websocket/runtime error to a localized message via its stable code,
 // falling back to the English message the backend sends with it.
 function errorText(hass, error) {
@@ -470,66 +529,10 @@ class BillyParserManagerPanel extends HTMLElement {
   }
 
   _billTypeLabel(value) {
-    const labels = {
-      en: {
-        electricity: 'Electricity',
-        gas: 'Gas',
-        water: 'Water',
-        internet: 'Internet',
-        mobile: 'Mobile',
-        phone: 'Phone',
-        insurance: 'Insurance',
-      },
-      it: {
-        electricity: 'Elettricità',
-        gas: 'Gas',
-        water: 'Acqua',
-        internet: 'Internet',
-        mobile: 'Telefonia mobile',
-        phone: 'Telefono',
-        insurance: 'Assicurazione',
-      },
-      es: {
-        electricity: 'Electricidad',
-        gas: 'Gas',
-        water: 'Agua',
-        internet: 'Internet',
-        mobile: 'Móvil',
-        phone: 'Teléfono',
-        insurance: 'Seguro',
-      },
-      fr: {
-        electricity: 'Électricité',
-        gas: 'Gaz',
-        water: 'Eau',
-        internet: 'Internet',
-        mobile: 'Mobile',
-        phone: 'Téléphone',
-        insurance: 'Assurance',
-      },
-      de: {
-        electricity: 'Strom',
-        gas: 'Gas',
-        water: 'Wasser',
-        internet: 'Internet',
-        mobile: 'Handy',
-        phone: 'Telefon',
-        insurance: 'Versicherung',
-      },
-      pt: {
-        electricity: 'Eletricidade',
-        gas: 'Gás',
-        water: 'Água',
-        internet: 'Internet',
-        mobile: 'Telemóvel',
-        phone: 'Telefone',
-        insurance: 'Seguro',
-      },
-    }
     const language = languageOf(this._hass)
     const key = String(value || '')
     return (
-      labels[language]?.[key] ||
+      BILL_TYPE_LABELS[language]?.[key] ||
       key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase())
     )
   }
