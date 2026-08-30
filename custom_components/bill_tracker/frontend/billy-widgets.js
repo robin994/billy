@@ -1,4 +1,4 @@
-const BILLY_WIDGETS_VERSION = '0.12.1'
+const BILLY_WIDGETS_VERSION = '0.12.2'
 
 const WIDGET_TEXT = {
   en: {

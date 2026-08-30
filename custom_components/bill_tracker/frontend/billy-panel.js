@@ -1,10 +1,10 @@
-import './billy-parser-manager.js?v=0.12.1-r1'
+import './billy-parser-manager.js?v=0.12.2-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.12.1-r1'
+} from './billy-extra-i18n.js?v=0.12.2-r1'
 
-const BILLY_PANEL_VERSION = '0.12.1'
+const BILLY_PANEL_VERSION = '0.12.2'
 
 const TEXT = {
   en: {
@@ -277,6 +277,10 @@ const TEXT = {
       'Download and install the latest Billy version? Home Assistant must be restarted afterwards.',
     updateRestartRequired:
       'Update installed. Restart Home Assistant to apply it.',
+    updateInstalledRestart:
+      'Version {version} installed. Restart Home Assistant to apply it — version numbers stay on the old value until you do.',
+    restartHomeAssistant: 'Restart Home Assistant',
+    confirmRestart: 'Restart Home Assistant now?',
     confirmDeleteCategory: 'Delete this bill type?',
     confirmDeletePayer: 'Delete this payer?',
     settingsSaved: 'Changes saved.',
@@ -573,6 +577,10 @@ const TEXT = {
       'Scaricare e installare l’ultima versione di Billy? Successivamente sarà necessario riavviare Home Assistant.',
     updateRestartRequired:
       'Aggiornamento installato. Riavvia Home Assistant per applicarlo.',
+    updateInstalledRestart:
+      'Versione {version} installata. Riavvia Home Assistant per applicarla — i numeri di versione restano sul valore vecchio finché non lo fai.',
+    restartHomeAssistant: 'Riavvia Home Assistant',
+    confirmRestart: 'Riavviare Home Assistant adesso?',
     confirmDeleteCategory: 'Eliminare questa tipologia di bolletta?',
     confirmDeletePayer: 'Eliminare questo pagatore?',
     settingsSaved: 'Modifiche salvate.',
@@ -3525,27 +3533,31 @@ class BillySettings extends HTMLElement {
       info?.installed_version || this._data?.version || BILLY_PANEL_VERSION
     const latest = info?.latest_version || installed
     const available = Boolean(info?.update_available)
+    const restart = Boolean(info?.restart_required)
+    const pending = info?.pending_version || latest
     const busy = Boolean(this._updateBusy || info?.installing)
     const notes = String(info?.release_notes || '').trim()
+    let message = this._t('billyUpToDate')
+    if (restart) message = this._t('updateInstalledRestart', { version: pending })
+    else if (available) message = this._t('billyUpdateAvailable', { version: latest })
     return `<article class="system-card"><ha-icon icon="mdi:cloud-download-outline"></ha-icon><div>
       <strong>${escapeHtml(this._t('billyUpdate'))}</strong>
-      <p>${escapeHtml(
-        available
-          ? this._t('billyUpdateAvailable', { version: latest })
-          : this._t('billyUpToDate'),
-      )}</p>
-      <span class="status ${available ? 'warning' : 'enabled'}">v${escapeHtml(installed)}${available ? ` &rarr; v${escapeHtml(latest)}` : ''}</span>
+      <p>${escapeHtml(message)}</p>
+      <span class="status ${available || restart ? 'warning' : 'enabled'}">v${escapeHtml(installed)}${available || restart ? ` &rarr; v${escapeHtml(restart ? pending : latest)}` : ''}</span>
       ${
         notes
           ? `<details class="update-changelog"><summary>${escapeHtml(this._t('viewChangelog'))}</summary><pre>${escapeHtml(notes)}</pre></details>`
           : ''
       }
       <div class="update-actions">
-        <button class="secondary small" id="update-check" type="button" ${busy ? 'disabled' : ''}>${escapeHtml(busy ? this._t('checkingForUpdates') : this._t('checkForUpdates'))}</button>
         ${
-          available
-            ? `<button class="primary small" id="update-install" type="button" ${busy ? 'disabled' : ''}>${escapeHtml(busy ? this._t('updating') : this._t('updateNow'))}</button>`
-            : ''
+          restart
+            ? `<button class="primary small" id="update-restart" type="button">${escapeHtml(this._t('restartHomeAssistant'))}</button>`
+            : `<button class="secondary small" id="update-check" type="button" ${busy ? 'disabled' : ''}>${escapeHtml(busy ? this._t('checkingForUpdates') : this._t('checkForUpdates'))}</button>${
+                available
+                  ? `<button class="primary small" id="update-install" type="button" ${busy ? 'disabled' : ''}>${escapeHtml(busy ? this._t('updating') : this._t('updateNow'))}</button>`
+                  : ''
+              }`
         }
       </div>
       ${this._updateNotice ? `<p class="update-notice">${escapeHtml(this._updateNotice)}</p>` : ''}
@@ -3675,6 +3687,19 @@ class BillySettings extends HTMLElement {
     this.shadowRoot
       .getElementById('update-install')
       ?.addEventListener('click', () => this._installUpdate())
+    this.shadowRoot
+      .getElementById('update-restart')
+      ?.addEventListener('click', () => this._restartHomeAssistant())
+  }
+
+  async _restartHomeAssistant() {
+    if (!window.confirm(this._t('confirmRestart'))) return
+    try {
+      await this._hass.callService('homeassistant', 'restart')
+    } catch (error) {
+      this._updateNotice = errorText(this._hass, error)
+      this._render()
+    }
   }
 
   async _checkForUpdate() {

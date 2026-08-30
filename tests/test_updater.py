@@ -114,6 +114,28 @@ def test_update_platform_is_wired_up():
     assert "_updateCard()" in panel
 
 
+def test_updater_flags_a_pending_restart_and_never_pretends_to_be_current():
+    updater = UPDATER.read_text(encoding="utf-8")
+    # an in-place install does not advance the running version...
+    assert "self.installed_version = str(target)" not in updater
+    assert "self.restart_required = True" in updater
+    assert "self.pending_version = str(target)" in updater
+    # ...and update_available stops offering the install once files are staged
+    assert "if self.restart_required or not self.latest_version:" in updater
+    # a HACS / manual update (newer manifest on disk) is detected too
+    assert "_local_manifest_version" in updater
+    assert 'version_tuple(on_disk) > version_tuple(self.installed_version)' in updater
+
+    update = (COMPONENT / "update.py").read_text(encoding="utf-8")
+    # the HA Updates card clears after install; the restart message lives elsewhere
+    assert "if self._updater.restart_required:" in update
+
+    panel = (COMPONENT / "frontend" / "billy-panel.js").read_text(encoding="utf-8")
+    assert "updateInstalledRestart" in panel
+    assert "_restartHomeAssistant()" in panel
+    assert "callService('homeassistant', 'restart')" in panel
+
+
 def test_apply_zipball_rejects_a_version_mismatch(tmp_path, monkeypatch):
     apply = HELPERS["_apply_zipball"]
     parent = tmp_path / "custom_components"

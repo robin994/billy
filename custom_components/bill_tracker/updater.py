@@ -75,13 +75,18 @@ class BillyUpdater:
         self.release_notes: str | None = None
         self.last_error: str | None = None
         self.installing = False
+        # An in-place install cannot hot-swap the running code: the new files are
+        # on disk but Home Assistant keeps executing the old modules (and the
+        # cached frontend bundle) until it is restarted.
+        self.restart_required = False
+        self.pending_version: str | None = None
         self._listeners: list[Callable[[], None]] = []
         self._lock = asyncio.Lock()
 
     # -- state -----------------------------------------------------------------
     @property
     def update_available(self) -> bool:
-        if not self.latest_version:
+        if self.restart_required or not self.latest_version:
             return False
         return version_tuple(self.latest_version) > version_tuple(self.installed_version)
 
@@ -103,6 +108,8 @@ class BillyUpdater:
             "installed_version": self.installed_version,
             "latest_version": self.latest_version or self.installed_version,
             "update_available": self.update_available,
+            "restart_required": self.restart_required,
+            "pending_version": self.pending_version or "",
             "release_notes": self.release_notes or "",
             "release_url": CHANGELOG_URL,
             "installing": self.installing,
@@ -122,7 +129,25 @@ class BillyUpdater:
             raise ValueError(f"{url} is unexpectedly large")
         return raw
 
+    async def _local_manifest_version(self) -> str:
+        """Version currently written to disk (may be ahead of the running code)."""
+        try:
+            raw = await self.hass.async_add_executor_job(
+                (_COMPONENT_DIR / "manifest.json").read_text
+            )
+            return str(json.loads(raw).get("version") or "").strip()
+        except Exception:  # noqa: BLE001
+            return self.installed_version
+
     async def async_check(self) -> None:
+        # New files on disk (from this updater or from HACS / a manual copy) do
+        # not take effect until Home Assistant restarts. Detect that so the UI
+        # can say so instead of just showing a stale version number.
+        on_disk = await self._local_manifest_version()
+        if on_disk and version_tuple(on_disk) > version_tuple(self.installed_version):
+            self.restart_required = True
+            self.pending_version = on_disk
+
         try:
             raw = await self._fetch(REMOTE_MANIFEST_URL, _MAX_MANIFEST_BYTES)
             latest = str(json.loads(raw).get("version") or "").strip()
@@ -147,6 +172,11 @@ class BillyUpdater:
     # -- install -----------------------------------------------------------
     async def async_install(self) -> None:
         async with self._lock:
+            if self.restart_required:
+                raise RuntimeError(
+                    f"Billy {self.pending_version} is installed — "
+                    "restart Home Assistant to apply it"
+                )
             if not self.update_available:
                 await self.async_check()
                 if not self.update_available:
@@ -173,7 +203,8 @@ class BillyUpdater:
                 self._notify()
                 _LOGGER.exception("Billy update install failed")
                 raise
-            self.installed_version = str(target)
+            self.pending_version = str(target)
+            self.restart_required = True
             self.installing = False
             self._notify()
 

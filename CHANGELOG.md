@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.2
+
+- Updater now shows a "restart required" state with a Restart button after an update is installed, and detects an update applied out-of-band (HACS or a manual copy) too — a Home Assistant restart is always needed for new code and version numbers to take effect.
+
 ## 0.12.1
 
 - Maintenance release: repaired the test suite (128 passing) and exercised the new built-in update check. No user-facing changes.

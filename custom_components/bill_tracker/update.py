@@ -44,6 +44,12 @@ class BillyUpdateEntity(UpdateEntity):
 
     @property
     def latest_version(self) -> str:
+        # After an in-place install the new files are on disk but the running
+        # code is still the old version until Home Assistant restarts. Report
+        # "current" so the Updates card clears; the persistent notification and
+        # the Billy Settings card carry the "restart to apply" message.
+        if self._updater.restart_required:
+            return self._updater.installed_version
         return self._updater.latest_version or self._updater.installed_version
 
     @property
