@@ -1,8 +1,8 @@
-import './billy-parser-manager.js?v=0.11.10-r1'
+import './billy-parser-manager.js?v=0.11.10-r2'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.11.10-r1'
+} from './billy-extra-i18n.js?v=0.11.10-r2'
 
 const BILLY_PANEL_VERSION = '0.11.10'
 
@@ -265,6 +265,18 @@ const TEXT = {
     categoriesCount: 'Bill types',
     payersCount: 'Payers',
     parsersCount: 'Installed parsers',
+    billyUpdate: 'Billy updates',
+    billyUpdateAvailable: 'Version {version} is available.',
+    billyUpToDate: 'Billy is up to date.',
+    viewChangelog: 'View changelog',
+    checkForUpdates: 'Check for updates',
+    checkingForUpdates: 'Checking…',
+    updateNow: 'Update now',
+    updating: 'Updating…',
+    confirmUpdate:
+      'Download and install the latest Billy version? Home Assistant must be restarted afterwards.',
+    updateRestartRequired:
+      'Update installed. Restart Home Assistant to apply it.',
     confirmDeleteCategory: 'Delete this bill type?',
     confirmDeletePayer: 'Delete this payer?',
     settingsSaved: 'Changes saved.',
@@ -549,6 +561,18 @@ const TEXT = {
     categoriesCount: 'Tipologie',
     payersCount: 'Pagatori',
     parsersCount: 'Parser installati',
+    billyUpdate: 'Aggiornamenti Billy',
+    billyUpdateAvailable: 'È disponibile la versione {version}.',
+    billyUpToDate: 'Billy è aggiornato.',
+    viewChangelog: 'Mostra changelog',
+    checkForUpdates: 'Controlla aggiornamenti',
+    checkingForUpdates: 'Controllo…',
+    updateNow: 'Aggiorna ora',
+    updating: 'Aggiornamento…',
+    confirmUpdate:
+      'Scaricare e installare l’ultima versione di Billy? Successivamente sarà necessario riavviare Home Assistant.',
+    updateRestartRequired:
+      'Aggiornamento installato. Riavvia Home Assistant per applicarlo.',
     confirmDeleteCategory: 'Eliminare questa tipologia di bolletta?',
     confirmDeletePayer: 'Eliminare questo pagatore?',
     settingsSaved: 'Modifiche salvate.',
@@ -3307,7 +3331,7 @@ class BillySettings extends HTMLElement {
     if (showLoading) this._loading = true
     this._render()
     try {
-      const [data, parserData, rejectedImports] = await Promise.all([
+      const [data, parserData, rejectedImports, updateInfo] = await Promise.all([
         this._hass.callWS({ type: 'bill_tracker/list', forecast_months: 1 }),
         this._hass
           .callWS({ type: 'bill_tracker/parser/list' })
@@ -3319,9 +3343,13 @@ class BillySettings extends HTMLElement {
             limit: 500,
           })
           .catch(() => []),
+        this._hass
+          .callWS({ type: 'bill_tracker/update/status' })
+          .catch(() => null),
       ])
       this._data = data
       this._parserData = parserData
+      if (updateInfo) this._updateInfo = updateInfo
       this._rejectedImports = Array.isArray(rejectedImports)
         ? rejectedImports
         : rejectedImports?.imports || []
@@ -3487,7 +3515,41 @@ class BillySettings extends HTMLElement {
     ]
     return `<div class="section-head"><div><h2>${escapeHtml(this._t('system'))}</h2><p>${escapeHtml(this._t('catalogRefreshBody'))}</p></div></div>
       <div class="system-grid">${info.map(([label, value]) => `<div class="info-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}</div>
+      ${this._updateCard()}
       <article class="system-card"><ha-icon icon="mdi:update"></ha-icon><div><strong>${escapeHtml(this._t('catalogRefresh'))}</strong><p>${escapeHtml(this._t('catalogRefreshBody'))}</p><span class="status ${updates ? 'warning' : 'enabled'}">${escapeHtml(updates ? `${updates} ${this._t('updatesAvailable')}` : this._t('upToDate'))}</span></div></article>`
+  }
+
+  _updateCard() {
+    const info = this._updateInfo
+    const installed =
+      info?.installed_version || this._data?.version || BILLY_PANEL_VERSION
+    const latest = info?.latest_version || installed
+    const available = Boolean(info?.update_available)
+    const busy = Boolean(this._updateBusy || info?.installing)
+    const notes = String(info?.release_notes || '').trim()
+    return `<article class="system-card"><ha-icon icon="mdi:cloud-download-outline"></ha-icon><div>
+      <strong>${escapeHtml(this._t('billyUpdate'))}</strong>
+      <p>${escapeHtml(
+        available
+          ? this._t('billyUpdateAvailable', { version: latest })
+          : this._t('billyUpToDate'),
+      )}</p>
+      <span class="status ${available ? 'warning' : 'enabled'}">v${escapeHtml(installed)}${available ? ` &rarr; v${escapeHtml(latest)}` : ''}</span>
+      ${
+        notes
+          ? `<details class="update-changelog"><summary>${escapeHtml(this._t('viewChangelog'))}</summary><pre>${escapeHtml(notes)}</pre></details>`
+          : ''
+      }
+      <div class="update-actions">
+        <button class="secondary small" id="update-check" type="button" ${busy ? 'disabled' : ''}>${escapeHtml(busy ? this._t('checkingForUpdates') : this._t('checkForUpdates'))}</button>
+        ${
+          available
+            ? `<button class="primary small" id="update-install" type="button" ${busy ? 'disabled' : ''}>${escapeHtml(busy ? this._t('updating') : this._t('updateNow'))}</button>`
+            : ''
+        }
+      </div>
+      ${this._updateNotice ? `<p class="update-notice">${escapeHtml(this._updateNotice)}</p>` : ''}
+    </div></article>`
   }
 
   _developer() {
@@ -3607,6 +3669,49 @@ class BillySettings extends HTMLElement {
     this.shadowRoot
       .getElementById('backup-import')
       ?.addEventListener('click', () => this._importBackup())
+    this.shadowRoot
+      .getElementById('update-check')
+      ?.addEventListener('click', () => this._checkForUpdate())
+    this.shadowRoot
+      .getElementById('update-install')
+      ?.addEventListener('click', () => this._installUpdate())
+  }
+
+  async _checkForUpdate() {
+    if (this._updateBusy) return
+    this._updateBusy = true
+    this._updateNotice = ''
+    this._render()
+    try {
+      this._updateInfo = await this._hass.callWS({
+        type: 'bill_tracker/update/status',
+        refresh: true,
+      })
+    } catch (error) {
+      this._updateNotice = errorText(this._hass, error)
+    } finally {
+      this._updateBusy = false
+      this._render()
+    }
+  }
+
+  async _installUpdate() {
+    if (this._updateBusy) return
+    if (!window.confirm(this._t('confirmUpdate'))) return
+    this._updateBusy = true
+    this._updateNotice = ''
+    this._render()
+    try {
+      this._updateInfo = await this._hass.callWS({
+        type: 'bill_tracker/update/install',
+      })
+      this._updateNotice = this._t('updateRestartRequired')
+    } catch (error) {
+      this._updateNotice = errorText(this._hass, error)
+    } finally {
+      this._updateBusy = false
+      this._render()
+    }
   }
 
   _downloadPayload(result) {
@@ -3902,7 +4007,7 @@ class BillySettings extends HTMLElement {
 
   _styles() {
     return `
-      :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}.settings-page{display:flex;flex-direction:column;gap:16px}.settings-hero h1{font-size:30px;line-height:1.1;margin:0 0 6px}.settings-hero p{margin:0;color:var(--secondary-text-color);font-size:14px}.settings-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:18px;align-items:start}.settings-layout aside{position:sticky;top:122px;background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:8px;display:flex;flex-direction:column;gap:3px}.settings-nav-item{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font:inherit;padding:11px 12px;border-radius:9px;display:flex;align-items:center;gap:10px;text-align:left;cursor:pointer}.settings-nav-item.active{background:color-mix(in srgb,var(--primary-color) 12%,transparent);color:var(--primary-color);font-weight:650}.settings-nav-item ha-icon{--mdc-icon-size:20px}.settings-content{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:16px;padding:20px;min-height:420px}.section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding-bottom:18px;border-bottom:1px solid var(--divider-color)}.section-head h2{font-size:20px;margin:0 0 5px}.section-head p{font-size:13px;line-height:1.45;color:var(--secondary-text-color);margin:0;max-width:760px}.primary,.secondary,.row-actions button,.error-card button{appearance:none;border-radius:9px;padding:9px 13px;font:inherit;font-weight:600;cursor:pointer}.primary{border:1px solid var(--primary-color);background:var(--primary-color);color:var(--text-primary-color,#fff)}.secondary,.row-actions button,.error-card button{border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}button:disabled{opacity:.55;cursor:not-allowed}.items{display:flex;flex-direction:column}.item-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:14px;padding:15px 2px;border-bottom:1px solid var(--divider-color)}.item-row:last-child{border-bottom:0}.color-dot{width:14px;height:42px;border-radius:99px}.avatar{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--primary-color) 13%,transparent);color:var(--primary-color);font-weight:700}.item-main{display:flex;flex-direction:column;gap:4px;min-width:0}.item-main strong{font-size:14px}.item-main small{color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status{font-size:11px;padding:4px 8px;border-radius:999px;background:var(--secondary-background-color);color:var(--secondary-text-color);white-space:nowrap}.status.enabled{color:var(--success-color,#2e7d32);background:color-mix(in srgb,var(--success-color,#2e7d32) 12%,transparent)}.status.warning{color:var(--warning-color,#f9a825);background:color-mix(in srgb,var(--warning-color,#f9a825) 12%,transparent)}.row-actions{display:flex;gap:7px}.row-actions button{padding:7px 10px;font-size:12px}.row-actions .danger{color:var(--error-color,#d32f2f)}.source-items{padding-top:4px}.source-row{display:flex;align-items:center;gap:12px;padding:15px 4px;border-bottom:1px solid var(--divider-color);cursor:pointer}.source-row:last-child{border-bottom:0}.source-row input{width:18px;height:18px;accent-color:var(--primary-color)}.source-row div{display:flex;flex-direction:column;gap:3px}.source-row small{color:var(--secondary-text-color)}.footer-actions{display:flex;justify-content:flex-end;padding-top:18px;border-top:1px solid var(--divider-color)}.transfer-settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}.transfer-settings-card{border:1px solid var(--divider-color);border-radius:16px;padding:18px;display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}.transfer-settings-card.featured{background:linear-gradient(135deg,color-mix(in srgb,var(--primary-color) 8%,var(--card-background-color)),var(--card-background-color));border-color:color-mix(in srgb,var(--primary-color) 28%,var(--divider-color))}.transfer-card-icon{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:color-mix(in srgb,var(--primary-color) 12%,transparent);color:var(--primary-color)}.transfer-card-icon ha-icon{--mdc-icon-size:25px}.transfer-card-copy h3{margin:1px 0 5px;font-size:17px}.transfer-card-copy p,.history-export-note p{margin:0;color:var(--secondary-text-color);font-size:13px;line-height:1.5}.transfer-settings-card>button,.backup-picker{grid-column:1/-1}.backup-picker{display:flex;flex-direction:column;gap:7px;padding:12px;border:1px dashed var(--divider-color);border-radius:11px;background:var(--secondary-background-color)}.backup-picker span{font-size:12px;color:var(--secondary-text-color)}.backup-picker input{font:inherit;color:var(--primary-text-color)}.backup-picker strong{font-size:12px;font-weight:550;overflow-wrap:anywhere}.history-export-note{display:flex;gap:12px;align-items:flex-start;margin-top:14px;padding:15px;border-radius:13px;background:var(--secondary-background-color)}.history-export-note ha-icon{color:var(--secondary-text-color);--mdc-icon-size:22px;flex:none}.history-export-note strong{display:block;margin-bottom:4px;font-size:13px}.system-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:18px 0}.info-card{border:1px solid var(--divider-color);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:4px}.info-card span{font-size:11px;color:var(--secondary-text-color)}.info-card strong{font-size:18px}.system-card{display:flex;gap:14px;padding:18px;border:1px solid var(--divider-color);border-radius:14px}.system-card>ha-icon{color:var(--primary-color);--mdc-icon-size:27px}.system-card div{display:flex;flex-direction:column;align-items:flex-start;gap:5px}.system-card p{margin:0 0 4px;color:var(--secondary-text-color);font-size:13px;line-height:1.45}.developer-card{display:flex;align-items:center;gap:18px;padding:20px;border:1px solid var(--divider-color);border-radius:16px;background:linear-gradient(135deg,color-mix(in srgb,var(--primary-color) 8%,var(--card-background-color)),var(--card-background-color))}.developer-avatar{width:68px;height:68px;flex:none;border-radius:18px;background:var(--primary-color);color:var(--text-primary-color,#fff);display:grid;place-items:center;font-size:24px;font-weight:800}.developer-copy h3,.project-card h3,.support-card h3{margin:0;font-size:18px}.developer-copy p,.project-card p,.support-card p{margin:5px 0 0;color:var(--secondary-text-color);font-size:13px;line-height:1.5}.link-actions,.project-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.link-actions a,.project-actions a,.donate{display:inline-flex;align-items:center;gap:6px;padding:8px 11px;border:1px solid var(--divider-color);border-radius:9px;text-decoration:none;color:var(--primary-text-color);font-size:12px;font-weight:650}.link-actions a:hover,.project-actions a:hover{border-color:var(--primary-color);color:var(--primary-color)}.project-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.project-card{border:1px solid var(--divider-color);border-radius:14px;padding:16px;display:grid;grid-template-columns:auto 1fr;gap:12px}.project-icon{width:42px;height:42px;border-radius:11px;background:color-mix(in srgb,var(--primary-color) 12%,transparent);color:var(--primary-color);display:grid;place-items:center}.project-actions{grid-column:1/-1}.project-actions .star{color:var(--warning-color,#f9a825)}.support-card{display:grid;grid-template-columns:auto 1fr;gap:14px;margin-top:14px;padding:18px;border:1px solid color-mix(in srgb,var(--error-color,#d32f2f) 20%,var(--divider-color));border-radius:14px}.support-card>div:first-child{width:46px;height:46px;border-radius:12px;background:color-mix(in srgb,var(--error-color,#d32f2f) 12%,transparent);color:var(--error-color,#d32f2f);display:grid;place-items:center}.donate{margin-top:12px;background:#0070ba;color:white!important;border-color:#0070ba!important}.notice{padding:11px 14px;border-radius:10px;background:color-mix(in srgb,var(--success-color,#2e7d32) 10%,var(--card-background-color));color:var(--success-color,#2e7d32);border:1px solid color-mix(in srgb,var(--success-color,#2e7d32) 28%,transparent);font-size:13px}.notice.error{background:color-mix(in srgb,var(--error-color,#d32f2f) 10%,var(--card-background-color));color:var(--error-color,#d32f2f);border-color:color-mix(in srgb,var(--error-color,#d32f2f) 28%,transparent)}.empty{padding:34px;text-align:center;color:var(--secondary-text-color)}.loading,.error-card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:24px}.modal[hidden]{display:none}.modal{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px}.modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}.modal-card{position:relative;z-index:1;width:min(680px,100%);max-height:min(86vh,760px);overflow:auto;background:var(--card-background-color);border-radius:16px;box-shadow:0 18px 60px rgba(0,0,0,.35);padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.modal-head h3{font-size:20px;margin:0}.icon-close{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font-size:28px;line-height:1;cursor:pointer}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.form-grid label{display:flex;flex-direction:column;gap:6px}.form-grid label>span{font-size:12px;color:var(--secondary-text-color)}.form-grid input,.form-grid select{width:100%;height:42px;border:1px solid var(--divider-color);border-radius:9px;background:var(--secondary-background-color);color:var(--primary-text-color);padding:0 11px;font:inherit;outline:none}.form-grid input:focus,.form-grid select:focus{border-color:var(--primary-color)}.form-grid input[type=color]{padding:4px}.span2{grid-column:1/-1}.form-grid .check{flex-direction:row;align-items:center}.form-grid .check input{width:18px;height:18px;accent-color:var(--primary-color)}.modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:20px;padding-top:16px;border-top:1px solid var(--divider-color)}
+      :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}.settings-page{display:flex;flex-direction:column;gap:16px}.settings-hero h1{font-size:30px;line-height:1.1;margin:0 0 6px}.settings-hero p{margin:0;color:var(--secondary-text-color);font-size:14px}.settings-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:18px;align-items:start}.settings-layout aside{position:sticky;top:122px;background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:8px;display:flex;flex-direction:column;gap:3px}.settings-nav-item{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font:inherit;padding:11px 12px;border-radius:9px;display:flex;align-items:center;gap:10px;text-align:left;cursor:pointer}.settings-nav-item.active{background:color-mix(in srgb,var(--primary-color) 12%,transparent);color:var(--primary-color);font-weight:650}.settings-nav-item ha-icon{--mdc-icon-size:20px}.settings-content{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:16px;padding:20px;min-height:420px}.section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding-bottom:18px;border-bottom:1px solid var(--divider-color)}.section-head h2{font-size:20px;margin:0 0 5px}.section-head p{font-size:13px;line-height:1.45;color:var(--secondary-text-color);margin:0;max-width:760px}.primary,.secondary,.row-actions button,.error-card button{appearance:none;border-radius:9px;padding:9px 13px;font:inherit;font-weight:600;cursor:pointer}.primary{border:1px solid var(--primary-color);background:var(--primary-color);color:var(--text-primary-color,#fff)}.secondary,.row-actions button,.error-card button{border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}button:disabled{opacity:.55;cursor:not-allowed}.items{display:flex;flex-direction:column}.item-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:14px;padding:15px 2px;border-bottom:1px solid var(--divider-color)}.item-row:last-child{border-bottom:0}.color-dot{width:14px;height:42px;border-radius:99px}.avatar{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--primary-color) 13%,transparent);color:var(--primary-color);font-weight:700}.item-main{display:flex;flex-direction:column;gap:4px;min-width:0}.item-main strong{font-size:14px}.item-main small{color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status{font-size:11px;padding:4px 8px;border-radius:999px;background:var(--secondary-background-color);color:var(--secondary-text-color);white-space:nowrap}.status.enabled{color:var(--success-color,#2e7d32);background:color-mix(in srgb,var(--success-color,#2e7d32) 12%,transparent)}.status.warning{color:var(--warning-color,#f9a825);background:color-mix(in srgb,var(--warning-color,#f9a825) 12%,transparent)}.row-actions{display:flex;gap:7px}.row-actions button{padding:7px 10px;font-size:12px}.row-actions .danger{color:var(--error-color,#d32f2f)}.source-items{padding-top:4px}.source-row{display:flex;align-items:center;gap:12px;padding:15px 4px;border-bottom:1px solid var(--divider-color);cursor:pointer}.source-row:last-child{border-bottom:0}.source-row input{width:18px;height:18px;accent-color:var(--primary-color)}.source-row div{display:flex;flex-direction:column;gap:3px}.source-row small{color:var(--secondary-text-color)}.footer-actions{display:flex;justify-content:flex-end;padding-top:18px;border-top:1px solid var(--divider-color)}.transfer-settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}.transfer-settings-card{border:1px solid var(--divider-color);border-radius:16px;padding:18px;display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}.transfer-settings-card.featured{background:linear-gradient(135deg,color-mix(in srgb,var(--primary-color) 8%,var(--card-background-color)),var(--card-background-color));border-color:color-mix(in srgb,var(--primary-color) 28%,var(--divider-color))}.transfer-card-icon{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:color-mix(in srgb,var(--primary-color) 12%,transparent);color:var(--primary-color)}.transfer-card-icon ha-icon{--mdc-icon-size:25px}.transfer-card-copy h3{margin:1px 0 5px;font-size:17px}.transfer-card-copy p,.history-export-note p{margin:0;color:var(--secondary-text-color);font-size:13px;line-height:1.5}.transfer-settings-card>button,.backup-picker{grid-column:1/-1}.backup-picker{display:flex;flex-direction:column;gap:7px;padding:12px;border:1px dashed var(--divider-color);border-radius:11px;background:var(--secondary-background-color)}.backup-picker span{font-size:12px;color:var(--secondary-text-color)}.backup-picker input{font:inherit;color:var(--primary-text-color)}.backup-picker strong{font-size:12px;font-weight:550;overflow-wrap:anywhere}.history-export-note{display:flex;gap:12px;align-items:flex-start;margin-top:14px;padding:15px;border-radius:13px;background:var(--secondary-background-color)}.history-export-note ha-icon{color:var(--secondary-text-color);--mdc-icon-size:22px;flex:none}.history-export-note strong{display:block;margin-bottom:4px;font-size:13px}.system-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:18px 0}.info-card{border:1px solid var(--divider-color);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:4px}.info-card span{font-size:11px;color:var(--secondary-text-color)}.info-card strong{font-size:18px}.system-card{display:flex;gap:14px;padding:18px;border:1px solid var(--divider-color);border-radius:14px}.system-card>ha-icon{color:var(--primary-color);--mdc-icon-size:27px}.system-card div{display:flex;flex-direction:column;align-items:flex-start;gap:5px}.system-card p{margin:0 0 4px;color:var(--secondary-text-color);font-size:13px;line-height:1.45}.system-card>div{flex:1;min-width:0}.update-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.update-actions .small{padding:7px 11px;font-size:12px}.update-changelog{width:100%;margin-top:4px}.update-changelog summary{cursor:pointer;font-size:12px;color:var(--primary-color);font-weight:650}.update-changelog pre{white-space:pre-wrap;word-break:break-word;font:inherit;font-size:12px;line-height:1.5;background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:9px;padding:12px;margin:8px 0 0;max-height:280px;overflow:auto}.update-notice{margin:8px 0 0;font-size:12px;color:var(--primary-color)}.developer-card{display:flex;align-items:center;gap:18px;padding:20px;border:1px solid var(--divider-color);border-radius:16px;background:linear-gradient(135deg,color-mix(in srgb,var(--primary-color) 8%,var(--card-background-color)),var(--card-background-color))}.developer-avatar{width:68px;height:68px;flex:none;border-radius:18px;background:var(--primary-color);color:var(--text-primary-color,#fff);display:grid;place-items:center;font-size:24px;font-weight:800}.developer-copy h3,.project-card h3,.support-card h3{margin:0;font-size:18px}.developer-copy p,.project-card p,.support-card p{margin:5px 0 0;color:var(--secondary-text-color);font-size:13px;line-height:1.5}.link-actions,.project-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.link-actions a,.project-actions a,.donate{display:inline-flex;align-items:center;gap:6px;padding:8px 11px;border:1px solid var(--divider-color);border-radius:9px;text-decoration:none;color:var(--primary-text-color);font-size:12px;font-weight:650}.link-actions a:hover,.project-actions a:hover{border-color:var(--primary-color);color:var(--primary-color)}.project-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.project-card{border:1px solid var(--divider-color);border-radius:14px;padding:16px;display:grid;grid-template-columns:auto 1fr;gap:12px}.project-icon{width:42px;height:42px;border-radius:11px;background:color-mix(in srgb,var(--primary-color) 12%,transparent);color:var(--primary-color);display:grid;place-items:center}.project-actions{grid-column:1/-1}.project-actions .star{color:var(--warning-color,#f9a825)}.support-card{display:grid;grid-template-columns:auto 1fr;gap:14px;margin-top:14px;padding:18px;border:1px solid color-mix(in srgb,var(--error-color,#d32f2f) 20%,var(--divider-color));border-radius:14px}.support-card>div:first-child{width:46px;height:46px;border-radius:12px;background:color-mix(in srgb,var(--error-color,#d32f2f) 12%,transparent);color:var(--error-color,#d32f2f);display:grid;place-items:center}.donate{margin-top:12px;background:#0070ba;color:white!important;border-color:#0070ba!important}.notice{padding:11px 14px;border-radius:10px;background:color-mix(in srgb,var(--success-color,#2e7d32) 10%,var(--card-background-color));color:var(--success-color,#2e7d32);border:1px solid color-mix(in srgb,var(--success-color,#2e7d32) 28%,transparent);font-size:13px}.notice.error{background:color-mix(in srgb,var(--error-color,#d32f2f) 10%,var(--card-background-color));color:var(--error-color,#d32f2f);border-color:color-mix(in srgb,var(--error-color,#d32f2f) 28%,transparent)}.empty{padding:34px;text-align:center;color:var(--secondary-text-color)}.loading,.error-card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:24px}.modal[hidden]{display:none}.modal{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px}.modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}.modal-card{position:relative;z-index:1;width:min(680px,100%);max-height:min(86vh,760px);overflow:auto;background:var(--card-background-color);border-radius:16px;box-shadow:0 18px 60px rgba(0,0,0,.35);padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.modal-head h3{font-size:20px;margin:0}.icon-close{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font-size:28px;line-height:1;cursor:pointer}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.form-grid label{display:flex;flex-direction:column;gap:6px}.form-grid label>span{font-size:12px;color:var(--secondary-text-color)}.form-grid input,.form-grid select{width:100%;height:42px;border:1px solid var(--divider-color);border-radius:9px;background:var(--secondary-background-color);color:var(--primary-text-color);padding:0 11px;font:inherit;outline:none}.form-grid input:focus,.form-grid select:focus{border-color:var(--primary-color)}.form-grid input[type=color]{padding:4px}.span2{grid-column:1/-1}.form-grid .check{flex-direction:row;align-items:center}.form-grid .check input{width:18px;height:18px;accent-color:var(--primary-color)}.modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:20px;padding-top:16px;border-top:1px solid var(--divider-color)}
       @media(max-width:1000px){.settings-layout{grid-template-columns:1fr}.settings-layout aside{position:static;flex-direction:row;overflow-x:auto}.settings-nav-item{white-space:nowrap}.system-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
       @media(max-width:700px){.project-grid,.transfer-settings-grid{grid-template-columns:1fr}.developer-card{align-items:flex-start}.settings-hero h1{font-size:25px}.settings-content{padding:14px}.section-head{flex-direction:column}.section-head .primary{width:100%}.item-row{grid-template-columns:auto minmax(0,1fr) auto}.item-row .status{grid-column:2}.row-actions{grid-column:1/-1;justify-content:flex-end}.system-grid{grid-template-columns:1fr 1fr}.form-grid{grid-template-columns:1fr}.span2{grid-column:auto}.modal{padding:8px}.modal-card{padding:16px}}
     `

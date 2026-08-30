@@ -214,6 +214,11 @@
       "total_bills": {
         "name": "Total de contas"
       }
+    },
+    "update": {
+      "billy": {
+        "name": "Billy"
+      }
     }
   }
 }

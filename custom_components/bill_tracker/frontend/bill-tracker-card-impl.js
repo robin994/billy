@@ -3,8 +3,8 @@ import {
   billyLanguage,
   billyLocale,
   billyT,
-} from './bill-tracker-i18n.js?v=0.11.10-r1'
-import { BILLY_ERROR_TEXT } from './billy-extra-i18n.js?v=0.11.10-r1'
+} from './bill-tracker-i18n.js?v=0.11.10-r2'
+import { BILLY_ERROR_TEXT } from './billy-extra-i18n.js?v=0.11.10-r2'
 
 // Resolve a websocket/runtime error to a message in the user's language via its
 // stable `code`, falling back to the English text the backend sends with it.

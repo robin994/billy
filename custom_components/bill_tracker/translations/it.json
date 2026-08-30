@@ -214,6 +214,11 @@
       "total_bills": {
         "name": "Totale bollette"
       }
+    },
+    "update": {
+      "billy": {
+        "name": "Billy"
+      }
     }
   }
 }

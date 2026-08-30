@@ -34,12 +34,13 @@ from .const import (
     SUPPORTED_INTERVALS,
 )
 from .manager import BillTrackerManager
+from .updater import BillyUpdater
 
 _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "update"]
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 FRONTEND_PATH = FRONTEND_DIR / "bill-tracker-card.js"
 FRONTEND_IMPL_PATH = FRONTEND_DIR / "bill-tracker-card-impl.js"
@@ -149,6 +150,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         ws_export_template,
         ws_backup_export,
         ws_backup_import,
+        ws_update_status,
+        ws_update_install,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -201,6 +204,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager
     hass.data[DOMAIN]["manager"] = manager
+    hass.data[DOMAIN].setdefault(
+        "updater",
+        BillyUpdater(hass, hass.data[DOMAIN].get("version", FRONTEND_VERSION)),
+    )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -213,6 +220,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         if hass.data.get(DOMAIN, {}).get("manager") is manager:
             hass.data[DOMAIN].pop("manager", None)
+        hass.data.get(DOMAIN, {}).pop("updater", None)
     return ok
 
 
@@ -877,3 +885,43 @@ async def ws_backup_import(hass, connection, msg):
         _ws_error(connection, msg, err, "invalid_backup")
         return
     connection.send_result(msg["id"], result)
+
+
+def _updater(hass: HomeAssistant) -> BillyUpdater:
+    updater = hass.data.get(DOMAIN, {}).get("updater")
+    if updater is None:
+        raise RuntimeError("Billy is not configured yet")
+    return updater
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "bill_tracker/update/status",
+        vol.Optional("refresh", default=False): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_update_status(hass, connection, msg):
+    try:
+        updater = _updater(hass)
+    except RuntimeError as err:
+        _ws_error(connection, msg, err, "not_configured")
+        return
+    if msg["refresh"]:
+        await updater.async_check()
+    connection.send_result(msg["id"], updater.as_dict())
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bill_tracker/update/install"})
+@websocket_api.async_response
+async def ws_update_install(hass, connection, msg):
+    try:
+        updater = _updater(hass)
+        await updater.async_install()
+    except RuntimeError as err:
+        _ws_error(connection, msg, err, "update_failed")
+        return
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "update_failed", str(err))
+        return
+    connection.send_result(msg["id"], updater.as_dict())
