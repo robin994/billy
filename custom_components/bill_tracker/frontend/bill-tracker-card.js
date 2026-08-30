@@ -1,4 +1,4 @@
-const BILLY_FRONTEND_VERSION = '0.11.10'
+const BILLY_FRONTEND_VERSION = '0.12.0'
 const BILLY_IMPL_URL = `/bill_tracker/bill-tracker-card-impl.js?v=${BILLY_FRONTEND_VERSION}`
 const BILLY_WIDGETS_URL = `/bill_tracker/billy-widgets.js?v=${BILLY_FRONTEND_VERSION}`
 
