@@ -23,6 +23,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
 from .const import (
     DOMAIN,
@@ -106,8 +107,22 @@ async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
         _LOGGER.exception("Could not register Billy as a Lovelace resource")
 
 
+async def _billy_version(hass: HomeAssistant) -> str:
+    """The installed integration version from manifest.json (single source of truth)."""
+    try:
+        integration = await async_get_integration(hass, DOMAIN)
+        if integration.version:
+            return str(integration.version)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Could not read Billy version from the manifest", exc_info=True)
+    return FRONTEND_VERSION
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up Bill Tracker and its frontend module."""
+    version = await _billy_version(hass)
+    hass.data.setdefault(DOMAIN, {})["version"] = version
+
     for command in (
         ws_list,
         ws_add,
@@ -161,7 +176,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         sidebar_icon="mdi:receipt-text-outline",
         module_url=BILLY_PANEL_MODULE_URL,
         require_admin=False,
-        config={"version": FRONTEND_VERSION},
+        config={"version": version},
     )
     await _async_register_lovelace_resource(hass)
     return True
@@ -226,6 +241,7 @@ def _ws_error(connection, msg, err, default_code):
 async def ws_list(hass, connection, msg):
     try:
         result = _manager(hass).snapshot(msg["forecast_months"])
+        result["version"] = hass.data.get(DOMAIN, {}).get("version", FRONTEND_VERSION)
         parser_manager = hass.data.get(DOMAIN, {}).get("parser_manager")
         if parser_manager is not None:
             result.setdefault("summary", {})["automatic_import_pending"] = len(

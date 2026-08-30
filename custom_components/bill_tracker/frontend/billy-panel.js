@@ -3473,7 +3473,7 @@ class BillySettings extends HTMLElement {
       )
     }).length
     const info = [
-      [this._t('version'), BILLY_PANEL_VERSION],
+      [this._t('version'), this._data?.version || BILLY_PANEL_VERSION],
       [
         this._t('currency'),
         this._data?.currency || this._hass?.config?.currency || 'EUR',
@@ -3930,7 +3930,10 @@ class BillyPanel extends HTMLElement {
 
   set narrow(_value) {}
   set route(_value) {}
-  set panel(_value) {}
+  set panel(value) {
+    this._panel = value
+    this._applyVersion()
+  }
 
   connectedCallback() {
     if (!this._rendered) this._render()
@@ -3939,6 +3942,17 @@ class BillyPanel extends HTMLElement {
 
   _t(key) {
     return tFor(this._hass, key)
+  }
+
+  // The installed integration version, reported by the backend via the panel
+  // config. Falls back to the value baked into this bundle.
+  _billyVersion() {
+    return this._panel?.config?.version || BILLY_PANEL_VERSION
+  }
+
+  _applyVersion() {
+    const el = this.shadowRoot?.querySelector('.version')
+    if (el) el.textContent = `v${this._billyVersion()}`
   }
 
   _viewFromLocation() {
@@ -3967,7 +3981,7 @@ class BillyPanel extends HTMLElement {
       <div class="shell">
         <header class="topbar">
           <div class="topbar-inner">
-            <div class="brand-row"><div><div class="title">Billy</div><div class="subtitle" id="subtitle"></div></div><div class="version">v${BILLY_PANEL_VERSION}</div></div>
+            <div class="brand-row"><div><div class="title">Billy</div><div class="subtitle" id="subtitle"></div></div><div class="version">v${this._billyVersion()}</div></div>
             <nav>
               <button type="button" data-view="dashboard"></button>
               <button type="button" data-view="bills"></button>

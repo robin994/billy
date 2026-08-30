@@ -366,6 +366,11 @@ class BillyParserManagerPanel extends HTMLElement {
     else this._render()
   }
 
+  // Installed Billy version reported by the backend; falls back to this bundle's.
+  _billyVersion() {
+    return this._billData?.version || BILLY_PARSER_MANAGER_VERSION
+  }
+
   get hass() {
     return this._hass
   }
@@ -867,6 +872,7 @@ class BillyParserManagerPanel extends HTMLElement {
   }
 
   _defaultCustomTemplate() {
+    const version = this._billyVersion()
     return `schema: 1
 id: it.provider.internet
 version: 1
@@ -877,7 +883,7 @@ metadata:
   language: it
   provider: Provider
   bill_type: internet
-  min_billy_version: ${BILLY_PARSER_MANAGER_VERSION}
+  min_billy_version: ${version}
   status: experimental
   quality: experimental
 
@@ -1206,7 +1212,7 @@ fields:
         provider: String(row.provider || row.name || ''),
         bill_type: String(row.bill_type || ''),
         requested_status: 'experimental',
-        billy_version: BILLY_PARSER_MANAGER_VERSION,
+        billy_version: this._billyVersion(),
       }
       const body = `<!-- billy-parser-submission:v2 -->\n\n${this._t('publishHint')}\n\n\`\`\`json\n${JSON.stringify(submission, null, 2)}\n\`\`\`\n\n\`\`\`yaml\n${content.trim()}\n\`\`\`\n`
       const params = new URLSearchParams({

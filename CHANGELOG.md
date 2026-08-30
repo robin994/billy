@@ -4,6 +4,7 @@
 
 - Backend error messages are no longer hardcoded in Italian: the websocket API returns stable error codes with an English fallback, and the Billy panel, Lovelace card and parser manager translate them into the user's language across English, Italian, Spanish, French, German and Portuguese.
 - Added Spanish, French, German and Portuguese translations for the recurring-expense interval labels and the parser-manager bill-type labels (thanks @iDazai).
+- Fixed inconsistent version info: the Billy panel and parser manager now show the version reported by the running integration (from `manifest.json`) instead of a value baked into the cached frontend bundle, so it always matches the Integrations page even right after an update.
 - Aligned frontend cache-busting and version constants to 0.11.10.
 
 ## 0.11.9

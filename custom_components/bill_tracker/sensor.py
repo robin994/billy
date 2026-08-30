@@ -23,7 +23,7 @@ async def async_setup_entry(
     parser_manager = ParserManager(
         hass,
         manager,
-        billy_version=FRONTEND_VERSION,
+        billy_version=hass.data[DOMAIN].get("version", FRONTEND_VERSION),
         config_entry=entry,
     )
     await parser_manager.async_load()
