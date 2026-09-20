@@ -42,7 +42,10 @@ class BillImportCoordinator:
             "period_end_date": end.isoformat() if end else None,
             "paid": False,
             "payer_id": candidate.get("default_payer_id"),
-            "split": candidate.get("default_split"),
+            # An empty parser-specific split means "use Billy defaults". Passing
+            # [] would instead be treated as an explicit empty split and fail
+            # once the domain manager resolves a payer.
+            "split": candidate.get("default_split") or None,
             "payment_date": data.get("payment_date"),
             "due_date": data.get("due_date"),
             "provider": provider or None,

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.3
+
+- Fixed parser imports with no parser-specific split: Billy now falls back to its configured default split instead of failing with `The expense split is empty`.
+- Failed parser imports now offer an `Add manually` action that opens the bill form prefilled with all usable parsed data, then removes the failed candidate after a successful manual save.
+
 ## 0.12.2
 
 - Updater now shows a "restart required" state with a Restart button after an update is installed, and detects an update applied out-of-band (HACS or a manual copy) too — a Home Assistant restart is always needed for new code and version numbers to take effect.

@@ -78,3 +78,19 @@ def test_import_applies_parser_default_payer_and_split():
         {"payer_id": "payer-a", "percentage": 60},
         {"payer_id": "payer-b", "percentage": 40},
     ]
+
+
+def test_import_empty_parser_split_falls_back_to_billy_defaults():
+    manager = _Manager()
+    coordinator = BillImportCoordinator(manager)
+    asyncio.run(
+        coordinator.async_import(
+            {
+                "category_id": "electricity",
+                "default_payer_id": None,
+                "default_split": [],
+                "data": {"amount": 55, "due_date": "2026-09-30"},
+            }
+        )
+    )
+    assert manager.kwargs["split"] is None

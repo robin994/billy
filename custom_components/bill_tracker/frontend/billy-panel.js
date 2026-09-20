@@ -1,10 +1,10 @@
-import './billy-parser-manager.js?v=0.12.2-r1'
+import './billy-parser-manager.js?v=0.12.3-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.12.2-r1'
+} from './billy-extra-i18n.js?v=0.12.3-r1'
 
-const BILLY_PANEL_VERSION = '0.12.2'
+const BILLY_PANEL_VERSION = '0.12.3'
 
 const TEXT = {
   en: {
@@ -74,6 +74,7 @@ const TEXT = {
     acceptImport: 'Accept',
     rejectImport: 'Reject',
     retryImport: 'Retry',
+    addImportManually: 'Add manually',
     failedImport: 'Import failed',
     unknownError: 'Unknown error',
     confidence: 'Confidence',
@@ -374,6 +375,7 @@ const TEXT = {
     acceptImport: 'Accetta',
     rejectImport: 'Rifiuta',
     retryImport: 'Riprova',
+    addImportManually: 'Aggiungi manualmente',
     failedImport: 'Import fallito',
     unknownError: 'Errore sconosciuto',
     confidence: 'Affidabilità',
@@ -1960,7 +1962,7 @@ class BillyBills extends HTMLElement {
           ? `<small class="review-error">${escapeHtml(`${this._t('failedImport')}: ${row.error || this._t('unknownError')}`)}</small>`
           : `<small>${escapeHtml(`${this._t('confidence')}: ${Number(row.confidence || 0)}%`)}</small>`
         const actions = failed
-          ? `<button class="secondary" data-import-reject="${escapeHtml(row.id)}">${escapeHtml(this._t('rejectImport'))}</button><button class="primary" data-import-retry="${escapeHtml(row.id)}">${escapeHtml(this._t('retryImport'))}</button>`
+          ? `<button class="secondary" data-import-reject="${escapeHtml(row.id)}">${escapeHtml(this._t('rejectImport'))}</button><button class="secondary" data-import-manual="${escapeHtml(row.id)}">${escapeHtml(this._t('addImportManually'))}</button><button class="primary" data-import-retry="${escapeHtml(row.id)}">${escapeHtml(this._t('retryImport'))}</button>`
           : `<button class="secondary" data-import-reject="${escapeHtml(row.id)}">${escapeHtml(this._t('rejectImport'))}</button><button class="primary" data-import-approve="${escapeHtml(row.id)}">${escapeHtml(this._t('acceptImport'))}</button>`
         return `<article class="review-row ${failed ? 'failed' : ''}"><div class="review-main"><strong>${escapeHtml(provider)}</strong><small>${escapeHtml(details)}</small>${status}</div><b>${data.amount == null ? '—' : escapeHtml(this._money(data.amount))}</b><div class="review-actions">${actions}</div></article>`
       })
@@ -1995,6 +1997,50 @@ class BillyBills extends HTMLElement {
       this._error = errorText(this._hass, error)
       this._render()
     }
+  }
+
+  _manualImportSeed(row) {
+    const data = row?.data || {}
+    const toMonth = (value) => {
+      const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(value || ''))
+      return match ? `${match[1]}-${match[2]}` : ''
+    }
+    const anchor =
+      toMonth(data.period_end) ||
+      toMonth(data.issue_date) ||
+      toMonth(data.payment_date) ||
+      toMonth(data.due_date) ||
+      this._defaultMonth()
+    const paid = this._parseMonth(anchor)
+    return {
+      category_id: row?.category_id || '',
+      year: paid?.year,
+      month: paid?.month,
+      paid_year: paid?.year,
+      paid_month: paid?.month,
+      amount: data.amount ?? '',
+      provider: data.provider || '',
+      contract: data.offer || data.contract || '',
+      period_start_date: data.period_start || '',
+      period_end_date: data.period_end || '',
+      period_start_year: this._parseMonth(toMonth(data.period_start))?.year,
+      period_start_month: this._parseMonth(toMonth(data.period_start))?.month,
+      period_end_year: this._parseMonth(toMonth(data.period_end))?.year,
+      period_end_month: this._parseMonth(toMonth(data.period_end))?.month,
+      due_date: data.due_date || '',
+      payment_date: data.payment_date || '',
+      consumption: data.consumption ?? '',
+      note: data.invoice_number
+        ? `${this._t('invoiceNumber')}: ${data.invoice_number}`
+        : '',
+    }
+  }
+
+  _openImportManually(id) {
+    const row = (this._imports || []).find((item) => item.id === id)
+    if (!row) return
+    this._manualImportId = id
+    this._openBill(null, this._manualImportSeed(row))
   }
 
   _monthValue(year, month) {
@@ -2248,6 +2294,13 @@ class BillyBills extends HTMLElement {
         ),
       )
     this.shadowRoot
+      .querySelectorAll('[data-import-manual]')
+      .forEach((button) =>
+        button.addEventListener('click', () =>
+          this._openImportManually(button.dataset.importManual),
+        ),
+      )
+    this.shadowRoot
       .getElementById('bill-search')
       ?.addEventListener('input', (event) => {
         this._search = event.target.value
@@ -2298,11 +2351,12 @@ class BillyBills extends HTMLElement {
     return result
   }
 
-  _openBill(id = null) {
-    const row = id
+  _openBill(id = null, seed = null) {
+    const existing = id
       ? (this._data?.expenses || []).find((item) => item.id === id)
       : null
-    this._editing = row || null
+    const row = existing || seed
+    this._editing = existing || null
     const categories = (this._data?.categories || []).filter(
       (category) => category.enabled || category.id === row?.category_id,
     )
@@ -2343,7 +2397,7 @@ class BillyBills extends HTMLElement {
     const unit =
       selectedCategory?.consumption_unit || row?.consumption_unit || ''
     card.innerHTML = `<form id="bill-form">
-      <div class="modal-head"><h3>${escapeHtml(row ? this._t('editBill') : this._t('addBill'))}</h3><button type="button" class="icon-close" id="bill-modal-close">×</button></div>
+      <div class="modal-head"><h3>${escapeHtml(existing ? this._t('editBill') : this._t('addBill'))}</h3><button type="button" class="icon-close" id="bill-modal-close">×</button></div>
       <div class="form-grid">
         <label><span>${escapeHtml(this._t('billType'))}</span><select name="category_id" id="form-category" required>${categories.map((category) => `<option value="${escapeHtml(category.id)}" ${category.id === selectedCategory.id ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label>
         <label><span>${escapeHtml(this._t('billingMonth'))}</span><input name="paid_month" id="form-paid-month" type="month" required value="${escapeHtml(paidMonth)}"></label>
@@ -2368,6 +2422,7 @@ class BillyBills extends HTMLElement {
     const close = () => {
       modal.hidden = true
       this._editing = null
+      this._manualImportId = null
     }
     card.querySelector('#bill-modal-close')?.addEventListener('click', close)
     card.querySelector('#bill-cancel')?.addEventListener('click', close)
@@ -2488,6 +2543,12 @@ class BillyBills extends HTMLElement {
         })
       } else {
         await this._hass.callWS({ type: 'bill_tracker/add', ...payload })
+        if (this._manualImportId) {
+          await this._hass.callWS({
+            type: 'bill_tracker/parser/import/reject',
+            import_id: this._manualImportId,
+          })
+        }
       }
       close()
       this._editing = null
