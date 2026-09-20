@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.4
+
+- Official parser installation now promotes a same-ID local custom parser automatically instead of failing with `A custom parser with this ID already exists`.
+- Custom parser configuration is preserved during promotion, including category, enabled/automatic-import state, default payer and expense split.
+
 ## 0.12.3
 
 - Fixed parser imports with no parser-specific split: Billy now falls back to its configured default split instead of failing with `The expense split is empty`.

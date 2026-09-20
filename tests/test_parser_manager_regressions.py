@@ -158,6 +158,60 @@ def _install_manager(catalog):
     return manager
 
 
+def test_official_install_promotes_same_id_custom_parser():
+    install = _load_method("async_install")
+    manager = _install_manager(_official_catalog())
+    manager.storage.data["custom"]["it.example.energy"] = {
+        "id": "it.example.energy",
+        "version": 1,
+        "path": "/tmp/custom-it.example.energy.yaml",
+        "category_id": "electricity",
+        "enabled": True,
+        "auto_import": False,
+        "default_payer_id": "payer-a",
+        "default_split": [{"payer_id": "payer-a", "percentage": 100}],
+    }
+
+    state = asyncio.run(
+        install(
+            manager,
+            "it.example.energy",
+            category_id="electricity",
+            default_payer_id="payer-a",
+            default_split=[{"payer_id": "payer-a", "percentage": 100}],
+        )
+    )
+
+    assert state["source"] == "official"
+    assert "it.example.energy" not in manager.storage.data["custom"]
+    assert manager.storage.data["installed"]["it.example.energy"] == state
+    assert "/tmp/custom-it.example.energy.yaml" in manager.storage.deleted
+
+
+def test_catalog_official_row_inherits_same_id_custom_configuration():
+    snapshot = _load_method("catalog_snapshot")
+    custom = {
+        "it.example.energy": {
+            "id": "it.example.energy",
+            "version": 1,
+            "category_id": "electricity",
+            "enabled": False,
+            "auto_import": True,
+            "default_payer_id": "payer-a",
+            "default_split": [{"payer_id": "payer-a", "percentage": 100}],
+        }
+    }
+    row = snapshot(_ManagerHarness(_official_catalog(), custom=custom))["parsers"][0]
+
+    assert row["installed"] is False
+    assert row["replaces_custom"] is True
+    assert row["category_id"] == "electricity"
+    assert row["enabled"] is False
+    assert row["auto_import"] is True
+    assert row["default_payer_id"] == "payer-a"
+    assert row["default_split"] == [{"payer_id": "payer-a", "percentage": 100}]
+
+
 def test_generic_binary_pdf_matches_restrictive_pdf_parser_by_filename():
     find_part = _load_method("_find_part")
     document = {

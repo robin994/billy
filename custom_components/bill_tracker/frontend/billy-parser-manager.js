@@ -1,9 +1,9 @@
 import {
   BILLY_ERROR_TEXT,
   BILLY_PARSER_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.12.3-r1'
+} from './billy-extra-i18n.js?v=0.12.4-r1'
 
-const BILLY_PARSER_MANAGER_VERSION = '0.12.3'
+const BILLY_PARSER_MANAGER_VERSION = '0.12.4'
 
 const TEXT = {
   en: {
@@ -1275,11 +1275,16 @@ fields:
       mode,
       row,
       categoryId: defaultCategory,
-      enabled: row.installed ? row.enabled !== false : true,
-      autoImport: row.installed ? Boolean(row.auto_import) : false,
-      defaultPayerId: row.installed ? String(row.default_payer_id || '') : '',
+      enabled:
+        row.installed || row.replaces_custom ? row.enabled !== false : true,
+      autoImport:
+        row.installed || row.replaces_custom ? Boolean(row.auto_import) : false,
+      defaultPayerId:
+        row.installed || row.replaces_custom
+          ? String(row.default_payer_id || '')
+          : '',
       defaultSplit:
-        row.installed && Array.isArray(row.default_split)
+        (row.installed || row.replaces_custom) && Array.isArray(row.default_split)
           ? row.default_split
           : this._billData?.default_split || [],
       payers,

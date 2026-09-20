@@ -449,6 +449,7 @@ class ParserManager:
             parser_id = str(item.get("id") or "")
             catalog_ids.add(parser_id)
             state = installed.get(parser_id)
+            custom_state = custom.get(parser_id)
             remote_version = int(item.get("version", 0) or 0)
             installed_version = int(state.get("version", 0) or 0) if state else None
             minimum = str(item.get("min_billy_version") or "0.0.0")
@@ -520,11 +521,49 @@ class ParserManager:
                         else ""
                     ),
                     "status": status,
-                    "enabled": bool(state.get("enabled", True)) if state else False,
-                    "category_id": state.get("category_id") if state else None,
-                    "auto_import": bool(state.get("auto_import", False)) if state else False,
                     "load_error": load_error,
                     "source": "official",
+                    # A parser can begin life as a local custom parser and later
+                    # be accepted into the community catalog with the same ID.
+                    # Surface the local configuration on the official row so
+                    # installing it is a seamless promotion rather than forcing
+                    # users to delete/reconfigure the custom parser first.
+                    "replaces_custom": bool(custom_state and not state),
+                    "category_id": (
+                        state.get("category_id")
+                        if state
+                        else custom_state.get("category_id")
+                        if custom_state
+                        else None
+                    ),
+                    "enabled": (
+                        bool(state.get("enabled", True))
+                        if state
+                        else bool(custom_state.get("enabled", True))
+                        if custom_state
+                        else False
+                    ),
+                    "auto_import": (
+                        bool(state.get("auto_import", False))
+                        if state
+                        else bool(custom_state.get("auto_import", False))
+                        if custom_state
+                        else False
+                    ),
+                    "default_payer_id": (
+                        state.get("default_payer_id")
+                        if state
+                        else custom_state.get("default_payer_id")
+                        if custom_state
+                        else None
+                    ),
+                    "default_split": (
+                        list(state.get("default_split") or [])
+                        if state
+                        else list(custom_state.get("default_split") or [])
+                        if custom_state
+                        else []
+                    ),
                 }
             )
             rows.append(row)
@@ -707,10 +746,7 @@ class ParserManager:
     ) -> dict[str, Any]:
         self._ensure_category(category_id)
         payer_id, split = self._normalize_payment_defaults(default_payer_id, default_split)
-        if parser_id in self.storage.data.get("custom", {}):
-            raise CatalogError(
-                "A custom parser with this ID already exists; remove it before installing the official parser"
-            )
+        custom_state = self.storage.data.get("custom", {}).get(parser_id)
         country = self.catalog_country()
         catalog = self._stored_catalog_for_country(country)
         if not catalog.get("parsers"):
@@ -743,8 +779,23 @@ class ParserManager:
             "source": "official",
             "installed_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
+        # Promotion path: once the official parser has been fetched, validated
+        # and written successfully, retire the same-ID custom parser. Keep this
+        # after the official write so a failed catalog fetch never destroys the
+        # user's working custom parser.
+        if custom_state is not None:
+            self.storage.data.get("custom", {}).pop(parser_id, None)
         await self.storage.async_save()
         self.parsers[parser_id] = parser
+        if custom_state and custom_state.get("path"):
+            try:
+                await self.storage.async_delete_file(str(custom_state["path"]))
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Billy promoted custom parser %s to official but could not delete the old custom file",
+                    parser_id,
+                    exc_info=True,
+                )
         return dict(self.storage.data["installed"][parser_id])
 
     async def async_uninstall(self, parser_id: str) -> bool:

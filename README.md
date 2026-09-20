@@ -4,11 +4,15 @@
 
 # Billy
 
-## Billy 0.12.3
+## Billy 0.12.4
 
 Billy keeps the Lovelace `custom:bill-tracker-card`, while `/billy` is the full-size application.
 
 Billy is a Home Assistant bill manager focused on household expenses: provider bills, recurring costs, forecasts, payment tracking, shared expenses, reimbursements and automatic bill parsing from email.
+
+### What's new in 0.12.4
+
+- **Custom → official parser promotion** — when a custom parser is accepted into the Billy parser catalog with the same ID, installing the official version now replaces the local custom definition automatically while preserving its configuration.
 
 ### What's new in 0.12.3
 
