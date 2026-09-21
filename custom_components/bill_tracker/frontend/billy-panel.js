@@ -1,10 +1,10 @@
-import './billy-parser-manager.js?v=0.13.0-r1'
+import './billy-parser-manager.js?v=0.13.1-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.13.0-r1'
+} from './billy-extra-i18n.js?v=0.13.1-r1'
 
-const BILLY_PANEL_VERSION = '0.13.0'
+const BILLY_PANEL_VERSION = '0.13.1'
 
 const TEXT = {
   en: {
@@ -710,10 +710,10 @@ function paymentUrlFor(method, handle, amount, currency = 'EUR') {
   const safe = encodeURIComponent(String(handle || '').trim())
   if (!safe) return ''
   if (key === 'paypal')
-    return \`https://paypal.me/\${safe}/\${Number(amount || 0).toFixed(2)}\${encodeURIComponent(String(currency || 'EUR').toUpperCase())}\`
-  if (key === 'revolut') return \`https://revolut.me/\${safe}\`
-  if (key === 'venmo') return \`https://venmo.com/u/\${safe}\`
-  if (key === 'cashapp') return \`https://cash.app/$\${safe}\`
+    return `https://paypal.me/${safe}/${Number(amount || 0).toFixed(2)}${encodeURIComponent(String(currency || 'EUR').toUpperCase())}`
+  if (key === 'revolut') return `https://revolut.me/${safe}`
+  if (key === 'venmo') return `https://venmo.com/u/${safe}`
+  if (key === 'cashapp') return `https://cash.app/$${safe}`
   return ''
 }
 

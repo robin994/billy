@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.1
+
+- Fixed the Billy panel startup syntax error caused by escaped JavaScript template literals in the reimbursement payment-link helper.
+
 ## 0.13.0
 
 - Added a reimbursement detail view showing the individual bills and recurring charges included in each user-to-user reimbursement.
