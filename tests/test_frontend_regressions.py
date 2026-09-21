@@ -39,12 +39,12 @@ def test_frontend_and_manifest_use_rewrite_version():
     implementation = (FRONTEND / "bill-tracker-card-impl.js").read_text(encoding="utf-8")
     manifest = (ROOT / "custom_components" / "bill_tracker" / "manifest.json").read_text(encoding="utf-8")
     const = (ROOT / "custom_components" / "bill_tracker" / "const.py").read_text(encoding="utf-8")
-    assert "BILLY_FRONTEND_VERSION = '0.13.1'" in bootstrap
-    assert "BILL_TRACKER_VERSION = '0.13.1'" in implementation
-    assert "./bill-tracker-i18n.js?v=0.13.1-r1" in implementation
-    assert '"version": "0.13.1"' in manifest
-    assert 'FRONTEND_VERSION = "0.13.1"' in const
-    assert 'FRONTEND_CACHE_VERSION = "0.13.1-r1"' in const
+    assert "BILLY_FRONTEND_VERSION = '0.13.2'" in bootstrap
+    assert "BILL_TRACKER_VERSION = '0.13.2'" in implementation
+    assert "./bill-tracker-i18n.js?v=0.13.2-r1" in implementation
+    assert '"version": "0.13.2"' in manifest
+    assert 'FRONTEND_VERSION = "0.13.2"' in const
+    assert 'FRONTEND_CACHE_VERSION = "0.13.2-r1"' in const
 
 
 def test_settings_exposes_rejected_parser_imports_and_restore_action():
@@ -104,7 +104,7 @@ def test_billy_sidebar_panel_keeps_card_and_parser_manager():
     panel = (FRONTEND / "billy-panel.js").read_text(encoding="utf-8")
     init = (ROOT / "custom_components" / "bill_tracker" / "__init__.py").read_text(encoding="utf-8")
     for token in (
-        "billy-parser-manager.js?v=0.13.1-r1",
+        "billy-parser-manager.js?v=0.13.2-r1",
         '<billy-dashboard id="dashboard">',
         '<billy-bills id="bills-panel">',
         '<billy-recurring id="recurring-panel">',
@@ -225,6 +225,38 @@ def test_billy_panel_has_large_dashboard_and_native_settings():
         "https://paypal.me/rtortora94",
     ):
         assert token in panel
+
+
+def test_billy_panel_has_dedicated_reimbursement_history_view():
+    panel = (FRONTEND / "billy-panel.js").read_text(encoding="utf-8")
+    history = (FRONTEND / "billy-reimbursement-history.js").read_text(
+        encoding="utf-8"
+    )
+    for token in (
+        "billy-reimbursement-history.js",
+        'data-view="reimbursementArchive"',
+        'data-section="reimbursementArchive"',
+        'id="reimbursement-history-panel"',
+        "reimbursementArchive: 'Storico rimborsi'",
+    ):
+        assert token in panel
+    for token in (
+        "class BillyReimbursementHistory",
+        "bill_tracker/list",
+        "archive_status: 'done'",
+        "archive_status: 'pending'",
+        "archive_source: 'manual-expense'",
+        "archive_source: 'manual-recurring'",
+        "legacy_amount_unknown",
+        "bill_tracker/settlement/delete",
+        "bill_tracker/set_reimbursement",
+        "bill_tracker/recurring/set_reimbursement",
+        "history-status",
+        "history-payer",
+        "history-year",
+        "data-history-details",
+    ):
+        assert token in history
 
 
 def test_overview_chart_preferences_are_persisted_per_home_assistant_user():
@@ -379,8 +411,8 @@ def test_new_billy_frontends_support_all_shipped_languages():
 
     assert "BILLY_PANEL_EXTRA_TEXT" in panel
     assert "BILLY_PARSER_EXTRA_TEXT" in parser
-    assert "billy-extra-i18n.js?v=0.13.1-r1" in panel
-    assert "billy-extra-i18n.js?v=0.13.1-r1" in parser
+    assert "billy-extra-i18n.js?v=0.13.2-r1" in panel
+    assert "billy-extra-i18n.js?v=0.13.2-r1" in parser
     assert "['en', 'it', 'es', 'fr', 'de', 'pt']" in panel
     assert "['en', 'it', 'es', 'fr', 'de', 'pt']" in parser
     for language in ("es", "fr", "de", "pt"):

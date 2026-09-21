@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.2
+
+- Added a dedicated Reimbursement history section with completed/pending status, date/time, payer direction, amount, filters and detailed included items.
+- Settlement snapshots now expose human-readable bill/recurring details for history, including a legacy fallback for reimbursements created before itemized amounts were stored.
+- Reimbursements completed through the manual bill/recurring toggles are included in history too, with their original completion timestamp.
+- Reimbursements can still be undone from the history detail without affecting provider-payment state.
+
 ## 0.13.1
 
 - Fixed the Billy panel startup syntax error caused by escaped JavaScript template literals in the reimbursement payment-link helper.

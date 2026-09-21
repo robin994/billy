@@ -18,6 +18,25 @@ def _load_pairwise_debts():
     return ns["_pairwise_debts"]
 
 
+def _load_public_settlement():
+    tree = ast.parse(MANAGER.read_text(encoding="utf-8"))
+    cls = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "BillTrackerManager"
+    )
+    fn = next(
+        node
+        for node in cls.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_public_settlement"
+    )
+    module = ast.Module(body=[fn], type_ignores=[])
+    ast.fix_missing_locations(module)
+    ns = {"Any": object}
+    exec(compile(module, str(MANAGER), "exec"), ns)
+    return ns["_public_settlement"]
+
+
 class DummyManager:
     def __init__(self):
         self.payers = [
@@ -26,11 +45,24 @@ class DummyManager:
         ]
         self.expenses = []
         self.recurring_occurrences = []
+        self.recurring_expenses = []
+        self.categories = []
         self.settlements = []
         self.currency = "EUR"
 
     def payer(self, payer_id):
         return next((row for row in self.payers if row["id"] == payer_id), None)
+
+    def category(self, category_id):
+        return next(
+            (row for row in self.categories if row["id"] == category_id), None
+        )
+
+    def recurring_expense(self, recurring_id):
+        return next(
+            (row for row in self.recurring_expenses if row["id"] == recurring_id),
+            None,
+        )
 
     @staticmethod
     def _preferred_payment(payer, amount, currency):
@@ -217,6 +249,77 @@ def test_partial_settlement_contract_accepts_selected_line_items():
     assert '"settlement_invalid_selection"' in settlement
     assert '"line_items": [' in settlement
     assert 'vol.Optional("line_items", default=[]): [dict]' in init
+
+
+def test_public_settlement_exposes_itemized_history_details_and_legacy_fallback():
+    manager = DummyManager()
+    manager._public_settlement = MethodType(_load_public_settlement(), manager)
+    manager.categories = [{"id": "power", "name": "Electricity"}]
+    manager.expenses = [
+        {
+            "id": "bill-1",
+            "category_id": "power",
+            "provider": "Example Energy",
+            "contract": "Home",
+            "amount": 100.0,
+            "due_date": "2026-09-10",
+        }
+    ]
+    manager.recurring_expenses = [
+        {
+            "id": "rent",
+            "name": "Rent",
+            "provider": "Landlord",
+            "contract": "Apartment",
+        }
+    ]
+    manager.recurring_occurrences = [
+        {
+            "id": "rent@2026-09-01",
+            "recurring_id": "rent",
+            "name": "Rent",
+            "amount": 800.0,
+            "due_date": "2026-09-01",
+        }
+    ]
+    current = manager._public_settlement(
+        {
+            "id": "settlement-1",
+            "from_payer_id": "b",
+            "to_payer_id": "a",
+            "amount": 70.0,
+            "expense_ids": ["bill-1"],
+            "recurring_occurrence_ids": ["rent@2026-09-01"],
+            "line_items": [
+                {"kind": "expense", "id": "bill-1", "amount": 20.0},
+                {
+                    "kind": "recurring",
+                    "id": "rent@2026-09-01",
+                    "amount": 50.0,
+                },
+            ],
+        }
+    )
+    assert current["status"] == "done"
+    assert current["item_count"] == 2
+    assert current["items"][0]["label"] == "Example Energy"
+    assert current["items"][0]["amount"] == 20.0
+    assert current["items"][0]["legacy_amount_unknown"] is False
+    assert current["items"][1]["label"] == "Rent"
+    assert current["items"][1]["amount"] == 50.0
+
+    legacy = manager._public_settlement(
+        {
+            "id": "settlement-legacy",
+            "from_payer_id": "b",
+            "to_payer_id": "a",
+            "amount": 20.0,
+            "expense_ids": ["bill-1"],
+            "recurring_occurrence_ids": [],
+        }
+    )
+    assert legacy["items"][0]["amount"] is None
+    assert legacy["items"][0]["legacy_amount_unknown"] is True
 
 
 def test_payers_support_multiple_payment_methods_with_legacy_paypal_migration():

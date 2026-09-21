@@ -1,16 +1,18 @@
-import './billy-parser-manager.js?v=0.13.1-r1'
+import './billy-parser-manager.js?v=0.13.2-r1'
+import './billy-reimbursement-history.js?v=0.13.2-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.13.1-r1'
+} from './billy-extra-i18n.js?v=0.13.2-r1'
 
-const BILLY_PANEL_VERSION = '0.13.1'
+const BILLY_PANEL_VERSION = '0.13.2'
 
 const TEXT = {
   en: {
     dashboard: 'Overview',
     bills: 'Bills',
     recurring: 'Recurring',
+    reimbursementArchive: 'Reimbursement history',
     parsers: 'Parsers',
     settings: 'Settings',
     subtitle: 'Bills, forecasts and automatic parsing in one place.',
@@ -71,6 +73,27 @@ const TEXT = {
     reimbursementNothingSelected: 'Select at least one item.',
     reimbursementBill: 'Bill',
     reimbursementRecurring: 'Recurring expense',
+    reimbursementArchiveTitle: 'Reimbursement history',
+    reimbursementArchiveHelp:
+      'Review completed and pending reimbursements, when they were recorded and the items included in each transfer.',
+    reimbursementArchiveAll: 'All reimbursements',
+    reimbursementArchiveCompleted: 'Completed',
+    reimbursementArchivePending: 'Pending',
+    reimbursementArchiveAllPayers: 'All payers',
+    reimbursementArchiveAllYears: 'All years',
+    reimbursementArchiveCompletedCount: 'Completed reimbursements',
+    reimbursementArchiveCompletedTotal: 'Reimbursed total',
+    reimbursementArchivePendingTotal: 'Still pending',
+    reimbursementArchiveNotDone: 'Not completed yet',
+    reimbursementArchiveWhen: 'When',
+    reimbursementArchiveStatus: 'Status',
+    reimbursementArchiveItems: 'Items',
+    reimbursementArchiveLegacyAmount:
+      'This older reimbursement predates itemized amounts; the items are known but their individual reimbursed amount was not stored.',
+    reimbursementArchiveDetailsUnavailable:
+      'The original item details are no longer available.',
+    reimbursementArchiveEmpty: 'No reimbursements match the selected filters.',
+    reimbursementArchiveOpen: 'Open details',
     undoReimbursement: 'Undo',
     reimbursementsEven: 'No reimbursements are currently due.',
     payWithMethod: 'Pay with {method}',
@@ -322,6 +345,7 @@ const TEXT = {
     dashboard: 'Panoramica',
     bills: 'Bollette',
     recurring: 'Ricorrenti',
+    reimbursementArchive: 'Storico rimborsi',
     parsers: 'Parser',
     settings: 'Impostazioni',
     subtitle: 'Bollette, previsioni e parsing automatico in un unico posto.',
@@ -382,6 +406,27 @@ const TEXT = {
     reimbursementNothingSelected: 'Seleziona almeno una voce.',
     reimbursementBill: 'Bolletta',
     reimbursementRecurring: 'Spesa ricorrente',
+    reimbursementArchiveTitle: 'Storico rimborsi',
+    reimbursementArchiveHelp:
+      'Consulta rimborsi completati e ancora pendenti, quando sono stati registrati e quali voci comprende ogni trasferimento.',
+    reimbursementArchiveAll: 'Tutti i rimborsi',
+    reimbursementArchiveCompleted: 'Completati',
+    reimbursementArchivePending: 'Da rimborsare',
+    reimbursementArchiveAllPayers: 'Tutti i paganti',
+    reimbursementArchiveAllYears: 'Tutti gli anni',
+    reimbursementArchiveCompletedCount: 'Rimborsi completati',
+    reimbursementArchiveCompletedTotal: 'Totale rimborsato',
+    reimbursementArchivePendingTotal: 'Ancora da rimborsare',
+    reimbursementArchiveNotDone: 'Non ancora effettuato',
+    reimbursementArchiveWhen: 'Quando',
+    reimbursementArchiveStatus: 'Stato',
+    reimbursementArchiveItems: 'Voci',
+    reimbursementArchiveLegacyAmount:
+      'Questo rimborso è precedente al dettaglio degli importi per voce: le voci sono note, ma il singolo importo rimborsato non era stato salvato.',
+    reimbursementArchiveDetailsUnavailable:
+      'I dettagli delle voci originali non sono più disponibili.',
+    reimbursementArchiveEmpty: 'Nessun rimborso corrisponde ai filtri selezionati.',
+    reimbursementArchiveOpen: 'Apri dettagli',
     undoReimbursement: 'Annulla',
     reimbursementsEven: 'Non ci sono rimborsi da regolare.',
     payWithMethod: 'Paga con {method}',
@@ -4289,6 +4334,7 @@ class BillyPanel extends HTMLElement {
         'dashboard',
         'bills',
         'recurring',
+        'reimbursementArchive',
         'parsers',
         'settings',
       ].includes(view)
@@ -4303,7 +4349,7 @@ class BillyPanel extends HTMLElement {
     this._rendered = true
     this.shadowRoot.innerHTML = `
       <style>
-        :host{display:block;min-height:100%;color:var(--primary-text-color);background:var(--primary-background-color);box-sizing:border-box}*{box-sizing:border-box}.shell{min-height:100vh}.topbar{position:sticky;top:0;z-index:20;background:var(--app-header-background-color,var(--card-background-color));color:var(--app-header-text-color,var(--primary-text-color));border-bottom:1px solid var(--divider-color);box-shadow:0 1px 3px rgba(0,0,0,.08)}.topbar-inner{max-width:1560px;margin:0 auto;padding:16px 24px 0}.brand-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.title{font-size:25px;font-weight:750;line-height:1.15}.subtitle{color:var(--secondary-text-color);margin-top:4px;font-size:13px}.version{color:var(--secondary-text-color);font-size:11px;padding-top:6px;white-space:nowrap}nav{display:flex;gap:4px;margin-top:12px;overflow-x:auto}nav button{appearance:none;border:0;border-bottom:3px solid transparent;background:transparent;color:var(--secondary-text-color);font:inherit;font-weight:650;padding:11px 14px 10px;cursor:pointer;white-space:nowrap}nav button.active{color:var(--primary-color);border-bottom-color:var(--primary-color)}main{max-width:1560px;margin:0 auto;padding:24px}section[hidden]{display:none!important}billy-bills,billy-recurring,billy-parser-manager,billy-dashboard,billy-settings{display:block;width:100%}@media(max-width:700px){.topbar-inner{padding:13px 12px 0}main{padding:12px}.subtitle,.version{display:none}}
+        :host{display:block;min-height:100%;color:var(--primary-text-color);background:var(--primary-background-color);box-sizing:border-box}*{box-sizing:border-box}.shell{min-height:100vh}.topbar{position:sticky;top:0;z-index:20;background:var(--app-header-background-color,var(--card-background-color));color:var(--app-header-text-color,var(--primary-text-color));border-bottom:1px solid var(--divider-color);box-shadow:0 1px 3px rgba(0,0,0,.08)}.topbar-inner{max-width:1560px;margin:0 auto;padding:16px 24px 0}.brand-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.title{font-size:25px;font-weight:750;line-height:1.15}.subtitle{color:var(--secondary-text-color);margin-top:4px;font-size:13px}.version{color:var(--secondary-text-color);font-size:11px;padding-top:6px;white-space:nowrap}nav{display:flex;gap:4px;margin-top:12px;overflow-x:auto}nav button{appearance:none;border:0;border-bottom:3px solid transparent;background:transparent;color:var(--secondary-text-color);font:inherit;font-weight:650;padding:11px 14px 10px;cursor:pointer;white-space:nowrap}nav button.active{color:var(--primary-color);border-bottom-color:var(--primary-color)}main{max-width:1560px;margin:0 auto;padding:24px}section[hidden]{display:none!important}billy-bills,billy-recurring,billy-parser-manager,billy-dashboard,billy-settings,billy-reimbursement-history{display:block;width:100%}@media(max-width:700px){.topbar-inner{padding:13px 12px 0}main{padding:12px}.subtitle,.version{display:none}}
       </style>
       <div class="shell">
         <header class="topbar">
@@ -4313,6 +4359,7 @@ class BillyPanel extends HTMLElement {
               <button type="button" data-view="dashboard"></button>
               <button type="button" data-view="bills"></button>
               <button type="button" data-view="recurring"></button>
+              <button type="button" data-view="reimbursementArchive"></button>
               <button type="button" data-view="parsers"></button>
               <button type="button" data-view="settings"></button>
             </nav>
@@ -4322,6 +4369,7 @@ class BillyPanel extends HTMLElement {
           <section data-section="dashboard"><billy-dashboard id="dashboard"></billy-dashboard></section>
           <section data-section="bills" hidden><billy-bills id="bills-panel"></billy-bills></section>
           <section data-section="recurring" hidden><billy-recurring id="recurring-panel"></billy-recurring></section>
+          <section data-section="reimbursementArchive" hidden><billy-reimbursement-history id="reimbursement-history-panel"></billy-reimbursement-history></section>
           <section data-section="parsers" hidden><billy-parser-manager id="parser-manager"></billy-parser-manager></section>
           <section data-section="settings" hidden><billy-settings id="settings-panel"></billy-settings></section>
         </main>
@@ -4343,7 +4391,14 @@ class BillyPanel extends HTMLElement {
 
   _setView(view) {
     if (
-      !['dashboard', 'bills', 'recurring', 'parsers', 'settings'].includes(view)
+      ![
+        'dashboard',
+        'bills',
+        'recurring',
+        'reimbursementArchive',
+        'parsers',
+        'settings',
+      ].includes(view)
     )
       return
     this._view = view
@@ -4380,6 +4435,7 @@ class BillyPanel extends HTMLElement {
       'dashboard',
       'bills',
       'recurring',
+      'reimbursementArchive',
       'parsers',
       'settings',
     ]) {
@@ -4394,6 +4450,7 @@ class BillyPanel extends HTMLElement {
       'dashboard',
       'bills-panel',
       'recurring-panel',
+      'reimbursement-history-panel',
       'parser-manager',
       'settings-panel',
     ]) {

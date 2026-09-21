@@ -2542,6 +2542,110 @@ class BillTrackerManager:
         recurring_count = len(
             [x for x in item.get("recurring_occurrence_ids", []) if x]
         )
+        stored_amounts = {
+            (str(row.get("kind") or ""), str(row.get("id") or "")): round(
+                float(row.get("amount", 0.0) or 0.0), 2
+            )
+            for row in item.get("line_items", [])
+            if isinstance(row, dict) and row.get("kind") and row.get("id")
+        }
+        details: list[dict[str, Any]] = []
+        for expense_id in [str(x) for x in item.get("expense_ids", []) if x]:
+            expense = next(
+                (row for row in self.expenses if str(row.get("id") or "") == expense_id),
+                None,
+            )
+            category = (
+                self.category(str(expense.get("category_id") or ""))
+                if expense is not None
+                else None
+            )
+            details.append(
+                {
+                    "kind": "expense",
+                    "id": expense_id,
+                    "label": (
+                        str(expense.get("provider") or "")
+                        if expense is not None
+                        else ""
+                    )
+                    or (str(category.get("name") or "") if category else "")
+                    or "Bill",
+                    "date": (
+                        str(expense.get("due_date") or expense.get("payment_date") or "")
+                        if expense is not None
+                        else ""
+                    ),
+                    "amount": stored_amounts.get(("expense", expense_id)),
+                    "source_amount": (
+                        round(float(expense.get("amount", 0.0) or 0.0), 2)
+                        if expense is not None
+                        else None
+                    ),
+                    "category": str(category.get("name") or "") if category else "",
+                    "provider": (
+                        str(expense.get("provider") or "")
+                        if expense is not None
+                        else ""
+                    ),
+                    "contract": (
+                        str(expense.get("contract") or "")
+                        if expense is not None
+                        else ""
+                    ),
+                    "legacy_amount_unknown": ("expense", expense_id) not in stored_amounts,
+                }
+            )
+        for occurrence_id in [
+            str(x) for x in item.get("recurring_occurrence_ids", []) if x
+        ]:
+            occurrence = next(
+                (
+                    row
+                    for row in self.recurring_occurrences
+                    if str(row.get("id") or "") == occurrence_id
+                ),
+                None,
+            )
+            recurring = (
+                self.recurring_expense(str(occurrence.get("recurring_id") or ""))
+                if occurrence is not None
+                else None
+            )
+            details.append(
+                {
+                    "kind": "recurring",
+                    "id": occurrence_id,
+                    "label": (
+                        str(occurrence.get("name") or "")
+                        if occurrence is not None
+                        else ""
+                    )
+                    or (str(recurring.get("name") or "") if recurring else "")
+                    or "Recurring expense",
+                    "date": (
+                        str(occurrence.get("due_date") or "")
+                        if occurrence is not None
+                        else ""
+                    ),
+                    "amount": stored_amounts.get(("recurring", occurrence_id)),
+                    "source_amount": (
+                        round(float(occurrence.get("amount", 0.0) or 0.0), 2)
+                        if occurrence is not None
+                        else None
+                    ),
+                    "category": "",
+                    "provider": (
+                        str(recurring.get("provider") or "") if recurring else ""
+                    ),
+                    "contract": (
+                        str(recurring.get("contract") or "") if recurring else ""
+                    ),
+                    "legacy_amount_unknown": (
+                        ("recurring", occurrence_id) not in stored_amounts
+                    ),
+                }
+            )
         return {
             **dict(item),
             "from_name": str(source.get("name")) if source else "Pagante rimosso",
@@ -2549,6 +2653,8 @@ class BillTrackerManager:
             "expense_count": expense_count,
             "recurring_count": recurring_count,
             "item_count": expense_count + recurring_count,
+            "status": "done",
+            "items": details,
         }
 
     def _rows_from_buckets(self, buckets, first, last) -> list[dict[str, Any]]:
