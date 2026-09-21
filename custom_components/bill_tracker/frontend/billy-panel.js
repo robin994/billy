@@ -1,10 +1,10 @@
-import './billy-parser-manager.js?v=0.13.4-r1'
+import './billy-parser-manager.js?v=0.13.5-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.13.4-r1'
+} from './billy-extra-i18n.js?v=0.13.5-r1'
 
-const BILLY_PANEL_VERSION = '0.13.4'
+const BILLY_PANEL_VERSION = '0.13.5'
 
 const TEXT = {
   en: {
@@ -4438,7 +4438,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.13.4-r1'
+        './billy-reimbursement-history.js?v=0.13.5-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(
@@ -4483,7 +4483,20 @@ class BillyPanel extends HTMLElement {
       'settings-panel',
     ]) {
       const element = this.shadowRoot.getElementById(id)
-      if (element) element.hass = this._hass
+      if (!element) continue
+      if (
+        id === 'reimbursement-history-panel' &&
+        !customElements.get('billy-reimbursement-history')
+      )
+        continue
+      // The history element exists before its lazy-loaded class is registered.
+      // Remove any pre-upgrade own property so the real setter receives hass.
+      if (
+        id === 'reimbursement-history-panel' &&
+        Object.prototype.hasOwnProperty.call(element, 'hass')
+      )
+        delete element.hass
+      element.hass = this._hass
     }
   }
 }

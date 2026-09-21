@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.5
+
+- Fixed the lazy-loaded reimbursement-history element losing its Home Assistant context because a pre-upgrade `hass` property shadowed the component setter.
+- The panel now waits for the history custom element to be registered before assigning `hass`, and clears any stale own property before invoking the real setter.
+- Bumped frontend cache keys to 0.13.5.
+
 ## 0.13.4
 
 - Reimbursement history is now lazy-loaded when its navigation tab is opened instead of being a blocking top-level import.
