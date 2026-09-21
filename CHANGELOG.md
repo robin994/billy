@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.3
+
+- Registered `billy-reimbursement-history.js` as a Home Assistant static path so the Billy panel can import the reimbursement history module successfully.
+- Bumped frontend cache keys to force clients off the broken 0.13.2 module graph.
+
 ## 0.13.2
 
 - Added a dedicated Reimbursement history section with completed/pending status, date/time, payer direction, amount, filters and detailed included items.
