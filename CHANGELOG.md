@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.4
+
+- Reimbursement history is now lazy-loaded when its navigation tab is opened instead of being a blocking top-level import.
+- Failure to load the history module is isolated to that section and no longer causes Home Assistant to reject the entire Billy custom panel.
+- Bumped all frontend cache keys to 0.13.4.
+
 ## 0.13.3
 
 - Registered `billy-reimbursement-history.js` as a Home Assistant static path so the Billy panel can import the reimbursement history module successfully.

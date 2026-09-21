@@ -1,11 +1,10 @@
-import './billy-parser-manager.js?v=0.13.3-r1'
-import './billy-reimbursement-history.js?v=0.13.3-r1'
+import './billy-parser-manager.js?v=0.13.4-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.13.3-r1'
+} from './billy-extra-i18n.js?v=0.13.4-r1'
 
-const BILLY_PANEL_VERSION = '0.13.3'
+const BILLY_PANEL_VERSION = '0.13.4'
 
 const TEXT = {
   en: {
@@ -4288,6 +4287,7 @@ class BillyPanel extends HTMLElement {
     this._hass = null
     this._rendered = false
     this._view = this._viewFromLocation()
+    this._reimbursementHistoryPromise = null
   }
 
   set hass(value) {
@@ -4310,6 +4310,8 @@ class BillyPanel extends HTMLElement {
   connectedCallback() {
     if (!this._rendered) this._render()
     this._syncHass()
+    if (this._view === 'reimbursementArchive')
+      this._ensureReimbursementHistoryModule()
   }
 
   _t(key) {
@@ -4403,6 +4405,7 @@ class BillyPanel extends HTMLElement {
       return
     this._view = view
     this._applyView()
+    if (view === 'reimbursementArchive') this._ensureReimbursementHistoryModule()
     try {
       const url = new URL(window.location.href)
       if (view === 'dashboard') url.searchParams.delete('view')
@@ -4425,6 +4428,31 @@ class BillyPanel extends HTMLElement {
     )) {
       button.classList.toggle('active', button.dataset.view === this._view)
     }
+    this._syncHass()
+  }
+
+  async _ensureReimbursementHistoryModule() {
+    if (customElements.get('billy-reimbursement-history')) {
+      this._syncHass()
+      return
+    }
+    if (!this._reimbursementHistoryPromise) {
+      this._reimbursementHistoryPromise = import(
+        './billy-reimbursement-history.js?v=0.13.4-r1'
+      ).catch((error) => {
+        this._reimbursementHistoryPromise = null
+        const section = this.shadowRoot?.querySelector(
+          '[data-section="reimbursementArchive"]',
+        )
+        if (section) {
+          section.innerHTML =
+            '<div style="padding:24px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);color:var(--error-color,#d32f2f)">Impossibile caricare lo storico rimborsi. Ricarica la pagina dopo aver verificato l’aggiornamento di Billy.</div>'
+        }
+        console.error('Billy reimbursement history module failed to load', error)
+        return null
+      })
+    }
+    await this._reimbursementHistoryPromise
     this._syncHass()
   }
 
