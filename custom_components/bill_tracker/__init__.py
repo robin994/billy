@@ -701,6 +701,7 @@ async def ws_payer_delete(hass, connection, msg):
         vol.Required("from_payer_id"): str,
         vol.Required("to_payer_id"): str,
         vol.Required("amount"): vol.Coerce(float),
+        vol.Optional("line_items", default=[]): [dict],
         vol.Optional("note", default=""): str,
     }
 )
@@ -711,6 +712,7 @@ async def ws_settlement_add(hass, connection, msg):
             from_payer_id=msg["from_payer_id"],
             to_payer_id=msg["to_payer_id"],
             amount=msg["amount"],
+            line_items=msg["line_items"],
             note=msg["note"],
         )
     except (ValueError, RuntimeError) as err:

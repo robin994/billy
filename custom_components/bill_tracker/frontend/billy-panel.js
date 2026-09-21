@@ -1,10 +1,10 @@
-import './billy-parser-manager.js?v=0.12.4-r1'
+import './billy-parser-manager.js?v=0.13.0-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.12.4-r1'
+} from './billy-extra-i18n.js?v=0.13.0-r1'
 
-const BILLY_PANEL_VERSION = '0.12.4'
+const BILLY_PANEL_VERSION = '0.13.0'
 
 const TEXT = {
   en: {
@@ -61,6 +61,16 @@ const TEXT = {
     reimbursementDue: 'Reimbursement due',
     reimbursementHistory: 'Recent reimbursements',
     confirmReimbursement: 'Confirm reimbursement',
+    reimbursementDetails: 'View details',
+    reimbursementDetailsTitle: 'Reimbursement details',
+    reimbursementDetailsHelp:
+      'Choose which items to reimburse now. Unselected items will remain pending for a later payment.',
+    reimbursementSelected: 'Selected',
+    reimbursementPaySelected: 'Pay selected with {method}',
+    reimbursementConfirmSelected: 'Confirm selected',
+    reimbursementNothingSelected: 'Select at least one item.',
+    reimbursementBill: 'Bill',
+    reimbursementRecurring: 'Recurring expense',
     undoReimbursement: 'Undo',
     reimbursementsEven: 'No reimbursements are currently due.',
     payWithMethod: 'Pay with {method}',
@@ -362,6 +372,16 @@ const TEXT = {
     reimbursementDue: 'Rimborso da effettuare',
     reimbursementHistory: 'Rimborsi recenti',
     confirmReimbursement: 'Conferma rimborso',
+    reimbursementDetails: 'Visualizza dettagli',
+    reimbursementDetailsTitle: 'Dettaglio rimborso',
+    reimbursementDetailsHelp:
+      'Scegli quali voci rimborsare adesso. Quelle non selezionate resteranno pendenti per un pagamento successivo.',
+    reimbursementSelected: 'Selezionato',
+    reimbursementPaySelected: 'Paga selezionati con {method}',
+    reimbursementConfirmSelected: 'Conferma selezionati',
+    reimbursementNothingSelected: 'Seleziona almeno una voce.',
+    reimbursementBill: 'Bolletta',
+    reimbursementRecurring: 'Spesa ricorrente',
     undoReimbursement: 'Annulla',
     reimbursementsEven: 'Non ci sono rimborsi da regolare.',
     payWithMethod: 'Paga con {method}',
@@ -683,6 +703,18 @@ function paymentMethodName(hass, method) {
   if (key === 'venmo') return 'Venmo'
   if (key === 'cashapp') return 'Cash App'
   return tFor(hass, 'paymentNotConfigured')
+}
+
+function paymentUrlFor(method, handle, amount, currency = 'EUR') {
+  const key = String(method || '').toLowerCase()
+  const safe = encodeURIComponent(String(handle || '').trim())
+  if (!safe) return ''
+  if (key === 'paypal')
+    return \`https://paypal.me/\${safe}/\${Number(amount || 0).toFixed(2)}\${encodeURIComponent(String(currency || 'EUR').toUpperCase())}\`
+  if (key === 'revolut') return \`https://revolut.me/\${safe}\`
+  if (key === 'venmo') return \`https://venmo.com/u/\${safe}\`
+  if (key === 'cashapp') return \`https://cash.app/$\${safe}\`
+  return ''
 }
 
 function escapeHtml(value) {
@@ -1554,6 +1586,7 @@ class BillyDashboard extends HTMLElement {
           <div class="reimbursement-main"><strong>${escapeHtml(debt.from_name)} → ${escapeHtml(debt.to_name)}</strong><small>${escapeHtml(`${Number(debt.item_count ?? debt.expense_count ?? 0)} ${this._t('reimbursementItems')}`)}</small></div>
           <b>${escapeHtml(this._money(debt.amount))}</b>
           <div class="reimbursement-actions">
+            <button class="secondary small" data-reimbursement-details="1" data-from="${escapeHtml(debt.from_payer_id)}" data-to="${escapeHtml(debt.to_payer_id)}">${escapeHtml(this._t('reimbursementDetails'))}</button>
             ${debt.payment_url ? `<a class="paypal" href="${escapeHtml(debt.payment_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(this._t('payWithMethod', { method: paymentMethodName(this._hass, debt.payment_method) }))}</a>` : `<button class="secondary small" disabled>${escapeHtml(this._t('paymentNotConfigured'))}</button>`}
             <button class="primary small" data-reimburse="1" data-from="${escapeHtml(debt.from_payer_id)}" data-to="${escapeHtml(debt.to_payer_id)}" data-amount="${Number(debt.amount || 0)}">${escapeHtml(this._t('confirmReimbursement'))}</button>
           </div>
@@ -1580,9 +1613,12 @@ class BillyDashboard extends HTMLElement {
     </article>`
   }
 
-  async _confirmReimbursement(button) {
+  async _confirmReimbursement(button, lineItems = null, amountOverride = null) {
     if (!this._hass || !button) return
-    const amount = Number(button.dataset.amount || 0)
+    const amount =
+      amountOverride === null
+        ? Number(button.dataset.amount || 0)
+        : Number(amountOverride || 0)
     const from = button.dataset.from
     const to = button.dataset.to
     const fromName =
@@ -1601,6 +1637,7 @@ class BillyDashboard extends HTMLElement {
         from_payer_id: from,
         to_payer_id: to,
         amount,
+        ...(lineItems ? { line_items: lineItems } : {}),
         note: this._t('reimbursements'),
       })
       await this._load()
@@ -1608,6 +1645,100 @@ class BillyDashboard extends HTMLElement {
       this._error = errorText(this._hass, error)
       this._render()
     }
+  }
+
+  _openReimbursementDetails(button) {
+    const from = String(button?.dataset.from || '')
+    const to = String(button?.dataset.to || '')
+    const debt = (this._data?.debts || []).find(
+      (row) => row.from_payer_id === from && row.to_payer_id === to,
+    )
+    const modal = this.shadowRoot.getElementById('reimbursement-modal')
+    const card = this.shadowRoot.getElementById('reimbursement-modal-card')
+    if (!debt || !modal || !card) return
+    const items = Array.isArray(debt.items) ? debt.items : []
+    card.innerHTML = `
+      <div class="modal-head"><div><h3>${escapeHtml(this._t('reimbursementDetailsTitle'))}</h3><div class="hint">${escapeHtml(`${debt.from_name} → ${debt.to_name}`)}</div></div><button type="button" class="icon-close" id="reimbursement-close">×</button></div>
+      <p class="reimbursement-detail-help">${escapeHtml(this._t('reimbursementDetailsHelp'))}</p>
+      <div class="reimbursement-detail-list">
+        ${items
+          .map(
+            (item, index) => `<label class="reimbursement-detail-row">
+              <input type="checkbox" data-reimbursement-item="${index}" checked>
+              <div><strong>${escapeHtml(item.label || (item.kind === 'recurring' ? this._t('reimbursementRecurring') : this._t('reimbursementBill')))}</strong><small>${escapeHtml(`${item.kind === 'recurring' ? this._t('reimbursementRecurring') : this._t('reimbursementBill')}${item.date ? ` · ${this._date(item.date)}` : ''}`)}</small></div>
+              <b>${escapeHtml(this._money(item.amount))}</b>
+            </label>`,
+          )
+          .join('')}
+      </div>
+      <div class="reimbursement-detail-total"><span>${escapeHtml(this._t('reimbursementSelected'))}</span><strong id="reimbursement-selected-total">${escapeHtml(this._money(debt.amount))}</strong></div>
+      <div class="modal-actions">
+        <button type="button" class="secondary" id="reimbursement-cancel">${escapeHtml(this._t('cancel'))}</button>
+        ${
+          debt.payment_method && debt.payment_handle
+            ? `<a class="paypal" id="reimbursement-pay-selected" target="_blank" rel="noopener noreferrer">${escapeHtml(this._t('reimbursementPaySelected', { method: paymentMethodName(this._hass, debt.payment_method) }))}</a>`
+            : ''
+        }
+        <button type="button" class="primary" id="reimbursement-confirm-selected">${escapeHtml(this._t('reimbursementConfirmSelected'))}</button>
+      </div>`
+    modal.hidden = false
+    const selected = () =>
+      [...card.querySelectorAll('[data-reimbursement-item]:checked')].map(
+        (input) => items[Number(input.dataset.reimbursementItem)],
+      )
+    const refresh = () => {
+      const rows = selected().filter(Boolean)
+      const total = rows.reduce((sum, item) => sum + Number(item.amount || 0), 0)
+      const totalNode = card.querySelector('#reimbursement-selected-total')
+      if (totalNode) totalNode.textContent = this._money(total)
+      const confirmButton = card.querySelector('#reimbursement-confirm-selected')
+      if (confirmButton) confirmButton.disabled = rows.length === 0
+      const pay = card.querySelector('#reimbursement-pay-selected')
+      if (pay) {
+        if (rows.length) {
+          pay.href = paymentUrlFor(
+            debt.payment_method,
+            debt.payment_handle,
+            total,
+            this._data?.currency || 'EUR',
+          )
+          pay.removeAttribute('aria-disabled')
+        } else {
+          pay.removeAttribute('href')
+          pay.setAttribute('aria-disabled', 'true')
+        }
+      }
+      return { rows, total }
+    }
+    const close = () => {
+      modal.hidden = true
+    }
+    card.querySelector('#reimbursement-close')?.addEventListener('click', close)
+    card.querySelector('#reimbursement-cancel')?.addEventListener('click', close)
+    modal.querySelector('.modal-backdrop')?.addEventListener('click', close)
+    for (const input of card.querySelectorAll('[data-reimbursement-item]')) {
+      input.addEventListener('change', refresh)
+    }
+    card
+      .querySelector('#reimbursement-confirm-selected')
+      ?.addEventListener('click', async () => {
+        const { rows, total } = refresh()
+        if (!rows.length) return
+        const proxy = {
+          dataset: {
+            from: debt.from_payer_id,
+            to: debt.to_payer_id,
+            amount: String(total),
+          },
+        }
+        close()
+        await this._confirmReimbursement(
+          proxy,
+          rows.map((item) => ({ kind: item.kind, id: item.id })),
+          total,
+        )
+      })
+    refresh()
   }
 
   async _undoReimbursement(id) {
@@ -1729,6 +1860,7 @@ class BillyDashboard extends HTMLElement {
         ${this._recurringOverview()}
         ${this._reimbursements()}
       </div>
+      <div class="modal" id="reimbursement-modal" hidden><div class="modal-backdrop"></div><div class="modal-card" id="reimbursement-modal-card"></div></div>
     `
     for (const button of this.shadowRoot.querySelectorAll('[data-nav]')) {
       button.addEventListener('click', () => {
@@ -1743,6 +1875,9 @@ class BillyDashboard extends HTMLElement {
     }
     for (const button of this.shadowRoot.querySelectorAll('[data-reimburse]')) {
       button.addEventListener('click', () => this._confirmReimbursement(button))
+    }
+    for (const button of this.shadowRoot.querySelectorAll('[data-reimbursement-details]')) {
+      button.addEventListener('click', () => this._openReimbursementDetails(button))
     }
     for (const button of this.shadowRoot.querySelectorAll(
       '[data-undo-reimbursement]',
@@ -1814,6 +1949,7 @@ class BillyDashboard extends HTMLElement {
   _styles() {
     return `
       :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}.dashboard{display:flex;flex-direction:column;gap:20px}.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding:4px 2px 2px}.hero h1{font-size:30px;line-height:1.1;margin:0 0 6px}.hero p{margin:0;color:var(--secondary-text-color);font-size:14px}.hero-actions{display:flex;gap:10px}.primary,.secondary,.error-card button{appearance:none;border-radius:10px;padding:10px 15px;font:inherit;font-weight:650;cursor:pointer}.primary{border:1px solid var(--primary-color);background:var(--primary-color);color:var(--text-primary-color,#fff)}.secondary,.error-card button{border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.kpi{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:16px;display:flex;gap:12px;align-items:center;min-width:0}.kpi ha-icon{color:var(--primary-color);--mdc-icon-size:24px}.kpi div{display:flex;flex-direction:column;gap:4px;min-width:0}.kpi span{font-size:12px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpi strong{font-size:20px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.panel{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:16px;padding:18px;min-width:0}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.panel-head h2{font-size:18px;margin:0}.panel-head p{font-size:12px;color:var(--secondary-text-color);margin:4px 0 0}.grid-main{display:grid;grid-template-columns:minmax(0,2.1fr) minmax(300px,.9fr);gap:16px}.grid-bottom{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(380px,1.5fr) minmax(260px,.7fr);gap:16px}.chart-filter-combobox{position:relative;width:min(360px,100%);margin-bottom:11px}.chart-filter-combobox summary{list-style:none;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;min-height:48px;padding:8px 11px;border:1px solid var(--divider-color);border-radius:11px;background:var(--secondary-background-color);cursor:pointer;user-select:none}.chart-filter-combobox summary::-webkit-details-marker{display:none}.chart-filter-combobox[open] summary{border-color:color-mix(in srgb,var(--primary-color) 45%,var(--divider-color));box-shadow:0 0 0 2px color-mix(in srgb,var(--primary-color) 10%,transparent)}.chart-filter-summary-main{display:flex;align-items:center;gap:9px;min-width:0}.chart-filter-summary-main>ha-icon{color:var(--primary-color);--mdc-icon-size:20px}.chart-filter-summary-main>span{display:flex;flex-direction:column;gap:1px;min-width:0}.chart-filter-summary-main small{font-size:10px;color:var(--secondary-text-color)}.chart-filter-summary-main strong{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.chart-filter-count{font-size:11px;font-weight:700;padding:3px 7px;border-radius:999px;background:var(--card-background-color);color:var(--secondary-text-color)}.chart-filter-chevron{--mdc-icon-size:20px;color:var(--secondary-text-color);transition:transform .15s ease}.chart-filter-combobox[open] .chart-filter-chevron{transform:rotate(180deg)}.chart-filter-dropdown{position:absolute;z-index:20;top:calc(100% + 6px);left:0;width:min(440px,calc(100vw - 48px));max-height:360px;overflow:auto;padding:11px;border:1px solid var(--divider-color);border-radius:12px;background:var(--card-background-color);box-shadow:0 12px 30px rgba(0,0,0,.18)}.chart-filter-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:9px;margin-bottom:9px;border-bottom:1px solid var(--divider-color);font-size:11px}.chart-filter-head>strong{font-size:12px}.chart-filter-head>div{display:flex;gap:9px}.text-button{appearance:none;border:0;background:transparent;color:var(--primary-color);padding:2px 0;font:inherit;font-size:11px;font-weight:650;cursor:pointer}.chart-filter-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.chart-filter-groups fieldset{border:0;padding:0;margin:0;min-width:0}.chart-filter-groups legend{font-size:10px;font-weight:700;color:var(--secondary-text-color);margin-bottom:6px}.chart-option-list{display:flex;flex-direction:column;gap:3px}.chart-option{position:relative;display:grid!important;grid-template-columns:20px 10px minmax(0,1fr);align-items:center;gap:8px!important;min-height:34px;padding:5px 7px;border-radius:8px;color:var(--primary-text-color)!important;font-size:12px!important;cursor:pointer;user-select:none}.chart-option:hover{background:var(--secondary-background-color)}.chart-option input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}.chart-option:has(input:focus-visible){outline:2px solid var(--primary-color);outline-offset:1px}.chart-option-box{display:grid;place-items:center;width:18px;height:18px;border:1px solid var(--divider-color);border-radius:5px;background:var(--card-background-color);color:transparent;font-size:11px;font-weight:800}.chart-option.active .chart-option-box{border-color:var(--option-color);background:var(--option-color);color:#fff}.chart-option i{width:9px;height:9px;border-radius:50%;background:var(--option-color)}.chart-controls{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:9px;margin-bottom:12px}.chart-controls label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--secondary-text-color)}.chart-controls select{height:38px;border:1px solid var(--divider-color);border-radius:9px;padding:0 9px;background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit}.chart-controls select:disabled{opacity:.5}.chart-scroll{overflow:auto hidden}.chart-scroll svg{display:block;width:100%;min-width:720px;height:auto}.grid{stroke:var(--divider-color);stroke-width:1}.axis,.month{fill:var(--secondary-text-color);font-size:11px}.forecast-label{font-style:italic}.forecast-segment,.forecast-separated{opacity:.4;stroke:currentColor;stroke-width:1;stroke-dasharray:4 3}.recurring-segment{stroke:var(--card-background-color);stroke-width:.6}.separate-bar{stroke:var(--card-background-color);stroke-width:.6}.legend{display:flex;gap:10px;color:var(--secondary-text-color);font-size:11px;flex-wrap:wrap;margin-bottom:8px}.legend span{display:flex;align-items:center;gap:5px}.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}.forecast-dot{background:color-mix(in srgb,var(--primary-color) 25%,transparent);border:1px dashed var(--primary-color)}.breakdown-list{display:flex;flex-direction:column;gap:14px}.breakdown-row{display:flex;flex-direction:column;gap:7px}.breakdown-head{display:flex;justify-content:space-between;gap:12px;font-size:13px}.breakdown-head>span{display:flex;align-items:center;gap:8px;min-width:0}.breakdown-head>span>span{display:flex;flex-direction:column;gap:1px;min-width:0}.breakdown-head small{font-size:10px;color:var(--secondary-text-color);font-weight:400}.breakdown-head i{width:10px;height:10px;border-radius:50%;flex:none}.breakdown-head strong{font-size:13px}.meter{height:7px;border-radius:99px;background:var(--secondary-background-color);overflow:hidden}.meter span{display:block;height:100%;border-radius:99px}.compact-list,.recent-list{display:flex;flex-direction:column}.compact-row,.recent-row{border-top:1px solid var(--divider-color);padding:12px 0}.compact-row:first-child,.recent-row:first-child{border-top:0;padding-top:2px}.compact-row{display:flex;justify-content:space-between;align-items:center;gap:16px}.compact-row div{display:flex;flex-direction:column;gap:3px}.compact-row small,.recent-row small{color:var(--secondary-text-color)}.recent-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:12px}.recent-row>i{width:10px;height:36px;border-radius:99px}.recent-main,.recent-value{display:flex;flex-direction:column;gap:3px}.recent-value{align-items:flex-end}.pill{font-size:10px;padding:2px 7px;border-radius:999px;background:var(--secondary-background-color);color:var(--secondary-text-color)}.pill.ok{color:var(--success-color,#2e7d32);background:color-mix(in srgb,var(--success-color,#2e7d32) 12%,transparent)}.pill.warn{color:var(--warning-color,#f9a825);background:color-mix(in srgb,var(--warning-color,#f9a825) 12%,transparent)}.parser-health{display:flex;flex-direction:column}.parser-stat{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--divider-color);font-size:13px}.parser-stat strong{font-size:18px}.attention{color:var(--warning-color,#f9a825)!important}.parser-message{font-size:12px;color:var(--secondary-text-color);padding:14px 0}.full{width:100%;margin-top:auto}.recurring-overview-panel{display:flex;flex-direction:column;gap:10px}.recurring-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.recurring-stats>div{padding:12px;border-radius:12px;background:var(--secondary-background-color);display:flex;flex-direction:column;gap:4px}.recurring-stats span{font-size:11px;color:var(--secondary-text-color)}.recurring-stats strong{font-size:17px}.recurring-overview-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.recurring-overview-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid var(--divider-color);border-radius:11px}.recurring-overview-row>div{display:flex;flex-direction:column;gap:3px;min-width:0}.recurring-overview-row small{color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.reimbursements-panel{display:flex;flex-direction:column;gap:4px}.reimbursement-list{display:flex;flex-direction:column}.reimbursement-row{display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:16px;align-items:center;padding:13px 0;border-top:1px solid var(--divider-color)}.reimbursement-row:first-child{border-top:0}.reimbursement-main{display:flex;flex-direction:column;gap:3px}.reimbursement-main small,.history-row small{color:var(--secondary-text-color)}.reimbursement-actions{display:flex;gap:8px;align-items:center}.small{padding:7px 10px;font-size:12px}.paypal{display:inline-flex;align-items:center;justify-content:center;border-radius:10px;padding:8px 11px;background:#0070ba;color:white;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap}.reimbursement-empty{padding:16px;border-radius:12px;background:color-mix(in srgb,var(--success-color,#2e7d32) 10%,transparent);color:var(--success-color,#2e7d32)}.reimbursement-history{margin-top:14px;padding-top:14px;border-top:1px solid var(--divider-color)}.reimbursement-history h3{font-size:13px;margin:0 0 8px;color:var(--secondary-text-color)}.history-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:8px 0}.history-row>div{display:flex;flex-direction:column;gap:2px}.empty{padding:28px 8px;text-align:center;color:var(--secondary-text-color);font-size:13px}.loading,.error-card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:24px}.loading{text-align:center;color:var(--secondary-text-color)}.error-card p{color:var(--secondary-text-color)}
+      .modal[hidden]{display:none}.modal{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px}.modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}.modal-card{position:relative;z-index:1;width:min(760px,100%);max-height:min(90vh,900px);overflow:auto;background:var(--card-background-color);border-radius:16px;box-shadow:0 18px 60px rgba(0,0,0,.35);padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px}.modal-head h3{font-size:20px;margin:0}.hint,.reimbursement-detail-help{font-size:12px;color:var(--secondary-text-color)}.reimbursement-detail-help{margin:0 0 14px;line-height:1.45}.icon-close{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font-size:28px;cursor:pointer}.reimbursement-detail-list{display:flex;flex-direction:column;border-top:1px solid var(--divider-color)}.reimbursement-detail-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--divider-color);cursor:pointer}.reimbursement-detail-row input{width:18px;height:18px;accent-color:var(--primary-color)}.reimbursement-detail-row>div{display:flex;flex-direction:column;gap:3px;min-width:0}.reimbursement-detail-row small{color:var(--secondary-text-color)}.reimbursement-detail-total{display:flex;justify-content:space-between;align-items:center;padding:15px 0;font-size:14px}.reimbursement-detail-total strong{font-size:19px}.modal-actions{display:flex;justify-content:flex-end;gap:9px;flex-wrap:wrap;padding-top:4px}.modal-actions [disabled],.paypal[aria-disabled="true"]{opacity:.5;pointer-events:none}
       @media(max-width:1180px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-main{grid-template-columns:1fr}.grid-bottom{grid-template-columns:1fr 1fr}.parser-health{grid-column:1/-1}}
       @media(max-width:720px){.recurring-stats{grid-template-columns:1fr 1fr}.reimbursement-row,.history-row{grid-template-columns:1fr}.reimbursement-actions{flex-wrap:wrap}.hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%}.hero-actions button{flex:1}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-bottom{grid-template-columns:1fr}.parser-health{grid-column:auto}.panel{padding:14px}.chart-filter-groups{grid-template-columns:1fr}.chart-filter-head{align-items:flex-start;flex-direction:column}.chart-controls{grid-template-columns:1fr 1fr}.legend{display:none}.hero h1{font-size:25px}}
     `

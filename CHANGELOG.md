@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0
+
+- Added a reimbursement detail view showing the individual bills and recurring charges included in each user-to-user reimbursement.
+- Added partial reimbursements: users can select which items to settle now while leaving the remaining items pending for a later payment.
+- Payment-provider links in the detail view now follow the selected subtotal, while the existing full reimbursement action remains available.
+- Settlement records now persist itemized reimbursement references so already-settled items are not offered again.
+
 ## 0.12.4
 
 - Official parser installation now promotes a same-ID local custom parser automatically instead of failing with `A custom parser with this ID already exists`.

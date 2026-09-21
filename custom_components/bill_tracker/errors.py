@@ -49,6 +49,7 @@ ERROR_MESSAGES: dict[str, str] = {
     "settlement_invalid_payers": "Invalid payers.",
     "settlement_none_open": "There is no open settlement between these payers.",
     "settlement_partial_unsupported": "For now Billy can only record the full open settlement.",
+    "settlement_invalid_selection": "The selected reimbursement items are no longer valid.",
     "settlement_no_expense": "No expense is linked to this settlement.",
     # Recurring expenses
     "recurring_name_required": "The recurring expense name is required.",

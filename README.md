@@ -4,11 +4,17 @@
 
 # Billy
 
-## Billy 0.12.4
+## Billy 0.13.0
 
 Billy keeps the Lovelace `custom:bill-tracker-card`, while `/billy` is the full-size application.
 
 Billy is a Home Assistant bill manager focused on household expenses: provider bills, recurring costs, forecasts, payment tracking, shared expenses, reimbursements and automatic bill parsing from email.
+
+### What's new in 0.13.0
+
+- **Itemized user reimbursements** — the Overview now exposes a “View details” action for each reimbursement, showing the individual bills and recurring charges that compose the amount.
+- **Partial reimbursements** — select only the items to reimburse now; unselected items remain pending for a future payment, while the existing full reimbursement action still settles the complete balance.
+- **Selection-aware payment links** — PayPal, Revolut, Venmo and Cash App actions in the detail view use the currently selected reimbursement amount.
 
 ### What's new in 0.12.4
 

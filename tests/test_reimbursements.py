@@ -65,6 +65,15 @@ def test_reimbursements_are_independent_from_provider_bill_payment():
     assert debts[0]["from_payer_id"] == "b"
     assert debts[0]["to_payer_id"] == "a"
     assert debts[0]["amount"] == 50.0
+    assert debts[0]["items"] == [
+        {
+            "kind": "expense",
+            "id": "bill-1",
+            "amount": 50.0,
+            "label": "Bill",
+            "date": "",
+        }
+    ]
     assert debts[0]["payment_method"] == "paypal"
     assert debts[0]["payment_url"] == "https://paypal.me/payerA/50.00EUR"
 
@@ -129,6 +138,9 @@ def test_due_recurring_occurrence_uses_the_same_split_debt_logic():
     assert debts[0]["recurring_count"] == 1
     assert debts[0]["item_count"] == 1
     assert debts[0]["recurring_occurrence_ids"] == ["rec-1@2026-08-15"]
+    assert debts[0]["items"][0]["kind"] == "recurring"
+    assert debts[0]["items"][0]["id"] == "rec-1@2026-08-15"
+    assert debts[0]["items"][0]["amount"] == 20.0
 
     manager.recurring_occurrences[0]["reimbursement_manual_done"] = True
     assert manager._pairwise_debts() == []
@@ -140,6 +152,71 @@ def test_manual_reimbursement_state_is_migrated_and_kept_separate_from_paid():
     assert '"reimbursement_manual_at"' in source
     assert 'if bool(item.get("reimbursement_manual_done", False)):' in source
     assert 'item["paid"]' not in source[source.index("    async def async_set_reimbursement_done("):source.index("    async def async_delete(")]
+
+
+def test_itemized_settlement_only_removes_selected_reimbursement_items():
+    manager = DummyManager()
+    manager._pairwise_debts = MethodType(_load_pairwise_debts(), manager)
+    manager.expenses = [
+        {
+            "id": "bill-small",
+            "payer_id": "a",
+            "amount": 40.0,
+            "split": [
+                {"payer_id": "a", "percentage": 50.0},
+                {"payer_id": "b", "percentage": 50.0},
+            ],
+        },
+        {
+            "id": "bill-large",
+            "payer_id": "a",
+            "amount": 60.0,
+            "split": [
+                {"payer_id": "a", "percentage": 50.0},
+                {"payer_id": "b", "percentage": 50.0},
+            ],
+        },
+    ]
+    before = manager._pairwise_debts()
+    assert before[0]["amount"] == 50.0
+    assert [(row["id"], row["amount"]) for row in before[0]["items"]] == [
+        ("bill-small", 20.0),
+        ("bill-large", 30.0),
+    ]
+
+    manager.settlements = [
+        {
+            "from_payer_id": "b",
+            "to_payer_id": "a",
+            "amount": 20.0,
+            "expense_ids": ["bill-small"],
+            "line_items": [
+                {"kind": "expense", "id": "bill-small", "amount": 20.0}
+            ],
+        }
+    ]
+    after = manager._pairwise_debts()
+    assert after[0]["amount"] == 30.0
+    assert after[0]["expense_ids"] == ["bill-large"]
+    assert after[0]["item_count"] == 1
+    assert [(row["id"], row["amount"]) for row in after[0]["items"]] == [
+        ("bill-large", 30.0)
+    ]
+
+
+def test_partial_settlement_contract_accepts_selected_line_items():
+    source = MANAGER.read_text(encoding="utf-8")
+    init = (ROOT / "custom_components" / "bill_tracker" / "__init__.py").read_text(
+        encoding="utf-8"
+    )
+    settlement = source[
+        source.index("    async def async_add_settlement("):
+        source.index("    async def async_delete_settlement(")
+    ]
+    assert 'line_items: list[dict[str, Any]] | None = None' in settlement
+    assert '"settlement_invalid_selection"' in settlement
+    assert '"line_items": [' in settlement
+    assert 'vol.Optional("line_items", default=[]): [dict]' in init
 
 
 def test_payers_support_multiple_payment_methods_with_legacy_paypal_migration():

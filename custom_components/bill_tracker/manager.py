@@ -1142,9 +1142,10 @@ class BillTrackerManager:
         from_payer_id: str,
         to_payer_id: str,
         amount: float,
+        line_items: list[dict[str, Any]] | None = None,
         note: str = "",
     ) -> dict[str, Any]:
-        """Record one complete reimbursement between payers.
+        """Record one reimbursement between payers.
 
         Bill payment and payer reimbursements are deliberately independent.
         ``expense.paid`` means the utility/provider bill itself has actually
@@ -1168,12 +1169,40 @@ class BillTrackerManager:
             raise billy_error("settlement_none_open")
 
         outstanding = float(debt["amount"])
-        if abs(float(amount) - outstanding) > 0.01:
-            raise billy_error("settlement_partial_unsupported")
+        available_items = {
+            (str(item.get("kind") or ""), str(item.get("id") or "")): item
+            for item in debt.get("items", [])
+            if item.get("kind") and item.get("id")
+        }
+        selected_items: list[dict[str, Any]]
+        if line_items:
+            selected_items = []
+            seen: set[tuple[str, str]] = set()
+            for raw in line_items:
+                key = (str(raw.get("kind") or ""), str(raw.get("id") or ""))
+                item = available_items.get(key)
+                if item is None or key in seen:
+                    raise billy_error("settlement_invalid_selection")
+                seen.add(key)
+                selected_items.append(dict(item))
+            selected_amount = round(
+                sum(float(item.get("amount", 0.0) or 0.0) for item in selected_items),
+                2,
+            )
+            if selected_amount <= 0 or abs(float(amount) - selected_amount) > 0.01:
+                raise billy_error("settlement_invalid_selection")
+        else:
+            if abs(float(amount) - outstanding) > 0.01:
+                raise billy_error("settlement_partial_unsupported")
+            selected_items = [dict(item) for item in debt.get("items", [])]
 
-        expense_ids = [str(x) for x in debt.get("expense_ids", []) if x]
+        expense_ids = [
+            str(item["id"]) for item in selected_items if item.get("kind") == "expense"
+        ]
         recurring_occurrence_ids = [
-            str(x) for x in debt.get("recurring_occurrence_ids", []) if x
+            str(item["id"])
+            for item in selected_items
+            if item.get("kind") == "recurring"
         ]
         if not expense_ids and not recurring_occurrence_ids:
             raise billy_error("settlement_no_expense")
@@ -1182,9 +1211,17 @@ class BillTrackerManager:
             "id": uuid4().hex,
             "from_payer_id": from_payer_id,
             "to_payer_id": to_payer_id,
-            "amount": round(outstanding, 2),
+            "amount": round(float(amount), 2),
             "expense_ids": expense_ids,
             "recurring_occurrence_ids": recurring_occurrence_ids,
+            "line_items": [
+                {
+                    "kind": str(row.get("kind") or ""),
+                    "id": str(row.get("id") or ""),
+                    "amount": round(float(row.get("amount", 0.0) or 0.0), 2),
+                }
+                for row in selected_items
+            ],
             "note": note.strip(),
             "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
@@ -1208,6 +1245,7 @@ class BillTrackerManager:
         gross: dict[tuple[str, str], float] = defaultdict(float)
         expense_ids: dict[tuple[str, str], set[str]] = defaultdict(set)
         recurring_occurrence_ids: dict[tuple[str, str], set[str]] = defaultdict(set)
+        obligations: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
 
         # Every split bill creates a reimbursement obligation towards the payer
         # who advanced the provider bill. Whether that provider bill is paid is
@@ -1234,6 +1272,28 @@ class BillTrackerManager:
                 gross[key] += share
                 if item_id:
                     expense_ids[key].add(item_id)
+                    category = (
+                        self.category(str(item.get("category_id") or ""))
+                        if hasattr(self, "category")
+                        else None
+                    )
+                    obligations[key].append(
+                        {
+                            "kind": "expense",
+                            "id": item_id,
+                            "amount": share,
+                            "label": str(
+                                item.get("provider")
+                                or (category.get("name") if category else "")
+                                or "Bill"
+                            ),
+                            "date": str(
+                                item.get("due_date")
+                                or item.get("payment_date")
+                                or ""
+                            ),
+                        }
+                    )
 
         # Due recurring charges use the same split logic as normal bills. Each
         # materialized occurrence keeps an amount/payer/split snapshot so later
@@ -1260,6 +1320,24 @@ class BillTrackerManager:
                 gross[key] += share
                 if occurrence_id:
                     recurring_occurrence_ids[key].add(occurrence_id)
+                    recurring = (
+                        self.recurring_expense(str(item.get("recurring_id") or ""))
+                        if hasattr(self, "recurring_expense")
+                        else None
+                    )
+                    obligations[key].append(
+                        {
+                            "kind": "recurring",
+                            "id": occurrence_id,
+                            "amount": share,
+                            "label": str(
+                                (recurring or {}).get("name")
+                                or item.get("name")
+                                or "Recurring expense"
+                            ),
+                            "date": str(item.get("due_date") or ""),
+                        }
+                    )
 
         # Recorded reimbursements reduce only the participant-to-participant
         # balance. They never mutate ``expense.paid``.
@@ -1269,7 +1347,34 @@ class BillTrackerManager:
             target = str(item.get("to_payer_id") or "")
             amount = float(item.get("amount", 0.0) or 0.0)
             if source and target and source != target and amount > 0:
-                settled[(source, target)] += amount
+                key = (source, target)
+                settled[key] += amount
+                recorded_items = [
+                    (
+                        str(row.get("kind") or ""),
+                        str(row.get("id") or ""),
+                        float(row.get("amount", 0.0) or 0.0),
+                    )
+                    for row in item.get("line_items", [])
+                    if row.get("kind") and row.get("id")
+                ]
+                if recorded_items:
+                    by_key = {
+                        (str(row.get("kind") or ""), str(row.get("id") or "")): row
+                        for row in obligations.get(key, [])
+                    }
+                    for kind, item_id, recorded_amount in recorded_items:
+                        obligation = by_key.get((kind, item_id))
+                        if obligation is None:
+                            continue
+                        applied = min(
+                            max(0.0, recorded_amount),
+                            max(0.0, float(obligation.get("amount", 0.0) or 0.0)),
+                        )
+                        obligation["amount"] = max(
+                            0.0,
+                            float(obligation.get("amount", 0.0) or 0.0) - applied,
+                        )
 
         payer_ids = [str(x["id"]) for x in self.payers]
         result: list[dict[str, Any]] = []
@@ -1304,6 +1409,35 @@ class BillTrackerManager:
                     | recurring_occurrence_ids.get((right, left), set())
                 )
                 payment = self._preferred_payment(target, value, self.currency)
+                current_key = (from_id, to_id)
+                detail_rows: list[dict[str, Any]] = []
+                remaining_value = value
+                for obligation in obligations.get(current_key, []):
+                    if remaining_value <= 0.009:
+                        break
+                    obligation_amount = max(
+                        0.0, float(obligation.get("amount", 0.0) or 0.0)
+                    )
+                    if obligation_amount <= 0.009:
+                        continue
+                    applied = min(obligation_amount, remaining_value)
+                    detail_rows.append(
+                        {
+                            **obligation,
+                            "amount": round(applied, 2),
+                        }
+                    )
+                    remaining_value -= applied
+                detail_expense_ids = [
+                    str(row["id"])
+                    for row in detail_rows
+                    if row.get("kind") == "expense"
+                ]
+                detail_recurring_ids = [
+                    str(row["id"])
+                    for row in detail_rows
+                    if row.get("kind") == "recurring"
+                ]
                 result.append(
                     {
                         "from_payer_id": from_id,
@@ -1311,11 +1445,12 @@ class BillTrackerManager:
                         "to_payer_id": to_id,
                         "to_name": str(target.get("name", "")),
                         "amount": round(value, 2),
-                        "expense_ids": linked,
-                        "expense_count": len(linked),
-                        "recurring_occurrence_ids": recurring_linked,
-                        "recurring_count": len(recurring_linked),
-                        "item_count": len(linked) + len(recurring_linked),
+                        "expense_ids": detail_expense_ids,
+                        "expense_count": len(detail_expense_ids),
+                        "recurring_occurrence_ids": detail_recurring_ids,
+                        "recurring_count": len(detail_recurring_ids),
+                        "item_count": len(detail_rows),
+                        "items": detail_rows,
                         "payment_method": payment["method"],
                         "payment_handle": payment["handle"],
                         "payment_url": payment["url"],
@@ -2809,6 +2944,19 @@ class BillTrackerManager:
                 "expense_ids": [str(x) for x in raw.get("expense_ids", []) if x],
                 "recurring_occurrence_ids": [
                     str(x) for x in raw.get("recurring_occurrence_ids", []) if x
+                ],
+                "line_items": [
+                    {
+                        "kind": str(x.get("kind") or ""),
+                        "id": str(x.get("id") or ""),
+                        "amount": round(float(x.get("amount", 0.0) or 0.0), 2),
+                    }
+                    for x in raw.get("line_items", [])
+                    if isinstance(x, dict)
+                    and x.get("kind")
+                    and x.get("id")
+                    and isfinite(float(x.get("amount", 0.0) or 0.0))
+                    and float(x.get("amount", 0.0) or 0.0) > 0
                 ],
                 "note": str(raw.get("note", "")).strip(),
                 "created_at": str(raw.get("created_at") or datetime.now().astimezone().isoformat(timespec="seconds")),
