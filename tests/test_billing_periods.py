@@ -109,3 +109,54 @@ def test_cashflow_month_falls_back_to_billing_month_without_payment_date():
     item = {"paid_year": 2026, "paid_month": 7, "payment_date": None}
 
     assert manager._expense_cashflow_month(item) == (2026, 7)
+
+
+def test_forecast_history_ignores_excluded_bill_amount_but_keeps_cadence_anchor():
+    manager = _manager_harness("_forecast_category_history")
+    category = {
+        "id": "electricity",
+        "interval_months": 1,
+        "enabled": True,
+        "exclude_from_estimates": False,
+    }
+    manager.expenses = [
+        {
+            "category_id": "electricity",
+            "paid_year": 2026,
+            "paid_month": 1,
+            "amount": 100.0,
+            "exclude_from_estimates": False,
+        },
+        {
+            "category_id": "electricity",
+            "paid_year": 2026,
+            "paid_month": 2,
+            "amount": 999.0,
+            "exclude_from_estimates": True,
+        },
+    ]
+
+    history, estimate_history = manager._forecast_category_history(category)
+
+    assert [row["paid_month"] for row in history] == [1, 2]
+    assert [row["paid_month"] for row in estimate_history] == [1]
+
+
+def test_bill_type_can_be_disabled_for_estimates_without_being_disabled():
+    manager = _manager_harness("_forecast_category_history")
+    manager.expenses = [
+        {
+            "category_id": "electricity",
+            "paid_year": 2026,
+            "paid_month": 1,
+            "amount": 100.0,
+        }
+    ]
+    category = {
+        "id": "electricity",
+        "interval_months": 1,
+        "enabled": True,
+        "exclude_from_estimates": True,
+    }
+
+    assert manager._forecast_category_history(category) == ([], [])

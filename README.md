@@ -4,11 +4,16 @@
 
 # Billy
 
-## Billy 0.13.5
+## Billy 0.13.6
 
 Billy keeps the Lovelace `custom:bill-tracker-card`, while `/billy` is the full-size application.
 
 Billy is a Home Assistant bill manager focused on household expenses: provider bills, recurring costs, forecasts, payment tracking, shared expenses, reimbursements and automatic bill parsing from email.
+
+### What's new in 0.13.6
+
+- **Exclude from estimates** — individual bills and entire bill types can now be kept in history/tracking while being excluded from future forecast calculations.
+- **Forecast-safe cadence tracking** — excluding an individual bill removes its amount from the estimate without losing its billing month as the cadence anchor for the next expected bill.
 
 ### What's new in 0.13.5
 

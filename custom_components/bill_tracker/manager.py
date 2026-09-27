@@ -248,6 +248,7 @@ class BillTrackerManager:
         name: str,
         interval_months: int,
         enabled: bool = True,
+        exclude_from_estimates: bool = False,
         default_payer_id: str | None = None,
         color: str | None = None,
         consumption_unit: str = "",
@@ -264,6 +265,7 @@ class BillTrackerManager:
             "name": name,
             "interval_months": int(interval_months),
             "enabled": bool(enabled),
+            "exclude_from_estimates": bool(exclude_from_estimates),
             "default_payer_id": payer_id,
             "color": self._normalize_color(color, len(self.categories)),
             "consumption_unit": self._normalize_consumption_unit(consumption_unit),
@@ -281,6 +283,7 @@ class BillTrackerManager:
         name: str,
         interval_months: int,
         enabled: bool,
+        exclude_from_estimates: bool | None = None,
         default_payer_id: str | None = None,
         color: str | None = None,
         consumption_unit: str = "",
@@ -301,6 +304,11 @@ class BillTrackerManager:
                 "name": name,
                 "interval_months": int(interval_months),
                 "enabled": bool(enabled),
+                "exclude_from_estimates": (
+                    bool(exclude_from_estimates)
+                    if exclude_from_estimates is not None
+                    else bool(item.get("exclude_from_estimates", False))
+                ),
                 "default_payer_id": payer_id,
                 "color": self._normalize_color(color or item.get("color"), 0),
                 "consumption_unit": self._normalize_consumption_unit(consumption_unit),
@@ -342,6 +350,7 @@ class BillTrackerManager:
         payer_id: str | None = None,
         split: list[dict[str, Any]] | None = None,
         paid: bool = False,
+        exclude_from_estimates: bool = False,
         payment_date: str | None = None,
         due_date: str | None = None,        provider: str | None = None,
         contract: str | None = None,
@@ -387,6 +396,7 @@ class BillTrackerManager:
             "reimbursement_manual_done": False,
             "reimbursement_manual_at": None,
             "paid": bool(paid),
+            "exclude_from_estimates": bool(exclude_from_estimates),
             "payment_date": normalized_payment_date,
             "due_date": normalized_due_date,
             "provider": self._normalize_optional_text(category.get("default_provider", "") if provider is None else provider, 100),
@@ -420,6 +430,7 @@ class BillTrackerManager:
         payer_id: str | None = None,
         split: list[dict[str, Any]] | None = None,
         paid: bool | None = None,
+        exclude_from_estimates: bool | None = None,
         payment_date: str | None = None,
         due_date: str | None = None,
         provider: str | None = None,
@@ -504,6 +515,11 @@ class BillTrackerManager:
                         None if reimbursement_changed else item.get("reimbursement_manual_at")
                     ),
                     "paid": resolved_paid,
+                    "exclude_from_estimates": (
+                        bool(exclude_from_estimates)
+                        if exclude_from_estimates is not None
+                        else bool(item.get("exclude_from_estimates", False))
+                    ),
                     "payment_date": resolved_payment_date,
                     "due_date": normalized_due_date if due_date is not None else item.get("due_date"),
                     "provider": self._normalize_optional_text(provider, 100) if provider is not None else str(item.get("provider", "")),
@@ -794,6 +810,7 @@ class BillTrackerManager:
                 "name": name,
                 "interval_months": interval,
                 "enabled": True,
+                "exclude_from_estimates": False,
                 "default_payer_id": None,
                 "color": self._normalize_color(None, len(self.categories)),
                 "consumption_unit": self._normalize_consumption_unit(consumption_unit),
@@ -1687,16 +1704,11 @@ class BillTrackerManager:
             lambda: defaultdict(float)
         )
         for category in self.categories:
-            if not category.get("enabled", True):
-                continue
             cat_id = str(category["id"])
-            history = sorted(
-                [x for x in self.expenses if x.get("category_id") == cat_id],
-                key=lambda x: (int(x["paid_year"]), int(x["paid_month"])),
-            )
-            if not history:
+            history, estimate_history = self._forecast_category_history(category)
+            if not history or not estimate_history:
                 continue
-            estimate = self._estimate_category_amount(history)
+            estimate = self._estimate_category_amount(estimate_history)
             interval = int(category["interval_months"])
             due = self._add_months(
                 int(history[-1]["paid_year"]), int(history[-1]["paid_month"]), interval
@@ -1768,15 +1780,10 @@ class BillTrackerManager:
         y, m = self._next_month(today.year, today.month)
         recurring_bills: dict[str, float] = {}
         for category in self.categories:
-            if not category.get("enabled", True):
-                continue
             cat_id = str(category["id"])
-            history = sorted(
-                [x for x in self.expenses if x.get("category_id") == cat_id],
-                key=lambda x: (int(x["paid_year"]), int(x["paid_month"])),
-            )
-            if history:
-                recurring_bills[cat_id] = self._estimate_category_amount(history) / max(
+            _history, estimate_history = self._forecast_category_history(category)
+            if estimate_history:
+                recurring_bills[cat_id] = self._estimate_category_amount(estimate_history) / max(
                     1, int(category["interval_months"])
                 )
 
@@ -2703,6 +2710,24 @@ class BillTrackerManager:
             base += correction
         return round(max(0.0, base), 2)
 
+    def _forecast_category_history(
+        self, category: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return cadence history and amount-estimation history for a bill type."""
+        if not category.get("enabled", True) or bool(
+            category.get("exclude_from_estimates", False)
+        ):
+            return [], []
+        category_id = str(category.get("id", ""))
+        history = sorted(
+            [x for x in self.expenses if str(x.get("category_id", "")) == category_id],
+            key=lambda x: (int(x["paid_year"]), int(x["paid_month"])),
+        )
+        estimate_history = [
+            item for item in history if not bool(item.get("exclude_from_estimates", False))
+        ]
+        return history, estimate_history
+
     @staticmethod
     def _expected_period_days(interval_months: int) -> int:
         return max(1, round(30.4375 * max(1, int(interval_months))))
@@ -2891,6 +2916,7 @@ class BillTrackerManager:
                 "name": name,
                 "interval_months": interval,
                 "enabled": bool(raw.get("enabled", True)),
+                "exclude_from_estimates": bool(raw.get("exclude_from_estimates", False)),
                 "default_payer_id": default_payer,
                 "color": self._normalize_color(raw.get("color"), index),
                 "consumption_unit": self._normalize_consumption_unit(
@@ -2927,7 +2953,7 @@ class BillTrackerManager:
             if category is None:
                 category = {
                     "id": uuid4().hex, "name": legacy_name or "Altro", "interval_months": 1,
-                    "enabled": True, "default_payer_id": None,
+                    "enabled": True, "exclude_from_estimates": False, "default_payer_id": None,
                     "color": self._normalize_color(None, len(self.categories)),
                     "consumption_unit": self._default_consumption_unit("", legacy_name or "Altro"),
                     "default_provider": "",
@@ -3016,6 +3042,7 @@ class BillTrackerManager:
                     str(item.get("reimbursement_manual_at")) if item.get("reimbursement_manual_at") else None
                 ),
                 "paid": bool(item.get("paid", False)),
+                "exclude_from_estimates": bool(item.get("exclude_from_estimates", False)),
                 "payment_date": payment_date,
                 "due_date": due_date,
                 "provider": self._normalize_optional_text(item.get("provider", ""), 100),

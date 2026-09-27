@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.6
+
+- Added `Exclude from estimates` for individual bills and bill types without disabling normal history or tracking.
+- Excluded bill amounts no longer influence forecast and normalized-forecast calculations, while individual excluded bills still preserve the latest billing cadence anchor.
+- Added visible exclusion badges and controls in the Billy bill and bill-type interfaces.
+- Bumped frontend cache keys to 0.13.6.
+
 ## 0.13.5
 
 - Fixed the lazy-loaded reimbursement-history element losing its Home Assistant context because a pre-upgrade `hass` property shadowed the component setter.
