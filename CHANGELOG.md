@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.7
+
+- Fixed exported/report bill-type labels after renaming a built-in category.
+- Fixed the Consumption field not refreshing when the bill type changes while adding a new bill.
+- Added help text clarifying that Consumption is analytics data and does not affect user splits.
+- Bumped frontend cache keys to 0.13.7.
+
 ## 0.13.6
 
 - Added `Exclude from estimates` for individual bills and bill types without disabling normal history or tracking.

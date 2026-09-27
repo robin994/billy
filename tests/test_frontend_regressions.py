@@ -39,12 +39,12 @@ def test_frontend_and_manifest_use_rewrite_version():
     implementation = (FRONTEND / "bill-tracker-card-impl.js").read_text(encoding="utf-8")
     manifest = (ROOT / "custom_components" / "bill_tracker" / "manifest.json").read_text(encoding="utf-8")
     const = (ROOT / "custom_components" / "bill_tracker" / "const.py").read_text(encoding="utf-8")
-    assert "BILLY_FRONTEND_VERSION = '0.13.6'" in bootstrap
-    assert "BILL_TRACKER_VERSION = '0.13.6'" in implementation
-    assert "./bill-tracker-i18n.js?v=0.13.6-r1" in implementation
-    assert '"version": "0.13.6"' in manifest
-    assert 'FRONTEND_VERSION = "0.13.6"' in const
-    assert 'FRONTEND_CACHE_VERSION = "0.13.6-r1"' in const
+    assert "BILLY_FRONTEND_VERSION = '0.13.7'" in bootstrap
+    assert "BILL_TRACKER_VERSION = '0.13.7'" in implementation
+    assert "./bill-tracker-i18n.js?v=0.13.7-r1" in implementation
+    assert '"version": "0.13.7"' in manifest
+    assert 'FRONTEND_VERSION = "0.13.7"' in const
+    assert 'FRONTEND_CACHE_VERSION = "0.13.7-r1"' in const
 
 
 def test_settings_exposes_rejected_parser_imports_and_restore_action():
@@ -104,7 +104,7 @@ def test_billy_sidebar_panel_keeps_card_and_parser_manager():
     panel = (FRONTEND / "billy-panel.js").read_text(encoding="utf-8")
     init = (ROOT / "custom_components" / "bill_tracker" / "__init__.py").read_text(encoding="utf-8")
     for token in (
-        "billy-parser-manager.js?v=0.13.6-r1",
+        "billy-parser-manager.js?v=0.13.7-r1",
         '<billy-dashboard id="dashboard">',
         '<billy-bills id="bills-panel">',
         '<billy-recurring id="recurring-panel">',
@@ -247,7 +247,7 @@ def test_billy_panel_has_dedicated_reimbursement_history_view():
     for token in (
         "_ensureReimbursementHistoryModule()",
         "this._reimbursementHistoryPromise = import(",
-        "'./billy-reimbursement-history.js?v=0.13.6-r1'",
+        "'./billy-reimbursement-history.js?v=0.13.7-r1'",
         "Billy reimbursement history module failed to load",
         "!customElements.get('billy-reimbursement-history')",
         "Object.prototype.hasOwnProperty.call(element, 'hass')",
@@ -432,8 +432,8 @@ def test_new_billy_frontends_support_all_shipped_languages():
 
     assert "BILLY_PANEL_EXTRA_TEXT" in panel
     assert "BILLY_PARSER_EXTRA_TEXT" in parser
-    assert "billy-extra-i18n.js?v=0.13.6-r1" in panel
-    assert "billy-extra-i18n.js?v=0.13.6-r1" in parser
+    assert "billy-extra-i18n.js?v=0.13.7-r1" in panel
+    assert "billy-extra-i18n.js?v=0.13.7-r1" in parser
     assert "['en', 'it', 'es', 'fr', 'de', 'pt']" in panel
     assert "['en', 'it', 'es', 'fr', 'de', 'pt']" in parser
     for language in ("es", "fr", "de", "pt"):
@@ -557,6 +557,21 @@ def test_bill_and_bill_type_can_be_excluded_from_estimates():
     assert 'category.get("exclude_from_estimates", False)' in manager
     assert 'item.get("exclude_from_estimates", False)' in manager
     assert "_forecast_category_history(category)" in manager
+
+
+def test_new_bill_consumption_updates_when_bill_type_changes():
+    panel = (FRONTEND / "billy-panel.js").read_text(encoding="utf-8")
+
+    for token in (
+        "data-consumption-label",
+        "const consumption = card.querySelector('[name=\"consumption\"]')",
+        "const unit = String(category.consumption_unit || '')",
+        "consumption.disabled = !unit",
+        "consumptionLabel.textContent = `${this._t('consumption')}${unit ? ` (${unit})` : ''}`",
+        "consumptionHelp",
+        "It does not affect how a bill is split between users.",
+    ):
+        assert token in panel
 
 
 def test_overview_chart_uses_independent_checkbox_filters():

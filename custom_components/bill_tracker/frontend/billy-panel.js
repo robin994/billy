@@ -1,10 +1,10 @@
-import './billy-parser-manager.js?v=0.13.6-r1'
+import './billy-parser-manager.js?v=0.13.7-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.13.6-r1'
+} from './billy-extra-i18n.js?v=0.13.7-r1'
 
-const BILLY_PANEL_VERSION = '0.13.6'
+const BILLY_PANEL_VERSION = '0.13.7'
 
 const TEXT = {
   en: {
@@ -158,6 +158,8 @@ const TEXT = {
     shortPeriod: 'Short period · {days} days',
     longPeriod: 'Long period · {days} days',
     consumption: 'Consumption',
+    consumptionHelp:
+      'Optional usage data for analysis and cost/usage trends. It does not affect how a bill is split between users.',
     note: 'Notes',
     split: 'Split between users',
     splitHelp:
@@ -495,6 +497,8 @@ const TEXT = {
     shortPeriod: 'Periodo breve · {days} giorni',
     longPeriod: 'Periodo lungo · {days} giorni',
     consumption: 'Consumo',
+    consumptionHelp:
+      'Dato opzionale per analisi e trend costo/consumo. Non modifica la divisione della bolletta tra utenti.',
     note: 'Note',
     split: 'Divisione tra utenti',
     splitHelp:
@@ -2599,7 +2603,7 @@ class BillyBills extends HTMLElement {
         <label><span>${escapeHtml(this._t('exactPeriodEnd'))}</span><input name="period_end_date" type="date" value="${escapeHtml(row?.period_end_date || '')}"></label>
         <label><span>${escapeHtml(this._t('dueDate'))}</span><input name="due_date" type="date" value="${escapeHtml(row?.due_date || '')}"></label>
         <label><span>${escapeHtml(this._t('paymentDate'))}</span><input name="payment_date" type="date" value="${escapeHtml(row?.payment_date || '')}"></label>
-        <label><span>${escapeHtml(`${this._t('consumption')}${unit ? ` (${unit})` : ''}`)}</span><input name="consumption" type="number" min="0" step="any" value="${escapeHtml(row?.consumption ?? '')}" ${unit ? '' : 'disabled'}></label>
+        <label><span data-consumption-label>${escapeHtml(`${this._t('consumption')}${unit ? ` (${unit})` : ''}`)}</span><input name="consumption" type="number" min="0" step="any" value="${escapeHtml(row?.consumption ?? '')}" ${unit ? '' : 'disabled'}><small class="field-help">${escapeHtml(this._t('consumptionHelp'))}</small></label>
         <label class="check"><input name="paid" type="checkbox" ${row?.paid ? 'checked' : ''}><span>${escapeHtml(this._t('providerPaid'))}</span></label>
         <label class="check span2"><input name="exclude_from_estimates" type="checkbox" ${row?.exclude_from_estimates ? 'checked' : ''}><span><strong>${escapeHtml(this._t('excludeFromEstimates'))}</strong><small>${escapeHtml(this._t('excludeFromEstimatesHelp'))}</small></span></label>
         <label class="span2"><span>${escapeHtml(this._t('note'))}</span><textarea name="note" rows="3">${escapeHtml(row?.note || '')}</textarea></label>
@@ -2657,10 +2661,16 @@ class BillyBills extends HTMLElement {
     const provider = card.querySelector('[name="provider"]')
     const contract = card.querySelector('[name="contract"]')
     const payer = card.querySelector('[name="payer_id"]')
+    const consumption = card.querySelector('[name="consumption"]')
+    const consumptionLabel = card.querySelector('[data-consumption-label]')
+    const unit = String(category.consumption_unit || '')
     if (provider) provider.value = category.default_provider || ''
     if (contract) contract.value = category.default_contract || ''
     if (payer && category.default_payer_id)
       payer.value = category.default_payer_id
+    if (consumption) consumption.disabled = !unit
+    if (consumptionLabel)
+      consumptionLabel.textContent = `${this._t('consumption')}${unit ? ` (${unit})` : ''}`
   }
 
   _updateSplitTotal(card) {
@@ -2874,7 +2884,7 @@ class BillyBills extends HTMLElement {
   _styles() {
     return `
       :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}.bills-page{display:flex;flex-direction:column;gap:18px}.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px}.hero h1{font-size:30px;margin:0 0 6px}.hero p{margin:0;color:var(--secondary-text-color);font-size:14px}.primary,.secondary,.bill-actions button,.pager button,.error-card button{appearance:none;border-radius:10px;padding:9px 13px;font:inherit;font-weight:650;cursor:pointer}.primary{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--primary-color);background:var(--primary-color);color:var(--text-primary-color,#fff)}.secondary,.bill-actions button,.pager button,.error-card button{border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}button:disabled{opacity:.45;cursor:default}.review-card{background:var(--card-background-color);border:1px solid color-mix(in srgb,var(--warning-color,#f9a825) 40%,var(--divider-color));border-radius:16px;overflow:hidden}.review-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:16px 18px;background:color-mix(in srgb,var(--warning-color,#f9a825) 7%,transparent)}.review-head h2{margin:0 0 4px;font-size:17px}.review-head p{margin:0;color:var(--secondary-text-color);font-size:12px}.review-count{min-width:28px;height:28px;border-radius:999px;display:grid;place-items:center;background:var(--warning-color,#f9a825);color:#fff;font-weight:700}.review-row{display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:14px;align-items:center;padding:13px 18px;border-top:1px solid var(--divider-color)}.review-main{display:flex;flex-direction:column;gap:3px;min-width:0}.review-main small{color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.review-actions{display:flex;gap:7px}.toolbar{display:grid;grid-template-columns:minmax(240px,1fr) repeat(4,minmax(145px,auto));gap:10px}.toolbar select,.search{height:44px;border:1px solid var(--divider-color);border-radius:11px;background:var(--card-background-color);color:var(--primary-text-color)}.toolbar select{padding:0 10px;font:inherit}.search{display:flex;align-items:center;gap:8px;padding:0 12px}.search ha-icon{color:var(--secondary-text-color);--mdc-icon-size:19px}.search input{flex:1;border:0;outline:0;background:transparent;color:inherit;font:inherit;min-width:0}.list-card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:16px;overflow:hidden}.bill-row{display:grid;grid-template-columns:38px 8px minmax(220px,1.4fr) minmax(155px,.65fr) auto auto auto;gap:13px;align-items:center;padding:13px 16px;border-top:1px solid var(--divider-color)}.bill-row:first-child{border-top:0}.category-color{width:8px;height:42px;border-radius:99px}.bill-main,.bill-month{display:flex;flex-direction:column;gap:3px;min-width:0}.bill-main strong,.bill-main small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bill-main small,.bill-month small{font-size:11px;color:var(--secondary-text-color)}.bill-month span{font-size:13px;text-transform:capitalize}.bill-amount{font-size:15px;text-align:right;white-space:nowrap}.state{font-size:11px;padding:4px 8px;border-radius:999px;white-space:nowrap}.state.paid{color:var(--success-color,#2e7d32);background:color-mix(in srgb,var(--success-color,#2e7d32) 11%,transparent)}.state.unpaid{color:var(--warning-color,#f9a825);background:color-mix(in srgb,var(--warning-color,#f9a825) 12%,transparent)}.bill-state{display:flex;flex-direction:column;align-items:flex-start;gap:6px}.reimbursement-line{display:flex;align-items:center;gap:6px}.state.reimbursement.done{color:var(--success-color,#2e7d32);background:color-mix(in srgb,var(--success-color,#2e7d32) 11%,transparent)}.state.reimbursement.pending{color:var(--warning-color,#f9a825);background:color-mix(in srgb,var(--warning-color,#f9a825) 12%,transparent)}.state.reimbursement.partial{color:var(--primary-color);background:color-mix(in srgb,var(--primary-color) 11%,transparent)}.state.reimbursement.none{color:var(--secondary-text-color);background:var(--secondary-background-color)}.reimbursement-toggle{position:relative;width:22px;height:22px;display:grid;place-items:center;cursor:pointer}.reimbursement-toggle input{position:absolute;opacity:0}.reimbursement-toggle span{width:18px;height:18px;border:2px solid var(--divider-color);border-radius:5px;display:grid;place-items:center}.reimbursement-toggle input:checked+span{border-color:var(--success-color,#2e7d32);background:var(--success-color,#2e7d32)}.reimbursement-toggle input:checked+span:after{content:'✓';color:white;font-size:11px;font-weight:800}.reimbursement-toggle input:disabled+span{opacity:.55;cursor:not-allowed}.bill-actions{display:flex;gap:6px}.bill-actions button{padding:6px 9px;font-size:11px}.bill-actions .danger{color:var(--error-color,#d32f2f)}.paid-toggle{position:relative;width:32px;height:32px;display:grid;place-items:center;cursor:pointer}.paid-toggle input{position:absolute;opacity:0}.paid-toggle span{width:23px;height:23px;border:2px solid var(--divider-color);border-radius:50%;display:grid;place-items:center}.paid-toggle input:checked+span{border-color:var(--success-color,#2e7d32);background:var(--success-color,#2e7d32)}.paid-toggle input:checked+span:after{content:'✓';color:white;font-size:14px;font-weight:800}.pager{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--divider-color);color:var(--secondary-text-color);font-size:12px}.pager div{display:flex;gap:7px}.pager button{padding:6px 9px;font-size:11px}.empty{padding:50px 16px;text-align:center;color:var(--secondary-text-color)}.notice{padding:11px 14px;border-radius:10px}.notice.error{background:color-mix(in srgb,var(--error-color,#d32f2f) 10%,var(--card-background-color));color:var(--error-color,#d32f2f);border:1px solid color-mix(in srgb,var(--error-color,#d32f2f) 28%,transparent)}.loading,.error-card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:24px}.modal[hidden]{display:none}.modal{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px}.modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}.modal-card{position:relative;z-index:1;width:min(850px,100%);max-height:min(90vh,900px);overflow:auto;background:var(--card-background-color);border-radius:16px;box-shadow:0 18px 60px rgba(0,0,0,.35);padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.modal-head h3{font-size:20px;margin:0}.icon-close{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font-size:28px;cursor:pointer}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.form-grid label{display:flex;flex-direction:column;gap:6px}.form-grid label>span,.split-title small{font-size:12px;color:var(--secondary-text-color)}.form-grid input,.form-grid select,.form-grid textarea{width:100%;min-height:42px;border:1px solid var(--divider-color);border-radius:9px;background:var(--secondary-background-color);color:var(--primary-text-color);padding:8px 11px;font:inherit;outline:none}.form-grid textarea{resize:vertical}.form-grid .check{flex-direction:row;align-items:center;padding-top:20px}.form-grid .check input{width:18px;min-height:18px;accent-color:var(--primary-color)}.span2{grid-column:1/-1}.split-box{border:1px solid var(--divider-color);border-radius:12px;padding:14px}.split-title{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}.split-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.split-total{text-align:right;margin-top:8px;font-size:12px;color:var(--success-color,#2e7d32)}.split-total.bad{color:var(--error-color,#d32f2f)}.modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:20px;padding-top:16px;border-top:1px solid var(--divider-color)}
-      .estimate-excluded{color:var(--warning-color,#f9a825)!important}.form-grid .check>span{display:flex;flex-direction:column;gap:2px}.form-grid .check>span strong{color:var(--primary-text-color);font-size:12px}.form-grid .check>span small{font-size:11px;line-height:1.35;color:var(--secondary-text-color)}.hero-actions{display:flex;gap:9px;flex-wrap:wrap}.hero-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px}.export-help{margin:0 0 16px;color:var(--secondary-text-color);font-size:13px;line-height:1.45}
+      .estimate-excluded{color:var(--warning-color,#f9a825)!important}.field-help{font-size:11px;line-height:1.35;color:var(--secondary-text-color)}.form-grid .check>span{display:flex;flex-direction:column;gap:2px}.form-grid .check>span strong{color:var(--primary-text-color);font-size:12px}.form-grid .check>span small{font-size:11px;line-height:1.35;color:var(--secondary-text-color)}.hero-actions{display:flex;gap:9px;flex-wrap:wrap}.hero-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px}.export-help{margin:0 0 16px;color:var(--secondary-text-color);font-size:13px;line-height:1.45}
       @media(max-width:1100px){.toolbar{grid-template-columns:1fr 1fr}.bill-row{grid-template-columns:34px 8px minmax(180px,1fr) auto auto}.bill-month{grid-column:3}.bill-state{grid-column:4;grid-row:1}.bill-amount{grid-column:4;grid-row:2}.bill-actions{grid-column:5;grid-row:1 / span 2}}
       @media(max-width:720px){.hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%}.hero-actions button{flex:1}.review-row{grid-template-columns:1fr}.review-actions{flex-wrap:wrap}.toolbar{grid-template-columns:1fr}.bill-row{grid-template-columns:32px 8px minmax(0,1fr) auto;padding:12px}.bill-month{grid-column:3}.bill-state{grid-column:3}.bill-amount{grid-column:3;text-align:left}.bill-actions{grid-column:4;grid-row:1 / span 4;flex-direction:column}.form-grid,.split-grid{grid-template-columns:1fr}.span2{grid-column:auto}.modal{padding:8px}.modal-card{padding:16px}}
     `
@@ -4451,7 +4461,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.13.6-r1'
+        './billy-reimbursement-history.js?v=0.13.7-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(

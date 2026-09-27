@@ -4,11 +4,16 @@
 
 # Billy
 
-## Billy 0.13.6
+## Billy 0.13.7
 
 Billy keeps the Lovelace `custom:bill-tracker-card`, while `/billy` is the full-size application.
 
 Billy is a Home Assistant bill manager focused on household expenses: provider bills, recurring costs, forecasts, payment tracking, shared expenses, reimbursements and automatic bill parsing from email.
+
+### What's new in 0.13.7
+
+- **Renamed bill types in exports** — XLSX/PDF reports now respect a custom bill type name instead of falling back to the built-in label associated with its internal ID.
+- **Consumption field refresh** — when creating a bill, changing its bill type now immediately enables/disables Consumption and updates its unit. Consumption is clarified as analytics data and does not affect payer splits.
 
 ### What's new in 0.13.6
 

@@ -151,7 +151,17 @@ def category_label(language: Any, category: dict[str, Any] | None, fallback: str
         return fallback
     lang = normalize_language(language)
     category_id = str(category.get("id", ""))
-    return CATEGORY_LABELS.get(lang, CATEGORY_LABELS["en"]).get(category_id, str(category.get("name") or fallback or category_id))
+    stored_name = str(category.get("name") or "").strip()
+    localized_names = {
+        labels[category_id]
+        for labels in CATEGORY_LABELS.values()
+        if category_id in labels
+    }
+    if stored_name and stored_name not in localized_names:
+        return stored_name
+    return CATEGORY_LABELS.get(lang, CATEGORY_LABELS["en"]).get(
+        category_id, stored_name or fallback or category_id
+    )
 
 
 def report_labels(language: Any) -> dict[str, str]:
