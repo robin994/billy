@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.8
+
+- Fixed custom parser drafts resetting to the template or saved YAML on ordinary Home Assistant state updates (issue #11).
+- Preserved category, enabled/automatic-import options, email test data, focus and selection when the parser editor needs to rerender.
+- Fixed editing existing custom parsers being rejected at `expected_parser_id` by declaring it on the custom-save WebSocket command.
+- Kept parser IDs immutable during edits and prevented late export/test/save responses from affecting a newly opened editor.
+- Added executable frontend and WebSocket regression tests and a CI workflow for both test suites.
+- Bumped frontend cache keys to 0.13.8.
+
 ## 0.13.7
 
 - Fixed exported/report bill-type labels after renaming a built-in category.

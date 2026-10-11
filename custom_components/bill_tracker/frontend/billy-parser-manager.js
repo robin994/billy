@@ -1,9 +1,9 @@
 import {
   BILLY_ERROR_TEXT,
   BILLY_PARSER_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.13.7-r1'
+} from './billy-extra-i18n.js?v=0.13.8-r1'
 
-const BILLY_PARSER_MANAGER_VERSION = '0.13.7'
+const BILLY_PARSER_MANAGER_VERSION = '0.13.8'
 
 const TEXT = {
   en: {
@@ -358,12 +358,20 @@ class BillyParserManagerPanel extends HTMLElement {
     this._sort = 'country'
     this._dialog = null
     this._customEditor = null
+    this._renderedCustomEditor = null
   }
 
   set hass(value) {
+    const firstAssignment = !this._hass
+    const connectionChanged =
+      this._hass?.connection && this._hass.connection !== value?.connection
+    const languageChanged = languageOf(this._hass) !== languageOf(value)
     this._hass = value
-    if (!this._data && !this._loading) this._load()
-    else this._render()
+    // Ordinary HA state changes do not change this panel's cached data. Keep
+    // the form DOM intact so typing, selection, and open dropdowns survive.
+    if ((!this._data || connectionChanged) && !this._loading)
+      this._load({ refreshIfEmpty: !this._data })
+    else if (firstAssignment || languageChanged) this._render()
   }
 
   // Installed Billy version reported by the backend; falls back to this bundle's.
@@ -679,6 +687,23 @@ class BillyParserManagerPanel extends HTMLElement {
 
   _render() {
     if (!this.shadowRoot) return
+    const sameEditor =
+      this._customEditor && this._customEditor === this._renderedCustomEditor
+    const active = sameEditor ? this.shadowRoot.activeElement : null
+    const focus = active?.id?.startsWith('custom-')
+      ? {
+          id: active.id,
+          start: active.selectionStart,
+          end: active.selectionEnd,
+          direction: active.selectionDirection,
+          scrollTop: active.scrollTop,
+          scrollLeft: active.scrollLeft,
+        }
+      : null
+    const editorScroll = sameEditor
+      ? this.shadowRoot.querySelector('.custom-editor-modal')?.scrollTop || 0
+      : 0
+    if (sameEditor) this._syncCustomEditorForm()
     const rows = this._filteredRows()
     const counts = this._data?.catalog?.counts || {}
     const updatedAt = this._data?.catalog?.updated_at
@@ -775,7 +800,18 @@ class BillyParserManagerPanel extends HTMLElement {
         ${this._customEditor ? this._renderCustomEditor() : this._dialog ? this._renderDialog() : ''}
       </div>`
 
+    this._renderedCustomEditor = this._customEditor
     this._wireEvents()
+    const restored = focus && this.shadowRoot.getElementById(focus.id)
+    if (restored) {
+      restored.focus({ preventScroll: true })
+      if (typeof focus.start === 'number')
+        restored.setSelectionRange(focus.start, focus.end, focus.direction)
+      restored.scrollTop = focus.scrollTop
+      restored.scrollLeft = focus.scrollLeft
+    }
+    const modal = this.shadowRoot.querySelector('.custom-editor-modal')
+    if (sameEditor && modal) modal.scrollTop = editorScroll
   }
 
   _renderList() {
@@ -869,6 +905,14 @@ class BillyParserManagerPanel extends HTMLElement {
     this.shadowRoot
       .getElementById('custom-editor-test')
       ?.addEventListener('click', () => this._testCustomEditor())
+    for (const id of [
+      'custom-yaml', 'custom-category', 'custom-enabled', 'custom-auto',
+      'custom-test-sender', 'custom-test-subject', 'custom-test-email',
+    ]) {
+      const field = this.shadowRoot.getElementById(id)
+      field?.addEventListener('input', () => this._syncCustomEditorForm())
+      field?.addEventListener('change', () => this._syncCustomEditorForm())
+    }
   }
 
   _defaultCustomTemplate() {
@@ -943,11 +987,15 @@ fields:
       categoryId: defaultCategory,
       enabled: row ? row.enabled !== false : true,
       autoImport: row ? Boolean(row.auto_import) : false,
+      sender: '',
+      subject: '',
+      emailText: '',
       loading: Boolean(row),
       testing: false,
       result: null,
       error: '',
     }
+    const editor = this._customEditor
     this._render()
     if (!row) return
     try {
@@ -957,13 +1005,12 @@ fields:
       })
       const raw = atob(exported.content_base64 || '')
       const bytes = Uint8Array.from(raw, (char) => char.charCodeAt(0))
-      this._customEditor.content = new TextDecoder().decode(bytes)
-      this._customEditor.loading = false
+      editor.content = new TextDecoder().decode(bytes)
     } catch (error) {
-      this._customEditor.loading = false
-      this._customEditor.error = `${this._t('actionError')}: ${errorText(this._hass, error)}`
+      editor.error = `${this._t('actionError')}: ${errorText(this._hass, error)}`
     }
-    this._render()
+    editor.loading = false
+    if (this._customEditor === editor) this._render()
   }
 
   _closeCustomEditor() {
@@ -1017,9 +1064,9 @@ fields:
                 <label class="check"><input id="custom-enabled" type="checkbox" ${editor.enabled ? 'checked' : ''}><span>${this._t('enabled')}</span></label>
                 <label class="check"><input id="custom-auto" type="checkbox" ${editor.autoImport ? 'checked' : ''}><span>${this._t('autoImport')}</span></label>
                 <h3>${this._t('testData')}</h3>
-                <label class="modal-field"><span>${this._t('testSender')}</span><input id="custom-test-sender" type="text" placeholder="billing@example.com"></label>
-                <label class="modal-field"><span>${this._t('testSubject')}</span><input id="custom-test-subject" type="text"></label>
-                <label class="modal-field"><span>${this._t('testEmail')}</span><textarea id="custom-test-email" class="test-email"></textarea></label>
+                <label class="modal-field"><span>${this._t('testSender')}</span><input id="custom-test-sender" type="text" value="${esc(editor.sender)}" placeholder="billing@example.com"></label>
+                <label class="modal-field"><span>${this._t('testSubject')}</span><input id="custom-test-subject" type="text" value="${esc(editor.subject)}"></label>
+                <label class="modal-field"><span>${this._t('testEmail')}</span><textarea id="custom-test-email" class="test-email">${esc(editor.emailText)}</textarea></label>
                 <button id="custom-editor-test" class="secondary" ${editor.testing ? 'disabled' : ''}>${editor.testing ? this._t('validating') : this._t('validateTest')}</button>
                 ${result}
               </aside>
@@ -1041,32 +1088,34 @@ fields:
       content:
         this.shadowRoot.getElementById('custom-yaml')?.value ?? editor.content,
       categoryId:
-        this.shadowRoot.getElementById('custom-category')?.value ||
+        this.shadowRoot.getElementById('custom-category')?.value ??
         editor.categoryId,
-      enabled: Boolean(
-        this.shadowRoot.getElementById('custom-enabled')?.checked,
-      ),
-      autoImport: Boolean(
-        this.shadowRoot.getElementById('custom-auto')?.checked,
-      ),
-      sender: this.shadowRoot.getElementById('custom-test-sender')?.value || '',
+      enabled:
+        this.shadowRoot.getElementById('custom-enabled')?.checked ?? editor.enabled,
+      autoImport:
+        this.shadowRoot.getElementById('custom-auto')?.checked ?? editor.autoImport,
+      sender:
+        this.shadowRoot.getElementById('custom-test-sender')?.value ?? editor.sender,
       subject:
-        this.shadowRoot.getElementById('custom-test-subject')?.value || '',
+        this.shadowRoot.getElementById('custom-test-subject')?.value ?? editor.subject,
       emailText:
-        this.shadowRoot.getElementById('custom-test-email')?.value || '',
+        this.shadowRoot.getElementById('custom-test-email')?.value ?? editor.emailText,
     }
+  }
+
+  _syncCustomEditorForm() {
+    const form = this._readCustomEditorForm()
+    if (form) Object.assign(this._customEditor, form)
   }
 
   async _testCustomEditor() {
     const editor = this._customEditor
     const form = this._readCustomEditorForm()
-    if (!editor || !form) return
-    editor.content = form.content
-    editor.categoryId = form.categoryId
-    editor.enabled = form.enabled
-    editor.autoImport = form.autoImport
+    if (!editor || !form || editor.testing) return
+    Object.assign(editor, form)
     editor.testing = true
     editor.result = null
+    this._render()
     try {
       const result = await this._hass.callWS({
         type: 'bill_tracker/parser/test',
@@ -1087,7 +1136,7 @@ fields:
       editor.result = { ok: false, message: errorText(this._hass, error) }
     } finally {
       editor.testing = false
-      this._render()
+      if (this._customEditor === editor) this._render()
     }
   }
 
@@ -1095,10 +1144,7 @@ fields:
     const editor = this._customEditor
     const form = this._readCustomEditorForm()
     if (!editor || !form) return
-    editor.content = form.content
-    editor.categoryId = form.categoryId
-    editor.enabled = form.enabled
-    editor.autoImport = form.autoImport
+    Object.assign(editor, form)
     try {
       await this._hass.callWS({
         type: 'bill_tracker/parser/custom/save',
@@ -1108,11 +1154,11 @@ fields:
         auto_import: form.autoImport,
         ...(editor.originalId ? { expected_parser_id: editor.originalId } : {}),
       })
-      this._customEditor = null
+      if (this._customEditor === editor) this._customEditor = null
       await this._load({ refreshIfEmpty: false })
     } catch (error) {
       editor.error = `${this._t('yamlInvalid')}: ${errorText(this._hass, error)}`
-      this._render()
+      if (this._customEditor === editor) this._render()
     }
   }
 

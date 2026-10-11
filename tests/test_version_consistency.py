@@ -42,6 +42,15 @@ def test_every_version_constant_matches_the_manifest():
     assert not mismatches, f"expected {expected}, got mismatches: {mismatches}"
 
 
+def test_static_frontend_imports_use_the_current_cache_version():
+    const = (COMPONENT / "const.py").read_text(encoding="utf-8")
+    expected = re.search(r'FRONTEND_CACHE_VERSION = "([^"]+)"', const).group(1)
+    for path in FRONTEND.glob("*.js"):
+        source = path.read_text(encoding="utf-8")
+        for version in re.findall(r"\.js\?v=(\d+\.\d+\.\d+(?:-[\w.-]+)?)", source):
+            assert version == expected, f"{path.name} imports cache {version}, expected {expected}"
+
+
 def test_backend_reports_the_installed_version_to_the_frontend():
     init = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
     # version is derived from the loaded integration (manifest), not a constant

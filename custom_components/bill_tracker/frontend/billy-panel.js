@@ -1,10 +1,10 @@
-import './billy-parser-manager.js?v=0.13.7-r1'
+import './billy-parser-manager.js?v=0.13.8-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.13.7-r1'
+} from './billy-extra-i18n.js?v=0.13.8-r1'
 
-const BILLY_PANEL_VERSION = '0.13.7'
+const BILLY_PANEL_VERSION = '0.13.8'
 
 const TEXT = {
   en: {
@@ -4461,7 +4461,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.13.7-r1'
+        './billy-reimbursement-history.js?v=0.13.8-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(
