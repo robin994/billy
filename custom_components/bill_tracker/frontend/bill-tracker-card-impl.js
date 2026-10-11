@@ -3,8 +3,8 @@ import {
   billyLanguage,
   billyLocale,
   billyT,
-} from './bill-tracker-i18n.js?v=0.13.8-r1'
-import { BILLY_ERROR_TEXT } from './billy-extra-i18n.js?v=0.13.8-r1'
+} from './bill-tracker-i18n.js?v=0.14.0-r1'
+import { BILLY_ERROR_TEXT, BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.14.0-r1'
 
 // Resolve a websocket/runtime error to a message in the user's language via its
 // stable `code`, falling back to the English text the backend sends with it.
@@ -18,7 +18,7 @@ function billyErrorText(hass, error, fallback = '') {
   return String(error?.message || fallback || error)
 }
 
-const BILL_TRACKER_VERSION = '0.13.8'
+const BILL_TRACKER_VERSION = '0.14.0'
 
 class BillTrackerCard extends HTMLElement {
   constructor() {
@@ -159,6 +159,8 @@ class BillTrackerCard extends HTMLElement {
   }
 
   _t(key, vars = {}) {
+    const placeholderText = BILLY_PLACEHOLDER_TEXT[this._language()]?.[key]
+    if (placeholderText) return placeholderText
     return billyT(this._hass, key, vars)
   }
 
@@ -1363,7 +1365,7 @@ class BillTrackerCard extends HTMLElement {
                 this._t(x.paid ? 'bill_paid' : 'bill_unpaid'),
               )}" aria-label="${this._escape(
                 this._t(x.paid ? 'bill_paid' : 'bill_unpaid'),
-              )}">✓</span> ${this._money(x.amount)}</div>
+              )}">✓</span> ${this._money(x.amount)}${x.is_placeholder ? `<div class="bill-dates">${this._escape(this._t('placeholderBill'))}</div>` : ''}</div>
               <div class="actions"><button class="icon edit" type="button" data-id="${this._escape(
                 x.id,
               )}" title="${this._escape(
@@ -1550,7 +1552,7 @@ class BillTrackerCard extends HTMLElement {
                       ? `<div class="note">${this._escape(x.note)}</div>`
                       : ''
                   }</div>
-                  <div class="amount">${this._money(x.amount)}</div>
+                  <div class="amount">${this._money(x.amount)}${x.is_placeholder ? `<div class="bill-dates">${this._escape(this._t('placeholderBill'))}</div>` : ''}</div>
                   <div class="actions"><button class="icon edit" type="button" data-id="${this._escape(
                     x.id,
                   )}" title="${this._escape(
@@ -2323,6 +2325,15 @@ class BillTrackerCard extends HTMLElement {
     if (!this._hass || !input) return
     const id = input.dataset.id
     const paid = Boolean(input.checked)
+    const row = (this._data?.expenses || []).find((item) => item.id === id)
+    if (paid && row?.is_placeholder) {
+      input.checked = false
+      this._startEdit(id)
+      const paidStatus = this.shadowRoot.getElementById('paid-status')
+      if (paidStatus) paidStatus.checked = true
+      this.shadowRoot.getElementById('amount')?.focus()
+      return
+    }
     input.disabled = true
     try {
       await this._hass.callWS({

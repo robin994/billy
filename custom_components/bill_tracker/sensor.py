@@ -78,4 +78,8 @@ class BillTrackerSensor(SensorEntity):
         """Expose compact summary data without duplicating the full database in Recorder."""
         summary = self.manager.summary()
         summary["automatic_import_pending"] = len(self.parser_manager.imports_snapshot("pending", 500))
+        unpaid = self.manager.current_month_unpaid_bills()
+        summary["current_month_unpaid_bills"] = unpaid
+        summary["current_month_unpaid_count"] = len(unpaid)
+        summary["current_month_unpaid_total"] = round(sum(x["amount"] for x in unpaid), 2)
         return summary

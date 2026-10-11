@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DEFAULT_CATEGORIES,
@@ -77,6 +78,7 @@ class BillTrackerManager:
         changed |= self._migrate_recurring_expenses()
         changed |= self._migrate_recurring_occurrences()
         changed |= self._sync_recurring_occurrences()
+        changed |= self._sync_bill_placeholders()
         self._sort()
 
         if changed or data.get("schema_version") != STORAGE_SCHEMA_VERSION:
@@ -254,6 +256,7 @@ class BillTrackerManager:
         consumption_unit: str = "",
         default_provider: str = "",
         default_contract: str = "",
+        placeholder: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         name = name.strip()
         self._validate_category(name, interval_months)
@@ -272,7 +275,9 @@ class BillTrackerManager:
             "default_provider": self._normalize_optional_text(default_provider, 100),
             "default_contract": self._normalize_optional_text(default_contract, 100),
         }
+        item["placeholder"] = self._normalize_placeholder_config(item, placeholder)
         self.categories.append(item)
+        self._sync_bill_placeholders()
         await self._save_and_notify()
         return dict(item)
 
@@ -289,6 +294,7 @@ class BillTrackerManager:
         consumption_unit: str = "",
         default_provider: str = "",
         default_contract: str = "",
+        placeholder: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         name = name.strip()
         self._validate_category(name, interval_months)
@@ -299,6 +305,10 @@ class BillTrackerManager:
         if item is None:
             return None
         payer_id = self._validate_optional_payer(default_payer_id)
+        placeholder_config = self._normalize_placeholder_config(
+            item, placeholder if placeholder is not None else item.get("placeholder"),
+            interval_months=int(interval_months),
+        )
         item.update(
             {
                 "name": name,
@@ -314,8 +324,10 @@ class BillTrackerManager:
                 "consumption_unit": self._normalize_consumption_unit(consumption_unit),
                 "default_provider": self._normalize_optional_text(default_provider, 100),
                 "default_contract": self._normalize_optional_text(default_contract, 100),
+                "placeholder": placeholder_config,
             }
         )
+        self._sync_bill_placeholders()
         await self._save_and_notify()
         return dict(item)
 
@@ -406,7 +418,7 @@ class BillTrackerManager:
             "note": note.strip(),
             "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
-        self.expenses.append(item)
+        self._store_real_expense(item)
         self._sort()
         await self._save_and_notify()
         return self._public_expense(item)
@@ -527,6 +539,7 @@ class BillTrackerManager:
                     "consumption": normalized_consumption,
                     "consumption_unit": str(category.get("consumption_unit", "")),
                     "note": note.strip(),
+                    "is_placeholder": False,
                 }
             )
             self._sort()
@@ -541,6 +554,7 @@ class BillTrackerManager:
                 continue
             item["paid"] = bool(paid)
             if paid:
+                item["is_placeholder"] = False
                 if not item.get("payment_date"):
                     item["payment_date"] = date.today().isoformat()
             else:
@@ -581,6 +595,170 @@ class BillTrackerManager:
         if changed:
             await self._save_and_notify()
         return changed
+
+    # ------------------------------------------------------------------
+    # Monthly bill checklist
+    # ------------------------------------------------------------------
+    def _normalize_placeholder_config(
+        self, category: dict[str, Any], raw: dict[str, Any] | None,
+        *, interval_months: int | None = None,
+    ) -> dict[str, Any]:
+        """Validate user settings and retain the last processed month internally."""
+        if raw is not None and not isinstance(raw, dict):
+            raise billy_error("placeholder_invalid")
+        raw = raw or {}
+        try:
+            day = int(raw.get("day", 1))
+            due_day = int(raw["due_day"]) if raw.get("due_day") not in (None, "") else None
+            fixed_amount = float(raw.get("fixed_amount", 0.0))
+        except (ValueError, TypeError, OverflowError) as err:
+            raise billy_error("placeholder_invalid") from err
+        mode = str(raw.get("amount_mode", "last"))
+        if not 1 <= day <= 31 or (due_day is not None and not 1 <= due_day <= 31):
+            raise billy_error("placeholder_invalid")
+        if mode not in {"last", "forecast", "fixed"}:
+            raise billy_error("placeholder_invalid")
+        self._validate_amount(fixed_amount)
+        start_month = str(raw.get("start_month") or "")
+        if start_month:
+            try:
+                if len(start_month) != 7:
+                    raise ValueError
+                date.fromisoformat(f"{start_month}-01")
+            except ValueError as err:
+                raise billy_error("placeholder_invalid") from err
+        enabled = bool(raw.get("enabled", False))
+        if enabled and not start_month:
+            today = dt_util.now().date()
+            current = (today.year, today.month)
+            history = self._placeholder_history(category)
+            history = [x for x in history if (int(x["paid_year"]), int(x["paid_month"])) <= current]
+            interval = interval_months or int(category.get("interval_months", 1))
+            first = self._add_months(
+                int(history[-1]["paid_year"]), int(history[-1]["paid_month"]), interval
+            ) if history else current
+            while first < current:
+                first = self._add_months(*first, interval)
+            start_month = f"{first[0]:04d}-{first[1]:02d}"
+        previous = category.get("placeholder") or {}
+        return {
+            "enabled": enabled, "day": day, "amount_mode": mode,
+            "fixed_amount": round(fixed_amount, 2), "due_day": due_day,
+            "start_month": start_month,
+            "last_generated_month": str(previous.get("last_generated_month") or raw.get("last_generated_month") or ""),
+        }
+
+    def _placeholder_history(self, category: dict[str, Any]) -> list[dict[str, Any]]:
+        """Actual invoices provide estimates even for forecast-excluded bill types."""
+        history = []
+        for item in self.expenses:
+            if item.get("category_id") != category["id"] or item.get("is_placeholder", False):
+                continue
+            try:
+                year = int(item.get("paid_year", item.get("year", 0)))
+                month = int(item.get("paid_month", item.get("month", 0)))
+                self._validate_date(year, month)
+            except (ValueError, TypeError, OverflowError):
+                continue
+            history.append({**item, "paid_year": year, "paid_month": month})
+        return sorted(history, key=lambda x: (x["paid_year"], x["paid_month"], str(x.get("created_at", ""))))
+
+    def _sync_bill_placeholders(self, today: date | None = None) -> bool:
+        """Create only the current local month's missing entries, without backfill."""
+        today = today or dt_util.now().date()
+        key = f"{today.year:04d}-{today.month:02d}"
+        changed = False
+        for category in self.categories:
+            config = category.get("placeholder") or {}
+            if not category.get("enabled", True) or not config.get("enabled"):
+                continue
+            start = date.fromisoformat(f"{config['start_month']}-01")
+            offset = (today.year - start.year) * 12 + today.month - start.month
+            if offset < 0 or offset % int(category["interval_months"]):
+                continue
+            creation_day = min(int(config["day"]), monthrange(today.year, today.month)[1])
+            if today.day < creation_day or config.get("last_generated_month") == key:
+                continue
+            if any(x.get("category_id") == category["id"]
+                   and (int(x["paid_year"]), int(x["paid_month"])) == (today.year, today.month)
+                   for x in self.expenses):
+                continue
+            history = [x for x in self._placeholder_history(category)
+                       if (int(x["paid_year"]), int(x["paid_month"])) <= (today.year, today.month)]
+            if config["amount_mode"] == "fixed":
+                amount = config["fixed_amount"]
+            elif config["amount_mode"] == "forecast":
+                amount = self._estimate_category_amount(
+                    [x for x in history if not x.get("exclude_from_estimates", False)]
+                )
+            else:
+                amount = history[-1]["amount"] if history else 0.0
+            payer_id = self._resolve_expense_payer(category, None)
+            default_split = self.default_split()
+            if payer_id and not default_split:
+                default_split = [{"payer_id": payer_id, "percentage": 100.0}]
+            split = self._resolve_expense_split(default_split or None, payer_id)
+            sy, sm = self._add_months(today.year, today.month, -(int(category["interval_months"]) - 1))
+            due_day = config.get("due_day")
+            self.expenses.append({
+                "id": uuid4().hex, "category_id": category["id"],
+                "paid_year": today.year, "paid_month": today.month,
+                "amount": round(float(amount), 2), "is_placeholder": True,
+                "period_start_year": sy, "period_start_month": sm,
+                "period_end_year": today.year, "period_end_month": today.month,
+                "period_start_date": None, "period_end_date": None,
+                "payer_id": payer_id, "split": split,
+                "paid": False, "payment_date": None,
+                "due_date": date(today.year, today.month, min(int(due_day), monthrange(today.year, today.month)[1])).isoformat() if due_day else None,
+                "exclude_from_estimates": False,
+                "reimbursement_manual_done": False, "reimbursement_manual_at": None,
+                "provider": category.get("default_provider", ""),
+                "contract": category.get("default_contract", ""),
+                "consumption": None, "consumption_unit": category.get("consumption_unit", ""),
+                "note": "", "created_at": dt_util.now().isoformat(timespec="seconds"),
+            })
+            config["last_generated_month"] = key
+            changed = True
+        if changed:
+            self._sort()
+        return changed
+
+    async def async_sync_bill_placeholders(self) -> bool:
+        """Persist generated entries and refresh clients and HA automations."""
+        changed = self._sync_bill_placeholders()
+        if changed:
+            await self._save_and_notify()
+        return changed
+
+    def _store_real_expense(self, item: dict[str, Any]) -> None:
+        """Replace a matching provisional invoice in place, preserving its ID."""
+        item["is_placeholder"] = False
+        target = next((x for x in self.expenses if x.get("is_placeholder", False)
+                       and x["category_id"] == item["category_id"]
+                       and x["paid_year"] == item["paid_year"]
+                       and x["paid_month"] == item["paid_month"]), None)
+        if target is None:
+            self.expenses.append(item)
+            return
+        item["id"] = target["id"]
+        item["created_at"] = target["created_at"]
+        target.clear()
+        target.update(item)
+
+    def current_month_unpaid_bills(self) -> list[dict[str, Any]]:
+        """Compact local-month checklist shared by HA attributes and the frontend."""
+        today = dt_util.now().date()
+        key = f"{today.year:04d}-{today.month:02d}"
+        return [
+            {"id": x["id"], "category_id": x["category_id"],
+             "category": str((self.category(x["category_id"]) or {}).get("name", "")),
+             "amount": x["amount"], "due_date": x.get("due_date"),
+             "is_placeholder": bool(x.get("is_placeholder", False)),
+             "year": int(x["paid_year"]), "month": int(x["paid_month"])}
+            for x in self.expenses if not x.get("paid", False)
+            and ((int(x["paid_year"]), int(x["paid_month"])) == (today.year, today.month)
+                 or str(x.get("due_date") or "").startswith(f"{key}-"))
+        ]
 
     # ------------------------------------------------------------------
     # Recurring expenses (subscriptions, mortgages and installments)
@@ -954,8 +1132,14 @@ class BillTrackerManager:
                     "note": str(row.get("note") or "").strip(),
                     "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
                 }
-                self.expenses.append(item)
-                existing_ids.add(expense_id)
+                item["is_placeholder"] = parse_csv_bool(row.get("is_placeholder", "")) and not paid
+                if item["is_placeholder"]:
+                    self.expenses.append(item)
+                else:
+                    self._store_real_expense(item)
+                existing_ids.add(item["id"])
+                if incoming_id:
+                    existing_ids.add(incoming_id)
                 imported += 1
                 changed = True
             except (ValueError, TypeError, OverflowError) as err:
@@ -1134,6 +1318,7 @@ class BillTrackerManager:
             self._migrate_recurring_expenses()
             self._migrate_recurring_occurrences()
             self._sync_recurring_occurrences()
+            self._sync_bill_placeholders()
             self._sort()
             await self._save_and_notify()
         except Exception:
@@ -1268,6 +1453,8 @@ class BillTrackerManager:
         # who advanced the provider bill. Whether that provider bill is paid is
         # a separate state and therefore intentionally not checked here.
         for item in self.expenses:
+            if item.get("is_placeholder", False):
+                continue
             if bool(item.get("reimbursement_manual_done", False)):
                 continue
             creditor = str(item.get("payer_id") or "")
@@ -1526,6 +1713,7 @@ class BillTrackerManager:
             "active_payers": self.active_payers(),
             "default_split": self.default_split(),
             "expenses": [self._public_expense(x) for x in self.expenses],
+            "current_month_unpaid_bills": self.current_month_unpaid_bills(),
             "settlements": [self._public_settlement(x) for x in self.settlements],
             "recurring_expenses": [self._public_recurring_expense(x) for x in self.recurring_expenses],
             "recurring_occurrences": [
@@ -1656,6 +1844,8 @@ class BillTrackerManager:
             return []
         buckets: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: defaultdict(float))
         for item in self.expenses:
+            if item.get("is_placeholder", False):
+                continue
             exact_start, exact_end = self._expense_period_dates(item)
             if exact_start and exact_end:
                 total_days = (exact_end - exact_start).days + 1
@@ -1684,6 +1874,8 @@ class BillTrackerManager:
             share = float(item["amount"]) / len(months)
             for key in months:
                 buckets[key][str(item["category_id"])] += share
+        if not buckets:
+            return []
         first = min(buckets)
         today = date.today()
         last = max(max(buckets), (today.year, today.month))
@@ -1894,6 +2086,7 @@ class BillTrackerManager:
             rows = [
                 x for x in self.expenses
                 if str(x.get("category_id", "")) == category_id
+                and not x.get("is_placeholder", False)
                 and (str(x.get("provider", "")).strip() or str(x.get("contract", "")).strip())
             ]
             rows.sort(key=lambda x: (int(x.get("paid_year", 0)), int(x.get("paid_month", 0)), str(x.get("created_at", ""))))
@@ -2454,7 +2647,7 @@ class BillTrackerManager:
         creditor = str(item.get("payer_id") or "")
         expense_id = str(item.get("id") or "")
         obligations: list[str] = []
-        if creditor and self.payer(creditor) is not None:
+        if not item.get("is_placeholder", False) and creditor and self.payer(creditor) is not None:
             for part in item.get("split", []):
                 debtor = str(part.get("payer_id") or "")
                 percentage = float(part.get("percentage", 0.0) or 0.0)
@@ -2725,6 +2918,7 @@ class BillTrackerManager:
         )
         estimate_history = [
             item for item in history if not bool(item.get("exclude_from_estimates", False))
+            and not item.get("is_placeholder", False)
         ]
         return history, estimate_history
 
@@ -2925,6 +3119,10 @@ class BillTrackerManager:
                 "default_provider": self._normalize_optional_text(raw.get("default_provider", ""), 100),
                 "default_contract": self._normalize_optional_text(raw.get("default_contract", ""), 100),
             }
+            try:
+                item["placeholder"] = self._normalize_placeholder_config(item, raw.get("placeholder"))
+            except ValueError:
+                item["placeholder"] = self._normalize_placeholder_config(item, None)
             if item != raw:
                 changed = True
             normalized.append(item)
@@ -3042,6 +3240,7 @@ class BillTrackerManager:
                     str(item.get("reimbursement_manual_at")) if item.get("reimbursement_manual_at") else None
                 ),
                 "paid": bool(item.get("paid", False)),
+                "is_placeholder": bool(item.get("is_placeholder", False)) and not bool(item.get("paid", False)),
                 "exclude_from_estimates": bool(item.get("exclude_from_estimates", False)),
                 "payment_date": payment_date,
                 "due_date": due_date,

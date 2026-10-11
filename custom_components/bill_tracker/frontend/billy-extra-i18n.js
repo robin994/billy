@@ -1,3 +1,96 @@
+export const BILLY_PLACEHOLDER_TEXT = {
+  "en": {
+    "autoPlaceholder": "Create an unpaid bill each period",
+    "placeholderHelp": "Creates the current month’s missing bill. Enter the actual amount and save to confirm it. Provisional amounts do not affect spending history or reimbursements.",
+    "placeholderDay": "Creation day (1–31)",
+    "placeholderAmount": "Provisional amount",
+    "placeholderLast": "Last bill amount",
+    "placeholderForecast": "Forecast estimate",
+    "placeholderFixed": "Fixed amount",
+    "placeholderDueDay": "Due day (optional)",
+    "placeholderStartMonth": "First expected month (optional)",
+    "placeholderStartHelp": "Leave empty to use bill history, or the current month without history. Cadence follows this month; days beyond month-end use the last day.",
+    "placeholderBill": "Provisional bill — confirm amount",
+    "unpaidThisMonth": "Unpaid this month",
+    "allUpcoming": "All upcoming expenses"
+  },
+  "it": {
+    "autoPlaceholder": "Crea una bolletta da pagare a ogni periodo",
+    "placeholderHelp": "Crea la bolletta mancante del mese corrente. Inserisci l’importo effettivo e salva per confermarla. Gli importi provvisori non incidono sullo storico delle spese o sui rimborsi.",
+    "placeholderDay": "Giorno di creazione (1–31)",
+    "placeholderAmount": "Importo provvisorio",
+    "placeholderLast": "Importo dell’ultima bolletta",
+    "placeholderForecast": "Stima previsionale",
+    "placeholderFixed": "Importo fisso",
+    "placeholderDueDay": "Giorno di scadenza (facoltativo)",
+    "placeholderStartMonth": "Primo mese previsto (facoltativo)",
+    "placeholderStartHelp": "Lascia vuoto per usare lo storico, oppure il mese corrente se manca. La periodicità parte da questo mese; i giorni oltre la fine del mese diventano l’ultimo giorno.",
+    "placeholderBill": "Bolletta provvisoria — conferma l’importo",
+    "unpaidThisMonth": "Da pagare questo mese",
+    "allUpcoming": "Tutte le prossime spese"
+  },
+  "es": {
+    "autoPlaceholder": "Crear una factura pendiente cada periodo",
+    "placeholderHelp": "Crea la factura que falta del mes actual. Introduce el importe real y guarda para confirmarla. Los importes provisionales no afectan al historial de gastos ni a los reembolsos.",
+    "placeholderDay": "Día de creación (1–31)",
+    "placeholderAmount": "Importe provisional",
+    "placeholderLast": "Importe de la última factura",
+    "placeholderForecast": "Estimación prevista",
+    "placeholderFixed": "Importe fijo",
+    "placeholderDueDay": "Día de vencimiento (opcional)",
+    "placeholderStartMonth": "Primer mes previsto (opcional)",
+    "placeholderStartHelp": "Déjalo vacío para usar el historial, o el mes actual sin historial. La frecuencia parte de este mes; los días que superen el mes usan su último día.",
+    "placeholderBill": "Factura provisional — confirma el importe",
+    "unpaidThisMonth": "Pendientes este mes",
+    "allUpcoming": "Todos los próximos gastos"
+  },
+  "fr": {
+    "autoPlaceholder": "Créer une facture impayée à chaque période",
+    "placeholderHelp": "Crée la facture manquante du mois courant. Saisissez le montant réel et enregistrez pour la confirmer. Les montants provisoires ne modifient ni l’historique des dépenses ni les remboursements.",
+    "placeholderDay": "Jour de création (1–31)",
+    "placeholderAmount": "Montant provisoire",
+    "placeholderLast": "Montant de la dernière facture",
+    "placeholderForecast": "Estimation prévisionnelle",
+    "placeholderFixed": "Montant fixe",
+    "placeholderDueDay": "Jour d’échéance (facultatif)",
+    "placeholderStartMonth": "Premier mois prévu (facultatif)",
+    "placeholderStartHelp": "Laissez vide pour utiliser l’historique, ou le mois courant sans historique. La fréquence part de ce mois ; les jours au-delà du mois utilisent son dernier jour.",
+    "placeholderBill": "Facture provisoire — confirmer le montant",
+    "unpaidThisMonth": "Impayées ce mois-ci",
+    "allUpcoming": "Toutes les dépenses à venir"
+  },
+  "de": {
+    "autoPlaceholder": "Für jeden Zeitraum eine offene Rechnung erstellen",
+    "placeholderHelp": "Erstellt die fehlende Rechnung des aktuellen Monats. Den tatsächlichen Betrag eingeben und zur Bestätigung speichern. Vorläufige Beträge beeinflussen weder Ausgabenverlauf noch Erstattungen.",
+    "placeholderDay": "Erstellungstag (1–31)",
+    "placeholderAmount": "Vorläufiger Betrag",
+    "placeholderLast": "Betrag der letzten Rechnung",
+    "placeholderForecast": "Prognosebetrag",
+    "placeholderFixed": "Fester Betrag",
+    "placeholderDueDay": "Fälligkeitstag (optional)",
+    "placeholderStartMonth": "Erster erwarteter Monat (optional)",
+    "placeholderStartHelp": "Leer lassen, um den Verlauf zu verwenden, ohne Verlauf den aktuellen Monat. Das Intervall beginnt in diesem Monat; Tage nach Monatsende werden auf den letzten Tag gesetzt.",
+    "placeholderBill": "Vorläufige Rechnung — Betrag bestätigen",
+    "unpaidThisMonth": "Diesen Monat offen",
+    "allUpcoming": "Alle anstehenden Ausgaben"
+  },
+  "pt": {
+    "autoPlaceholder": "Criar uma conta por pagar em cada período",
+    "placeholderHelp": "Cria a conta em falta do mês atual. Introduza o valor real e guarde para a confirmar. Os valores provisórios não afetam o histórico de despesas nem os reembolsos.",
+    "placeholderDay": "Dia de criação (1–31)",
+    "placeholderAmount": "Valor provisório",
+    "placeholderLast": "Valor da última conta",
+    "placeholderForecast": "Estimativa prevista",
+    "placeholderFixed": "Valor fixo",
+    "placeholderDueDay": "Dia de vencimento (opcional)",
+    "placeholderStartMonth": "Primeiro mês previsto (opcional)",
+    "placeholderStartHelp": "Deixe vazio para usar o histórico, ou o mês atual se não existir. A frequência parte deste mês; os dias além do fim do mês usam o último dia.",
+    "placeholderBill": "Conta provisória — confirme o valor",
+    "unpaidThisMonth": "Por pagar este mês",
+    "allUpcoming": "Todas as próximas despesas"
+  }
+}
+
 export const BILLY_PANEL_EXTRA_TEXT = {
   es: {
     dashboard: 'Resumen',
@@ -1675,6 +1768,7 @@ export const BILLY_PARSER_EXTRA_TEXT = {
 export const BILLY_ERROR_TEXT = {
   en: {
     not_configured: 'Billy is not configured yet.',
+    placeholder_invalid: 'Invalid provisional bill settings.',
     invalid_expense: 'The bill data is not valid.',
     invalid_recurring: 'The recurring expense data is not valid.',
     invalid_reimbursement: 'The reimbursement could not be updated.',
@@ -1754,6 +1848,7 @@ export const BILLY_ERROR_TEXT = {
   },
   it: {
     not_configured: 'Billy non è ancora configurato.',
+    placeholder_invalid: 'Impostazioni della bolletta provvisoria non valide.',
     invalid_expense: 'I dati della bolletta non sono validi.',
     invalid_recurring: 'I dati della spesa ricorrente non sono validi.',
     invalid_reimbursement: 'Non è stato possibile aggiornare il rimborso.',
@@ -1833,6 +1928,7 @@ export const BILLY_ERROR_TEXT = {
   },
   es: {
     not_configured: 'Billy aún no está configurado.',
+    placeholder_invalid: 'La configuración de la factura provisional no es válida.',
     invalid_expense: 'Los datos de la factura no son válidos.',
     invalid_recurring: 'Los datos del gasto recurrente no son válidos.',
     invalid_reimbursement: 'No se pudo actualizar el reembolso.',
@@ -1912,6 +2008,7 @@ export const BILLY_ERROR_TEXT = {
   },
   fr: {
     not_configured: 'Billy n’est pas encore configuré.',
+    placeholder_invalid: 'Les paramètres de la facture provisoire sont invalides.',
     invalid_expense: 'Les données de la facture ne sont pas valides.',
     invalid_recurring: 'Les données de la dépense récurrente ne sont pas valides.',
     invalid_reimbursement: 'Le remboursement n’a pas pu être mis à jour.',
@@ -1991,6 +2088,7 @@ export const BILLY_ERROR_TEXT = {
   },
   de: {
     not_configured: 'Billy ist noch nicht konfiguriert.',
+    placeholder_invalid: 'Die Einstellungen der vorläufigen Rechnung sind ungültig.',
     invalid_expense: 'Die Rechnungsdaten sind ungültig.',
     invalid_recurring: 'Die Daten der wiederkehrenden Ausgabe sind ungültig.',
     invalid_reimbursement: 'Die Rückerstattung konnte nicht aktualisiert werden.',
@@ -2070,6 +2168,7 @@ export const BILLY_ERROR_TEXT = {
   },
   pt: {
     not_configured: 'O Billy ainda não está configurado.',
+    placeholder_invalid: 'As definições da conta provisória não são válidas.',
     invalid_expense: 'Os dados da conta não são válidos.',
     invalid_recurring: 'Os dados da despesa recorrente não são válidos.',
     invalid_reimbursement: 'Não foi possível atualizar o reembolso.',

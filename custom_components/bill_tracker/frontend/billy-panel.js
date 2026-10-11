@@ -1,10 +1,11 @@
-import './billy-parser-manager.js?v=0.13.8-r1'
+import './billy-parser-manager.js?v=0.14.0-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.13.8-r1'
+  BILLY_PLACEHOLDER_TEXT,
+} from './billy-extra-i18n.js?v=0.14.0-r1'
 
-const BILLY_PANEL_VERSION = '0.13.8'
+const BILLY_PANEL_VERSION = '0.14.0'
 
 const TEXT = {
   en: {
@@ -687,6 +688,9 @@ const TEXT = {
   },
 }
 Object.assign(TEXT, BILLY_PANEL_EXTRA_TEXT)
+for (const [language, labels] of Object.entries(BILLY_PLACEHOLDER_TEXT)) {
+  Object.assign(TEXT[language], labels)
+}
 function languageOf(hass) {
   const raw =
     hass?.language || hass?.locale?.language || navigator.language || 'en'
@@ -1525,10 +1529,10 @@ class BillyDashboard extends HTMLElement {
   _dueThisMonth() {
     const now = new Date()
     const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-`
-    const rows = (this._data?.expenses || [])
-      .filter(
+    const rows = (this._data?.current_month_unpaid_bills ||
+      (this._data?.expenses || []).filter(
         (row) => !row.paid && String(row.due_date || '').startsWith(prefix),
-      )
+      ))
       .slice()
       .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))
     if (!rows.length)
@@ -1536,7 +1540,7 @@ class BillyDashboard extends HTMLElement {
     return `<div class="compact-list">${rows
       .map(
         (row) => `<div class="compact-row">
-          <div><strong>${escapeHtml(row.category || '')}</strong><small>${escapeHtml([row.provider, `${this._t('due')}: ${this._date(row.due_date)}`].filter(Boolean).join(' · '))}</small></div>
+          <div><strong>${escapeHtml(row.category || '')}</strong><small>${escapeHtml([row.is_placeholder ? this._t('placeholderBill') : row.provider, row.due_date ? `${this._t('due')}: ${this._date(row.due_date)}` : this._t('unpaidThisMonth')].filter(Boolean).join(' · '))}</small></div>
           <strong>${escapeHtml(this._money(row.amount))}</strong>
         </div>`,
       )
@@ -1891,7 +1895,7 @@ class BillyDashboard extends HTMLElement {
             ${this._chart()}
           </article>
           <article class="panel breakdown-panel">
-            <div class="panel-head"><div><h2>${escapeHtml(this._t('dueThisMonth'))}</h2></div></div>
+            <div class="panel-head"><div><h2>${escapeHtml(this._t('unpaidThisMonth'))}</h2></div></div>
             ${this._dueThisMonth()}
           </article>
         </div>
@@ -2346,7 +2350,7 @@ class BillyBills extends HTMLElement {
         return `<article class="bill-row">
         <label class="paid-toggle" title="${escapeHtml(this._t('paymentStatus'))}"><input type="checkbox" data-paid-id="${escapeHtml(row.id)}" ${row.paid ? 'checked' : ''}><span></span></label>
         <i class="category-color" style="background:${safeColor(category?.color || row.category_color)}"></i>
-        <div class="bill-main"><strong>${escapeHtml(row.category || '')}</strong><small>${escapeHtml(details || '—')}</small><small>${escapeHtml([row.payer, splitText].filter(Boolean).join(' · '))}</small>${row.exclude_from_estimates ? `<small class="estimate-excluded">${escapeHtml(this._t('excludedFromEstimates'))}</small>` : ''}</div>
+        <div class="bill-main"><strong>${escapeHtml(row.category || '')}</strong><small>${escapeHtml(details || '—')}</small><small>${escapeHtml([row.payer, splitText].filter(Boolean).join(' · '))}</small>${row.is_placeholder ? `<small class="estimate-excluded">${escapeHtml(this._t('placeholderBill'))}</small>` : ''}${row.exclude_from_estimates ? `<small class="estimate-excluded">${escapeHtml(this._t('excludedFromEstimates'))}</small>` : ''}</div>
         <div class="bill-month"><span>${escapeHtml(this._monthLabel(row))}</span><small>${escapeHtml(`${this._t('due')}: ${this._date(row.due_date)}`)}</small>${row.period_type === 'short' || row.period_type === 'long' ? `<small class="period-badge ${escapeHtml(row.period_type)}">${escapeHtml(this._t(row.period_type === 'short' ? 'shortPeriod' : 'longPeriod', { days: row.period_days || 0 }))}</small>` : ''}</div>
         <div class="bill-state">
           <span class="state ${row.paid ? 'paid' : 'unpaid'}">${escapeHtml(row.paid ? this._t('providerPaid') : this._t('providerUnpaid'))}</span>
@@ -2592,6 +2596,7 @@ class BillyBills extends HTMLElement {
       <div class="modal-head"><h3>${escapeHtml(existing ? this._t('editBill') : this._t('addBill'))}</h3><button type="button" class="icon-close" id="bill-modal-close">×</button></div>
       <div class="form-grid">
         <label><span>${escapeHtml(this._t('billType'))}</span><select name="category_id" id="form-category" required>${categories.map((category) => `<option value="${escapeHtml(category.id)}" ${category.id === selectedCategory.id ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label>
+        ${row?.is_placeholder ? `<p class="span2">${escapeHtml(this._t('placeholderHelp'))}</p>` : ''}
         <label><span>${escapeHtml(this._t('billingMonth'))}</span><input name="paid_month" id="form-paid-month" type="month" required value="${escapeHtml(paidMonth)}"></label>
         <label><span>${escapeHtml(this._t('amount'))}</span><input name="amount" type="number" min="0" step="0.01" required value="${escapeHtml(row?.amount ?? '')}"></label>
         <label><span>${escapeHtml(this._t('payer'))}</span><select name="payer_id"><option value="">${escapeHtml(this._t('none'))}</option>${payers.map((payer) => `<option value="${escapeHtml(payer.id)}" ${payer.id === payerId ? 'selected' : ''}>${escapeHtml(payer.name)}</option>`).join('')}</select></label>
@@ -2763,6 +2768,17 @@ class BillyBills extends HTMLElement {
   async _setPaid(input) {
     if (!this._hass || !input) return
     const paid = Boolean(input.checked)
+    const row = (this._data?.expenses || []).find((item) => item.id === input.dataset.paidId)
+    if (paid && row?.is_placeholder) {
+      input.checked = false
+      this._openBill(row.id)
+      const form = this.shadowRoot.querySelector('#bill-form')
+      if (form) {
+        form.querySelector('[name="paid"]').checked = true
+        form.querySelector('[name="amount"]').focus()
+      }
+      return
+    }
     input.disabled = true
     try {
       await this._hass.callWS({
@@ -3645,7 +3661,7 @@ class BillySettings extends HTMLElement {
                 (row) => `<article class="item-row">
             <span class="color-dot" style="background:${safeColor(row.color)}"></span>
             <div class="item-main"><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(`${row.interval_months} ${this._t('months')}${row.default_provider ? ` · ${row.default_provider}` : ''}`)}</small></div>
-            <div class="item-statuses"><span class="status ${row.enabled ? 'enabled' : ''}">${escapeHtml(row.enabled ? this._t('enabled') : this._t('disabled'))}</span>${row.exclude_from_estimates ? `<span class="status estimate-excluded">${escapeHtml(this._t('excludedFromEstimates'))}</span>` : ''}</div>
+            <div class="item-statuses"><span class="status ${row.enabled ? 'enabled' : ''}">${escapeHtml(row.enabled ? this._t('enabled') : this._t('disabled'))}</span>${row.placeholder?.enabled ? `<span class="status">${escapeHtml(this._t('autoPlaceholder'))}</span>` : ''}${row.exclude_from_estimates ? `<span class="status estimate-excluded">${escapeHtml(this._t('excludedFromEstimates'))}</span>` : ''}</div>
             <div class="row-actions"><button data-edit-category="${escapeHtml(row.id)}">${escapeHtml(this._t('edit'))}</button><button class="danger" data-delete-category="${escapeHtml(row.id)}">${escapeHtml(this._t('delete'))}</button></div>
           </article>`,
               )
@@ -4110,6 +4126,14 @@ class BillySettings extends HTMLElement {
         <label><span>${escapeHtml(this._t('defaultProvider'))}</span><input name="default_provider" value="${escapeHtml(row?.default_provider || '')}"></label>
         <label><span>${escapeHtml(this._t('defaultContract'))}</span><input name="default_contract" value="${escapeHtml(row?.default_contract || '')}"></label>
         <label class="check span2"><input name="enabled" type="checkbox" ${row?.enabled !== false ? 'checked' : ''}><span>${escapeHtml(this._t('enabled'))}</span></label>
+        <label class="check span2"><input name="placeholder_enabled" type="checkbox" ${row?.placeholder?.enabled ? 'checked' : ''}><span><strong>${escapeHtml(this._t('autoPlaceholder'))}</strong><small>${escapeHtml(this._t('placeholderHelp'))}</small></span></label>
+        <div id="placeholder-settings" class="form-grid span2" style="display:${row?.placeholder?.enabled ? 'grid' : 'none'}">
+          <label><span>${escapeHtml(this._t('placeholderDay'))}</span><input name="placeholder_day" type="number" min="1" max="31" required value="${Number(row?.placeholder?.day || 1)}"></label>
+          <label><span>${escapeHtml(this._t('placeholderAmount'))}</span><select name="placeholder_amount_mode">${['last', 'forecast', 'fixed'].map((mode) => `<option value="${mode}" ${(row?.placeholder?.amount_mode || 'last') === mode ? 'selected' : ''}>${escapeHtml(this._t(mode === 'last' ? 'placeholderLast' : mode === 'forecast' ? 'placeholderForecast' : 'placeholderFixed'))}</option>`).join('')}</select></label>
+          <label><span>${escapeHtml(this._t('placeholderFixed'))}</span><input name="placeholder_fixed_amount" type="number" min="0" step="0.01" value="${Number(row?.placeholder?.fixed_amount || 0)}"></label>
+          <label><span>${escapeHtml(this._t('placeholderDueDay'))}</span><input name="placeholder_due_day" type="number" min="1" max="31" value="${escapeHtml(row?.placeholder?.due_day ?? '')}"></label>
+          <label class="span2"><span>${escapeHtml(this._t('placeholderStartMonth'))}</span><input name="placeholder_start_month" type="month" value="${escapeHtml(row?.placeholder?.start_month || '')}"><small>${escapeHtml(this._t('placeholderStartHelp'))}</small></label>
+        </div>
         <label class="check span2"><input name="exclude_from_estimates" type="checkbox" ${row?.exclude_from_estimates ? 'checked' : ''}><span><strong>${escapeHtml(this._t('excludeFromEstimates'))}</strong><small>${escapeHtml(this._t('excludeFromEstimatesHelp'))}</small></span></label>
       </div>
       <div class="modal-actions"><button type="button" class="secondary" id="modal-cancel">${escapeHtml(this._t('cancel'))}</button><button type="submit" class="primary">${escapeHtml(this._t('save'))}</button></div>
@@ -4121,6 +4145,16 @@ class BillySettings extends HTMLElement {
     card.querySelector('#modal-close')?.addEventListener('click', close)
     card.querySelector('#modal-cancel')?.addEventListener('click', close)
     modal.querySelector('.modal-backdrop')?.addEventListener('click', close)
+    const placeholderToggle = card.querySelector('[name="placeholder_enabled"]')
+    const updatePlaceholderFields = () => {
+      const fields = card.querySelector('#placeholder-settings')
+      fields.style.display = placeholderToggle.checked ? 'grid' : 'none'
+      fields.querySelector('[name="placeholder_fixed_amount"]').disabled =
+        card.querySelector('[name="placeholder_amount_mode"]').value !== 'fixed'
+    }
+    placeholderToggle.addEventListener('change', updatePlaceholderFields)
+    card.querySelector('[name="placeholder_amount_mode"]').addEventListener('change', updatePlaceholderFields)
+    updatePlaceholderFields()
     card
       .querySelector('#category-form')
       ?.addEventListener('submit', (event) =>
@@ -4144,6 +4178,14 @@ class BillySettings extends HTMLElement {
       consumption_unit: String(values.get('consumption_unit') || '').trim(),
       default_provider: String(values.get('default_provider') || '').trim(),
       default_contract: String(values.get('default_contract') || '').trim(),
+      placeholder: {
+        enabled: values.get('placeholder_enabled') === 'on',
+        day: Number(values.get('placeholder_day') || 1),
+        amount_mode: String(values.get('placeholder_amount_mode') || 'last'),
+        fixed_amount: Number(values.get('placeholder_fixed_amount') || 0),
+        due_day: values.get('placeholder_due_day') ? Number(values.get('placeholder_due_day')) : null,
+        start_month: String(values.get('placeholder_start_month') || ''),
+      },
     }
     try {
       await this._hass.callWS(payload)
@@ -4461,7 +4503,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.13.8-r1'
+        './billy-reimbursement-history.js?v=0.14.0-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(

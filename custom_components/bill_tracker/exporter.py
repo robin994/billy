@@ -36,6 +36,7 @@ CSV_HEADERS = [
     "payer",
     "split",
     "note",
+    "is_placeholder",
 ]
 
 RECURRING_HEADERS = [
@@ -165,6 +166,7 @@ def expense_to_export_row(item: dict[str, Any], category: dict[str, Any] | None 
         "payer": str(item.get("payer", "")),
         "split": _split_text(item),
         "note": str(item.get("note", "")),
+        "is_placeholder": "true" if item.get("is_placeholder", False) else "false",
     }
 
 
@@ -292,6 +294,8 @@ def _monthly_summary(rows: list[dict[str, Any]], range_start: tuple[int, int] | 
     for item in rows:
         bill_key = (int(item["paid_year"]), int(item["paid_month"]))
         count[bill_key] += 1
+        if item.get("is_placeholder", False):
+            continue
         if bool(item.get("paid", False)):
             paid[bill_key] += float(item.get("amount", 0) or 0)
         sy, sm = int(item.get("period_start_year", item["paid_year"])), int(item.get("period_start_month", item["paid_month"]))
@@ -438,6 +442,8 @@ def _trend_data(rows: list[dict[str, Any]], start: tuple[int, int], end: tuple[i
     paid = defaultdict(float)
     normalized = defaultdict(float)
     for item in rows:
+        if item.get("is_placeholder", False):
+            continue
         key = (int(item["paid_year"]), int(item["paid_month"]))
         if bool(item.get("paid", False)) and start <= key <= end:
             paid[key] += float(item.get("amount", 0) or 0)
@@ -720,6 +726,7 @@ CSV_ALIASES = {
     "payer": ("payer", "paid_by", "pagatore", "pagata_da"),
     "split": ("split", "division", "quote", "divisione"),
     "note": ("note", "notes", "nota", "note_bolletta"),
+    "is_placeholder": ("is_placeholder",),
 }
 
 

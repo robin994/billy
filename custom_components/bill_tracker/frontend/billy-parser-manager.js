@@ -1,9 +1,9 @@
 import {
   BILLY_ERROR_TEXT,
   BILLY_PARSER_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.13.8-r1'
+} from './billy-extra-i18n.js?v=0.14.0-r1'
 
-const BILLY_PARSER_MANAGER_VERSION = '0.13.8'
+const BILLY_PARSER_MANAGER_VERSION = '0.14.0'
 
 const TEXT = {
   en: {

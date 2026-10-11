@@ -4,11 +4,20 @@
 
 # Billy
 
-## Billy 0.13.8
+## Billy 0.14.0
 
 Billy keeps the Lovelace `custom:bill-tracker-card`, while `/billy` is the full-size application.
 
 Billy is a Home Assistant bill manager focused on household expenses: provider bills, recurring costs, forecasts, payment tracking, shared expenses, reimbursements and automatic bill parsing from email.
+
+### What's new in 0.14.0
+
+- **Monthly bill checklist** — bill types can now create an unpaid provisional bill automatically, with a configurable creation day, last/forecast/fixed amount, optional due day and a starting month for non-monthly schedules.
+- **No duplicate provisional invoices** — adding the real bill manually, through CSV or through a parser replaces the matching provisional entry while preserving its ID. Existing real bills prevent automatic creation.
+- **Confirmation before accounting** — provisional entries appear among unpaid bills, while estimates, normalized spending and reimbursements use confirmed invoices. Marking a provisional bill paid in the Billy panel opens its amount for confirmation first.
+- **Home Assistant reminders** — the sensor exposes the current month's unpaid list, count and total, and the Upcoming widget has an **Unpaid this month** filter.
+
+See [Monthly bill checklist](docs/BILL_PLACEHOLDERS.md) for configuration, scheduling rules and reminder examples.
 
 ### What's new in 0.13.8
 
@@ -112,6 +121,8 @@ Installment plans can also define a total installment count. Billy calculates th
 Recurring charges are included in the regular **forecast** on their exact due months. The normalized forecast also includes their monthly-equivalent cost, so an annual subscription contributes `amount / 12` to the normalized monthly planning view. Overview now shows recurring monthly equivalent, charges due next month, active recurring count and remaining installment commitment.
 
 Provider bills and recurring rules remain separate concepts: a recurring rule predicts a cost; it does not mark a provider invoice as paid and it is not an email-parser result.
+
+For provider invoices that need a paid/unpaid monthly checklist, enable **Create an unpaid bill each period** in **Settings → Bill types**. See [Monthly bill checklist](docs/BILL_PLACEHOLDERS.md).
 
 ### Split and reimbursements for recurring expenses
 
@@ -299,6 +310,15 @@ title: Upcoming expenses
 days: 90
 limit: 8
 forecast_months: 3
+```
+
+To show only the current month's unpaid bill checklist, including overdue entries and entries without a due date:
+
+```yaml
+type: custom:billy-upcoming-card
+title: Bills to pay this month
+filter: unpaid_this_month
+limit: 20
 ```
 
 ### Recurring expenses

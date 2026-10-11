@@ -198,7 +198,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await manager.async_load()
 
     async def _sync_recurring_at_midnight(_now) -> None:
-        await manager.async_sync_recurring_occurrences()
+        recurring_changed = await manager.async_sync_recurring_occurrences()
+        placeholders_changed = await manager.async_sync_bill_placeholders()
+        if not recurring_changed and not placeholders_changed:
+            hass.bus.async_fire(EVENT_UPDATED)
 
     entry.async_on_unload(
         async_track_time_change(
@@ -564,6 +567,14 @@ _CATEGORY_COMMON = {
     vol.Optional("consumption_unit", default=""): str,
     vol.Optional("default_provider", default=""): str,
     vol.Optional("default_contract", default=""): str,
+    vol.Optional("placeholder"): {
+        vol.Optional("enabled", default=False): bool,
+        vol.Optional("day", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=31)),
+        vol.Optional("amount_mode", default="last"): vol.In(("last", "forecast", "fixed")),
+        vol.Optional("fixed_amount", default=0): vol.Coerce(float),
+        vol.Optional("due_day"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=31))),
+        vol.Optional("start_month", default=""): str,
+    },
 }
 
 
@@ -583,6 +594,7 @@ async def ws_category_add(hass, connection, msg):
             consumption_unit=msg.get("consumption_unit", ""),
             default_provider=msg.get("default_provider", ""),
             default_contract=msg.get("default_contract", ""),
+            placeholder=msg.get("placeholder"),
         )
     except (ValueError, RuntimeError) as err:
         _ws_error(connection, msg, err, "invalid_category")
@@ -611,6 +623,7 @@ async def ws_category_update(hass, connection, msg):
             consumption_unit=msg.get("consumption_unit", ""),
             default_provider=msg.get("default_provider", ""),
             default_contract=msg.get("default_contract", ""),
+            placeholder=msg.get("placeholder"),
         )
     except (ValueError, RuntimeError) as err:
         _ws_error(connection, msg, err, "invalid_category")

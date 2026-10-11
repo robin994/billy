@@ -1,4 +1,6 @@
-const BILLY_WIDGETS_VERSION = '0.13.8'
+import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.14.0-r1'
+
+const BILLY_WIDGETS_VERSION = '0.14.0'
 
 const WIDGET_TEXT = {
   en: {
@@ -585,7 +587,7 @@ class BillyWidgetBase extends HTMLElement {
   }
 
   t(key, vars = {}) {
-    let text = WIDGET_TEXT[this.language]?.[key] ?? WIDGET_TEXT.en[key] ?? key
+    let text = BILLY_PLACEHOLDER_TEXT[this.language]?.[key] ?? WIDGET_TEXT[this.language]?.[key] ?? WIDGET_TEXT.en[key] ?? key
     for (const [name, value] of Object.entries(vars)) {
       text = text.replaceAll(`{${name}}`, String(value))
     }
@@ -899,7 +901,7 @@ class BillyBreakdownCard extends BillyWidgetBase {
 
 class BillyUpcomingCard extends BillyWidgetBase {
   static getStubConfig() {
-    return { title: '', limit: 6, days: 90, forecast_months: 3 }
+    return { title: '', limit: 6, days: 90, forecast_months: 3, filter: 'all' }
   }
 
   get extraStyles() {
@@ -910,6 +912,18 @@ class BillyUpcomingCard extends BillyWidgetBase {
 
   _items() {
     if (!this._data) return []
+    if (this._config.filter === 'unpaid_this_month') {
+      return (this._data.current_month_unpaid_bills || [])
+        .map((expense) => ({
+          id: expense.id,
+          name: expense.category || this.t('bill'),
+          amount: number(expense.amount),
+          due: expense.due_date || '',
+          source: expense.is_placeholder ? 'placeholder' : 'bill',
+        }))
+        .sort((a, b) => a.due.localeCompare(b.due) || a.name.localeCompare(b.name))
+        .slice(0, Math.max(1, Number(this._config.limit || 6)))
+    }
     const today = isoToday()
     const maxDate = new Date(`${today}T12:00:00`)
     maxDate.setDate(
@@ -921,10 +935,11 @@ class BillyUpcomingCard extends BillyWidgetBase {
       const due = String(expense.due_date || '')
       if (expense.paid || !due || due < today || due > maxIso) continue
       items.push({
+        id: expense.id,
         name: expense.category || expense.provider || this.t('bill'),
         amount: number(expense.amount),
         due,
-        source: 'bill',
+        source: expense.is_placeholder ? 'placeholder' : 'bill',
       })
     }
     for (const item of this._data.upcoming || []) {
@@ -941,7 +956,7 @@ class BillyUpcomingCard extends BillyWidgetBase {
     return items
       .sort((a, b) => a.due.localeCompare(b.due))
       .filter((item) => {
-        const key = `${item.name}|${item.amount}|${item.due}`
+        const key = item.id || `${item.name}|${item.amount}|${item.due}`
         if (seen.has(key)) return false
         seen.add(key)
         return true
@@ -956,16 +971,20 @@ class BillyUpcomingCard extends BillyWidgetBase {
       ? `<div class="list">${items
           .map(
             (item) =>
-              `<div class="item"><div class="date">${esc(dateLabel(item.due, this.locale))}</div><div class="name">${esc(item.name)}<span class="kind">${esc(item.source === 'recurring' ? this.t('recurring') : item.source === 'bill_forecast' ? this.t('estimatedBill') : this.t('bill'))}</span></div><div class="price amount">${this.money(item.amount)}</div></div>`,
+              `<div class="item"><div class="date">${esc(item.due ? dateLabel(item.due, this.locale) : '—')}</div><div class="name">${esc(item.name)}<span class="kind">${esc(item.source === 'placeholder' ? this.t('placeholderBill') : item.source === 'recurring' ? this.t('recurring') : item.source === 'bill_forecast' ? this.t('estimatedBill') : this.t('bill'))}</span></div><div class="price amount">${this.money(item.amount)}</div></div>`,
           )
           .join('')}</div>`
       : `<div class="empty">${esc(this.t('nothingDue'))}</div>`
     this.shadowRoot.innerHTML = this._shell(
       this._config.title || this.t('upcoming'),
-      this.t('nextDays', { days: Number(this._config.days || 90) }),
-      body,
+      this._config.filter === 'unpaid_this_month' ? this.t('unpaidThisMonth') : this.t('nextDays', { days: Number(this._config.days || 90) }),
+      `<select data-upcoming-filter aria-label="${esc(this.t('upcoming'))}"><option value="all" ${this._config.filter !== 'unpaid_this_month' ? 'selected' : ''}>${esc(this.t('allUpcoming'))}</option><option value="unpaid_this_month" ${this._config.filter === 'unpaid_this_month' ? 'selected' : ''}>${esc(this.t('unpaidThisMonth'))}</option></select>${body}`,
     )
     this._bind('bills')
+    this.shadowRoot.querySelector('[data-upcoming-filter]')?.addEventListener('change', (event) => {
+      this._config.filter = event.target.value
+      this._render()
+    })
   }
 }
 

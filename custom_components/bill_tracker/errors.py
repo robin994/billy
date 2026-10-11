@@ -33,6 +33,7 @@ ERROR_MESSAGES: dict[str, str] = {
     "payer_invalid": "Invalid payer.",
     "default_payer_invalid": "Invalid default payer.",
     # Bill types
+    "placeholder_invalid": "Invalid bill placeholder settings. Use days 1-31, a valid start month and an amount mode of last, forecast or fixed.",
     "category_name_exists": "A bill type with this name already exists.",
     "category_has_history": "This bill type has history. Disable it instead of deleting it.",
     "category_not_found": "Bill type not found.",

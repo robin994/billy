@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.14.0
+
+- Added opt-in unpaid provisional bills for each bill type, respecting its 1/2/3/4/6/12-month cadence, creation day and optional due day.
+- Added last-invoice, forecast and fixed provisional amounts, with a configurable first expected month and a history-derived default.
+- Generate the current month's missing entries at startup, local midnight and when bill-type settings are saved; clamp days 29–31 at month-end and avoid backfilling past months.
+- Real manual, parser and CSV invoices replace a matching provisional entry in place. Existing real invoices prevent generation, and deleting a provisional entry skips regeneration for that month.
+- Excluded provisional amounts from forecast estimates, normalized spending, contract savings and reimbursements until confirmation. Saving or marking paid confirms the invoice; regular unpaid invoices retain their existing behavior.
+- Added provisional labels and an amount-confirmation form when marking a provisional bill paid in the Billy panel, localized in all six languages.
+- Added the Upcoming widget's `unpaid_this_month` filter and current-month unpaid list/count/total sensor attributes for Home Assistant automations.
+- Preserve provisional metadata in backups and CSV, and add executable backend and frontend regression tests for the monthly checklist.
+- Bumped storage schema to 15 and frontend version/cache keys to 0.14.0.
+
 ## 0.13.8
 
 - Fixed custom parser drafts resetting to the template or saved YAML on ordinary Home Assistant state updates (issue #11).
