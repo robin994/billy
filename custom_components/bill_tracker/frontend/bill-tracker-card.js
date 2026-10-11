@@ -1,4 +1,4 @@
-const BILLY_FRONTEND_VERSION = '0.14.0'
+const BILLY_FRONTEND_VERSION = '0.14.1'
 const BILLY_IMPL_URL = `/bill_tracker/bill-tracker-card-impl.js?v=${BILLY_FRONTEND_VERSION}`
 const BILLY_WIDGETS_URL = `/bill_tracker/billy-widgets.js?v=${BILLY_FRONTEND_VERSION}`
 
@@ -89,6 +89,15 @@ function loadBillyWidgets() {
   return billyWidgetsPromise
 }
 
+// Home Assistant can assign hass before the custom element is registered.
+// Replaying an own property allows the setter to run after its class upgrades.
+function upgradeEarlyProperty(element, name) {
+  if (!Object.prototype.hasOwnProperty.call(element, name)) return
+  const value = element[name]
+  delete element[name]
+  element[name] = value
+}
+
 class BillyCardHost extends HTMLElement {
   constructor() {
     super()
@@ -114,6 +123,7 @@ class BillyCardHost extends HTMLElement {
   }
 
   connectedCallback() {
+    upgradeEarlyProperty(this, 'hass')
     this._ensureImplementation()
   }
 
@@ -192,6 +202,7 @@ class BillyCardEditorHost extends HTMLElement {
   }
 
   connectedCallback() {
+    upgradeEarlyProperty(this, 'hass')
     this._ensureImplementation()
   }
 

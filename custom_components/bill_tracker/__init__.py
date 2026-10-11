@@ -60,7 +60,9 @@ EXTRA_I18N_URL = "/bill_tracker/billy-extra-i18n.js"
 BILLY_WIDGETS_URL = "/bill_tracker/billy-widgets.js"
 BILLY_PANEL_MODULE_URL = f"{BILLY_PANEL_URL}?v={FRONTEND_CACHE_VERSION}"
 BILLY_PANEL_ROUTE = "billy"
-FRONTEND_MODULE_URL = FRONTEND_URL
+# A stable URL can leave Lovelace using an obsolete cached bootstrap after
+# upgrading Billy, before the custom element has been registered.
+FRONTEND_MODULE_URL = f"{FRONTEND_URL}?v={FRONTEND_CACHE_VERSION}"
 
 
 async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:

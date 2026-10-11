@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.1
+
+- Versioned the Lovelace bootstrap resource URL so Home Assistant clients reload the card registration script after updates, addressing the missing `bill-tracker-card` element and stalled loading indicator.
+- Restored early `hass` assignments after the Lovelace custom element upgrades, so the original card and its editor load data instead of displaying "Bill Tracker non ancora disponibile".
+- Refreshed all frontend module cache keys to `0.14.1-r2` to avoid mixing old and new JavaScript modules.
+
 ## 0.14.0
 
 - Added opt-in unpaid provisional bills for each bill type, respecting its 1/2/3/4/6/12-month cadence, creation day and optional due day.
