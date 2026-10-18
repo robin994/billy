@@ -26,6 +26,7 @@ def test_every_version_constant_matches_the_manifest():
     ).group(1).split("-")[0]
 
     js_consts = {
+        "billy-lovelace.js": "BILLY_LOVELACE_VERSION",
         "bill-tracker-card.js": "BILLY_FRONTEND_VERSION",
         "bill-tracker-card-impl.js": "BILL_TRACKER_VERSION",
         "billy-panel.js": "BILLY_PANEL_VERSION",
@@ -45,6 +46,12 @@ def test_every_version_constant_matches_the_manifest():
 def test_static_frontend_imports_use_the_current_cache_version():
     const = (COMPONENT / "const.py").read_text(encoding="utf-8")
     expected = re.search(r'FRONTEND_CACHE_VERSION = "([^"]+)"', const).group(1)
+    legacy = (FRONTEND / "bill-tracker-card.js").read_text(encoding="utf-8")
+    legacy_cache = re.search(
+        r"BILLY_FRONTEND_CACHE_VERSION = '([^']+)'", legacy
+    ).group(1)
+    assert legacy_cache == expected
+    assert "v=${BILLY_FRONTEND_CACHE_VERSION}" in legacy
     for path in FRONTEND.glob("*.js"):
         source = path.read_text(encoding="utf-8")
         for version in re.findall(r"\.js\?v=(\d+\.\d+\.\d+(?:-[\w.-]+)?)", source):

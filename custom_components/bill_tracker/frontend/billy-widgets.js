@@ -1,6 +1,6 @@
-import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.14.1-r2'
+import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.15.0-r5'
 
-const BILLY_WIDGETS_VERSION = '0.14.1'
+const BILLY_WIDGETS_VERSION = '0.15.0'
 
 const WIDGET_TEXT = {
   en: {
@@ -1152,24 +1152,32 @@ const DEFINITIONS = [
   ['billy-parser-status-card', BillyParserStatusCard],
 ]
 
-for (const [name, klass] of DEFINITIONS) {
-  if (!customElements.get(name)) customElements.define(name, klass)
-}
+function registerBillyWidgets() {
+  for (const [name, klass] of DEFINITIONS) {
+    if (!customElements.get(name)) customElements.define(name, klass)
+  }
 
-window.customCards = window.customCards || []
-const pickerLanguage = String(navigator.language || 'en')
-  .toLowerCase()
-  .split(/[-_]/)[0]
-const pickerCards = CARD_META[pickerLanguage] || CARD_META.en
-for (const [type, name, description] of pickerCards) {
-  if (window.customCards.some((card) => card.type === type)) continue
-  window.customCards.push({
-    type,
-    name,
-    description,
-    preview: true,
-    documentationURL: 'https://github.com/robin994/billy',
-  })
+  window.customCards = window.customCards || []
+  const pickerLanguage = String(navigator.language || 'en')
+    .toLowerCase()
+    .split(/[-_]/)[0]
+  const pickerCards = CARD_META[pickerLanguage] || CARD_META.en
+  for (const [type, name, description] of pickerCards) {
+    if (window.customCards.some((card) => card.type === type)) continue
+    window.customCards.push({
+      type,
+      name,
+      description,
+      preview: true,
+      documentationURL: 'https://github.com/robin994/billy',
+    })
+  }
+}
+registerBillyWidgets()
+// YAML-mode HA installations can load extra modules before the scoped custom
+// element registry is installed. Re-register missing elements after startup.
+if (document.readyState !== 'complete') {
+  window.addEventListener('load', registerBillyWidgets, { once: true })
 }
 
 console.info(`Billy widgets v${BILLY_WIDGETS_VERSION} loaded`)

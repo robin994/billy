@@ -4,11 +4,50 @@
 
 # Billy
 
-## Billy 0.14.1
+## Billy 0.15.0
 
-Billy keeps the Lovelace `custom:bill-tracker-card`, while `/billy` is the full-size application.
+Billy's full application lives in the `/billy` sidebar. Seven dedicated Lovelace widgets remain supported; the older `custom:bill-tracker-card` is deprecated but still works in existing dashboards through Billy 0.x.
 
 Billy is a Home Assistant bill manager focused on household expenses: provider bills, recurring costs, forecasts, payment tracking, shared expenses, reimbursements and automatic bill parsing from email.
+
+### What's new in 0.15.0
+
+- **Independent Lovelace widgets** — the seven widgets use `/bill_tracker/billy-lovelace.js?v=0.15.0-r5` instead of depending on the old full-size card's bootstrap.
+- **Legacy card deprecated** — existing `custom:bill-tracker-card` configurations keep working, but the card is hidden from the card picker. Its large implementation is only downloaded if the legacy card is actually used.
+- **Independent, compatible resources** — on startup, Billy registers the new widget entrypoint alongside the legacy card host in Home Assistant's storage-mode resource registry. Both use versioned URLs and work independently.
+- **Backward-compatible storage** — existing bills, parsers, settings, backups and the `/billy` application remain supported.
+
+To migrate an existing Lovelace view, replace `type: custom:bill-tracker-card` with one or more of the supported widgets below; use `/billy` for editing bills, reimbursements, parser management and settings. For example:
+
+```yaml
+type: custom:billy-summary-card
+title: Billy
+```
+
+Removing the deprecated card from a dashboard is optional in 0.15.0, but recommended before Billy 1.0.0. No manual resource setup is needed with a normal storage-mode Lovelace installation. If using `lovelace: resource_mode: yaml`, ensure `/bill_tracker/billy-lovelace.js?v=0.15.0-r5` is configured as a module resource for widgets and keep `/bill_tracker/bill-tracker-card.js?v=0.15.0-r5` if you still have legacy cards. Billy also provides frontend extra modules as a fallback, but Home Assistant may load those before its custom-element registry is ready.
+
+### Development preview: issue #12
+
+The local development branch includes an initial **optional PDF document archive**
+and a separate **Income** section with editable variable recurring salaries,
+income categories, actual-versus-expected totals, and a chart overlay.
+There are no bank integrations. The PDF archive supports Home Assistant's media
+directory, including pre-mounted network shares; direct SFTP/WebDAV are not yet
+included. The new **Accounts / Conti** subtab provides multiple user-defined
+accounts with customizable names, types, opening balances and dates, plus
+editable transfers between any pair. Each confirmed receipt and paid bill can
+be assigned to its actual account; forecasts never alter balances.
+An account must belong to an existing payer, and a payer can own any number of
+accounts (including none). A payer with linked accounts cannot be deleted
+until those accounts are reassigned or removed.
+The six built-in income categories have translated labels in all six supported
+languages. Archived bill PDFs can be viewed directly from the bill list; an
+existing bill's editor also supports manual PDF upload, replacement and
+deletion (administrator-only, 8 MiB maximum, confirmation required).
+
+See [Income & document archive development notes](docs/INCOME_AND_DOCUMENT_ARCHIVE.md)
+for configuration, security constraints, and incomplete items. These changes have
+not yet been released or integration-tested on a running Home Assistant instance.
 
 ### What's new in 0.14.1
 
@@ -263,9 +302,9 @@ When a new parser version is published, its feedback starts from zero. Votes for
 
 ## Lovelace dashboard widgets
 
-Billy now ships a set of small dashboard cards in addition to the full `custom:bill-tracker-card` and the `/billy` sidebar application. They all use the same Billy WebSocket data and do not duplicate the backend business logic.
+Billy ships seven supported dashboard widgets alongside the `/billy` sidebar application. They share the Billy WebSocket backend rather than duplicating business logic.
 
-The widget pack is loaded automatically with Billy's existing Lovelace resource, so no additional resource URLs are required.
+The widget pack is registered automatically via `/bill_tracker/billy-lovelace.js?v=0.15.0-r1`. No manual resource URLs are required for a storage-mode installation. Existing legacy cards remain compatible via the separately registered `/bill_tracker/bill-tracker-card.js?v=0.15.0-r1` host until Billy 1.0.0.
 
 Available cards:
 
@@ -390,7 +429,7 @@ cards:
 - **Parser** — country-sharded community catalog, local parser authoring, testing, sharing and Experimental feedback.
 - **Impostazioni / Settings** — bill types, payers, IMAP sources, system status and developer/support links.
 
-The Lovelace resource remains `/bill_tracker/bill-tracker-card.js` without a version query string. The widget pack is loaded from this same bootstrap resource.
+In Billy 0.15.0 and later, the widget resource is `/bill_tracker/billy-lovelace.js` with a version query parameter. The historical `/bill_tracker/bill-tracker-card.js` endpoint continues to serve only the deprecated legacy card.
 
 ## Billy 0.9.1
 
@@ -432,7 +471,7 @@ The Billy Settings panel now credits **Roberto Tortora** as creator/maintainer a
 
 Both repositories include an explicit action encouraging users to open the project and leave a GitHub star.
 
-The parser catalog continues to refresh automatically every day at **00:00 Home Assistant local time** without silently upgrading installed parser YAML files. The Lovelace resource stays unversioned at `/bill_tracker/bill-tracker-card.js`.
+The parser catalog continues to refresh automatically every day at **00:00 Home Assistant local time** without silently upgrading installed parser YAML files. The old unversioned Lovelace resource mentioned in this historical section was superseded by the versioned widget entrypoint in Billy 0.15.0.
 
 ## 0.6.3 parser compatibility
 

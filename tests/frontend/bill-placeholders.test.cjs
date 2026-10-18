@@ -15,6 +15,7 @@ function withoutImports(filename) {
 function fixture(t, language = 'en') {
   const dom = new JSDOM('<!doctype html>', { runScripts: 'outside-only', url: 'https://ha.example/billy' })
   t.after(() => dom.window.close())
+  dom.window.confirm = () => true
   dom.window.console.info = () => {}
   const legacyTranslations = fs.readFileSync(path.join(frontend, 'bill-tracker-i18n.js'), 'utf8').replace(/^export /gm, '')
   dom.window.eval(translations + '\n' + legacyTranslations + '\n' + withoutImports('billy-panel.js') + '\n' + withoutImports('billy-widgets.js') + '\n' + withoutImports('bill-tracker-card-impl.js'))
@@ -105,6 +106,129 @@ test('ordinary bills retain the immediate payment toggle', async t => {
   input.checked = true
   await bills._setPaid(input)
   assert.equal(f.calls[0].type, 'bill_tracker/set_paid')
+})
+
+test('bill editor lets users choose the account for a payment without changing its payer', async t => {
+  const f = fixture(t)
+  f.data.accounts = [
+    { id: 'bank', name: 'Family bank', account_type: 'checking' },
+    { id: 'cash', name: 'Cash', account_type: 'cash' },
+  ]
+  f.data.default_account_id = 'bank'
+  f.expense.account_id = 'cash'
+  const bills = f.element('billy-bills')
+  bills._load = async () => {}
+  bills._openBill(f.expense.id)
+  const form = bills.shadowRoot.querySelector('#bill-form')
+  assert.equal(form.elements.account_id.value, 'cash')
+  form.elements.account_id.value = 'bank'
+  await bills._submitBill({ preventDefault() {}, currentTarget: form }, () => {})
+  const payload = f.calls.find(row => row.type === 'bill_tracker/update')
+  assert.ok(payload)
+  assert.equal(payload.account_id, 'bank')
+  assert.equal(payload.expense_id, f.expense.id)
+})
+
+test('archived bill PDF opens an inline viewer and revokes the temporary URL on close', async t => {
+  const f = fixture(t, 'it')
+  f.expense.document_path = 'billy/documents/2026/10/bill.pdf'
+  const urls = []
+  f.dom.window.URL.createObjectURL = () => 'blob:https://ha.example/pdf'
+  f.dom.window.URL.revokeObjectURL = value => urls.push(value)
+  f.hass.callWS = async msg => {
+    f.calls.push(msg)
+    if (msg.type === 'bill_tracker/document/read') return {
+      mime_type: 'application/pdf',
+      filename: 'bill.pdf',
+      content_base64: Buffer.from('%PDF-1.4\nhello').toString('base64'),
+    }
+    return {}
+  }
+  const bills = f.element('billy-bills')
+  assert.match(bills.shadowRoot.textContent, /Visualizza PDF/)
+  await bills._openArchivedDocument(f.expense.id)
+  const viewer = bills.shadowRoot.querySelector('#bill-pdf-modal')
+  assert.equal(viewer.hidden, false)
+  assert.equal(viewer.querySelector('iframe').src, 'blob:https://ha.example/pdf')
+  viewer.querySelector('button[data-close-pdf]').click()
+  assert.equal(viewer.hidden, true)
+  assert.deepEqual(urls, ['blob:https://ha.example/pdf'])
+  assert.deepEqual(f.calls.map(msg => msg.type), ['bill_tracker/document/read'])
+})
+
+test('editing a bill asks confirmation before PDF upload, replacement and removal', async t => {
+  const f = fixture(t, 'it')
+  f.expense.is_placeholder = false
+  const bytes = Uint8Array.from(Buffer.from('%PDF-1.4\n' + 'X'.repeat(210000)))
+  let allowed = false
+  const prompts = []
+  f.dom.window.confirm = message => { prompts.push(message); return allowed }
+  f.hass.callWS = async msg => {
+    f.calls.push(msg)
+    if (msg.type === 'bill_tracker/document/upload') {
+      if (msg.chunk_index === msg.total_chunks - 1) {
+        return { complete: true, bill: {
+          ...f.expense, document_path: 'billy/documents/2026/10/new.pdf',
+          document_sha256: 'checksum', document_url: '', document_error: null,
+        }}
+      }
+      return { complete: false }
+    }
+    if (msg.type === 'bill_tracker/document/delete') {
+      return { ...f.expense, document_path: null, document_url: '', document_error: null }
+    }
+    return {}
+  }
+  const bills = f.element('billy-bills')
+  bills._openBill(f.expense.id)
+  const card = bills.shadowRoot.querySelector('#bill-modal-card')
+  assert.ok(card.querySelector('#bill-pdf-file'))
+  assert.ok(card.querySelector('[data-pdf-upload]'))
+  const file = { name: 'bill.pdf', type: 'application/pdf', size: bytes.length,
+    async arrayBuffer() { return bytes.buffer } }
+  Object.defineProperty(card.querySelector('#bill-pdf-file'), 'files', {
+    configurable: true, value: [file],
+  })
+  await bills._uploadBillDocument(f.expense.id, card)
+  assert.equal(f.calls.length, 0)
+  assert.match(prompts[0], /Confermi il caricamento/)
+
+  allowed = true
+  await bills._uploadBillDocument(f.expense.id, card)
+  const pieces = f.calls.filter(msg => msg.type === 'bill_tracker/document/upload')
+  assert.equal(pieces.length, 2)
+  assert.equal(pieces[0].total_size, bytes.length)
+  assert.equal(Buffer.concat(pieces.map(part => Buffer.from(part.content_base64, 'base64'))).length, bytes.length)
+  assert.ok(bills.shadowRoot.querySelector('[data-open-document]'))
+  assert.ok(card.querySelector('[data-pdf-remove]'))
+  assert.match(card.textContent, /PDF salvato/)
+
+  allowed = false
+  await bills._removeBillDocument(f.expense.id, card)
+  assert.equal(f.calls.filter(msg => msg.type === 'bill_tracker/document/delete').length, 0)
+  assert.match(prompts.at(-1), /eliminazione definitiva/)
+  allowed = true
+  await bills._removeBillDocument(f.expense.id, card)
+  assert.equal(f.calls.filter(msg => msg.type === 'bill_tracker/document/delete').length, 1)
+  assert.equal(f.expense.document_path, null)
+  assert.match(card.textContent, /Nessun PDF allegato/)
+})
+
+test('PDF updates do not close the bill editor before unsaved fields are handled', t => {
+  const f = fixture(t)
+  const bills = f.element('billy-bills')
+  let reloads = 0
+  bills._load = async () => { reloads++ }
+  bills._openBill(f.expense.id)
+  const form = bills.shadowRoot.querySelector('#bill-form')
+  form.elements.note.value = 'Unsaved note'
+  bills._reloadWhenEditorClosed()
+  assert.equal(reloads, 0)
+  assert.equal(form.elements.note.value, 'Unsaved note')
+  assert.equal(bills._pendingReload, true)
+  bills.shadowRoot.querySelector('#bill-cancel').click()
+  assert.equal(reloads, 1)
+  assert.equal(bills._pendingReload, false)
 })
 
 test('compact bill card opens the same amount confirmation before paying a provisional bill', async t => {

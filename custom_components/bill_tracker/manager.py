@@ -9,8 +9,11 @@ import json
 from math import isfinite
 from statistics import mean
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from uuid import uuid4
+import logging
+import base64
+from time import monotonic
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -28,6 +31,12 @@ from .const import (
     SUPPORTED_INTERVALS,
 )
 from .errors import billy_error
+from .document_archive import (
+    MAX_PDF_BYTES, archive_pdf, archive_pdf_bytes, delete_archived_pdf,
+    normalize_archive_config, read_pdf, validate_owned_pdf_path,
+)
+from .income import IncomeMixin
+from .accounts import AccountMixin
 from .exporter import (
     csv_bytes,
     csv_template_bytes,
@@ -44,7 +53,7 @@ from .exporter import (
 )
 
 
-class BillTrackerManager:
+class BillTrackerManager(IncomeMixin, AccountMixin):
     """Persistent bill store, categories, payers, settlements and aggregation logic."""
 
     def __init__(self, hass: HomeAssistant) -> None:
@@ -56,6 +65,15 @@ class BillTrackerManager:
         self.settlements: list[dict[str, Any]] = []
         self.recurring_expenses: list[dict[str, Any]] = []
         self.recurring_occurrences: list[dict[str, Any]] = []
+        self.income_categories: list[dict[str, Any]] = []
+        self.incomes: list[dict[str, Any]] = []
+        self.income_rules: list[dict[str, Any]] = []
+        self.accounts: list[dict[str, Any]] = []
+        self.default_account_id: str | None = None
+        self.accounts_config: dict[str, Any] = {}
+        self.internal_transfers: list[dict[str, Any]] = []
+        self._logger = logging.getLogger(__name__)
+        self._document_uploads: dict[tuple[str, str], dict[str, Any]] = {}
 
     async def async_load(self) -> None:
         """Load and migrate the persistent database."""
@@ -66,6 +84,16 @@ class BillTrackerManager:
         self.settlements = [dict(x) for x in data.get("settlements", [])]
         self.recurring_expenses = [dict(x) for x in data.get("recurring_expenses", [])]
         self.recurring_occurrences = [dict(x) for x in data.get("recurring_occurrences", [])]
+        self.income_categories = [dict(x) for x in data.get("income_categories", [])]
+        self.incomes = [dict(x) for x in data.get("incomes", [])]
+        self.income_rules = [dict(x) for x in data.get("income_rules", [])]
+        self.accounts = [dict(x) for x in data.get("accounts", [])]
+        self.default_account_id = str(data.get("default_account_id") or "") or None
+        self.accounts_config = dict(data.get("accounts_config") or {})
+        self.internal_transfers = [
+            dict(x) if isinstance(x, dict) else x
+            for x in data.get("internal_transfers", [])
+        ]
 
         changed = False
         changed |= self._normalize_payers()
@@ -77,6 +105,9 @@ class BillTrackerManager:
         changed |= self._migrate_settlements()
         changed |= self._migrate_recurring_expenses()
         changed |= self._migrate_recurring_occurrences()
+        changed |= self._migrate_income()
+        changed |= self._migrate_accounts()
+        changed |= self._sync_income_occurrences()
         changed |= self._sync_recurring_occurrences()
         changed |= self._sync_bill_placeholders()
         self._sort()
@@ -173,6 +204,8 @@ class BillTrackerManager:
         return dict(item)
 
     async def async_delete_payer(self, payer_id: str) -> bool:
+        if any(row.get("payer_id") == payer_id for row in self.accounts):
+            raise ValueError("Payer owns accounts; reassign or delete them first")
         if any(x.get("payer_id") == payer_id for x in self.expenses):
             raise billy_error("payer_in_history")
         if any(
@@ -257,6 +290,7 @@ class BillTrackerManager:
         default_provider: str = "",
         default_contract: str = "",
         placeholder: dict[str, Any] | None = None,
+        document_archive: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         name = name.strip()
         self._validate_category(name, interval_months)
@@ -274,6 +308,7 @@ class BillTrackerManager:
             "consumption_unit": self._normalize_consumption_unit(consumption_unit),
             "default_provider": self._normalize_optional_text(default_provider, 100),
             "default_contract": self._normalize_optional_text(default_contract, 100),
+            "document_archive": normalize_archive_config(document_archive),
         }
         item["placeholder"] = self._normalize_placeholder_config(item, placeholder)
         self.categories.append(item)
@@ -295,6 +330,7 @@ class BillTrackerManager:
         default_provider: str = "",
         default_contract: str = "",
         placeholder: dict[str, Any] | None = None,
+        document_archive: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         name = name.strip()
         self._validate_category(name, interval_months)
@@ -325,6 +361,9 @@ class BillTrackerManager:
                 "default_provider": self._normalize_optional_text(default_provider, 100),
                 "default_contract": self._normalize_optional_text(default_contract, 100),
                 "placeholder": placeholder_config,
+                "document_archive": normalize_archive_config(
+                    document_archive if document_archive is not None else item.get("document_archive")
+                ),
             }
         )
         self._sync_bill_placeholders()
@@ -367,6 +406,8 @@ class BillTrackerManager:
         due_date: str | None = None,        provider: str | None = None,
         contract: str | None = None,
         consumption: float | None = None,
+        document_url: str = "",
+        account_id: str | None = None,
     ) -> dict[str, Any]:
         category = self._resolve_category(category_id, category_name)
         self._validate_date(year, month)
@@ -416,11 +457,17 @@ class BillTrackerManager:
             "consumption": normalized_consumption,
             "consumption_unit": str(category.get("consumption_unit", "")),
             "note": note.strip(),
+            "document_url": self._normalize_document_url(document_url),
+            "document_path": None,
+            "document_sha256": None,
+            "document_error": None,
+            "account_id": self._resolve_account_id(account_id),
             "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
         self._store_real_expense(item)
         self._sort()
         await self._save_and_notify()
+        self._queue_document_archive(item)
         return self._public_expense(item)
 
     async def async_update(
@@ -448,6 +495,8 @@ class BillTrackerManager:
         provider: str | None = None,
         contract: str | None = None,
         consumption: float | None = None,
+        document_url: str | None = None,
+        account_id: str | None = None,
     ) -> dict[str, Any] | None:
         category = self._resolve_category(category_id, category_name)
         self._validate_date(year, month)
@@ -498,6 +547,13 @@ class BillTrackerManager:
                 or str(item.get("payer_id") or "") != str(resolved_payer or "")
                 or list(item.get("split", [])) != normalized_split
             )
+            resolved_url = (
+                self._normalize_document_url(document_url)
+                if document_url is not None else str(item.get("document_url") or "")
+            )
+            document_changed = (
+                resolved_url != str(item.get("document_url") or "")
+            )
             item.update(
                 {
                     "paid_year": int(year),
@@ -540,10 +596,19 @@ class BillTrackerManager:
                     "consumption_unit": str(category.get("consumption_unit", "")),
                     "note": note.strip(),
                     "is_placeholder": False,
+                    "document_url": resolved_url,
+                    "document_path": None if document_changed else item.get("document_path"),
+                    "document_sha256": None if document_changed else item.get("document_sha256"),
+                    "document_error": None if document_changed else item.get("document_error"),
+                    "account_id": self._resolve_account_id(
+                        account_id if account_id is not None else item.get("account_id")
+                    ),
                 }
             )
             self._sort()
             await self._save_and_notify()
+            if document_changed:
+                self._queue_document_archive(item)
             return self._public_expense(item)
         return None
 
@@ -737,6 +802,9 @@ class BillTrackerManager:
                        and x["category_id"] == item["category_id"]
                        and x["paid_year"] == item["paid_year"]
                        and x["paid_month"] == item["paid_month"]), None)
+        item["account_id"] = self._resolve_account_id(
+            item.get("account_id") or (target or {}).get("account_id")
+        )
         if target is None:
             self.expenses.append(item)
             return
@@ -1271,6 +1339,12 @@ class BillTrackerManager:
                 "settlements": deepcopy(self.settlements),
                 "recurring_expenses": deepcopy(self.recurring_expenses),
                 "recurring_occurrences": deepcopy(self.recurring_occurrences),
+                "income_categories": deepcopy(self.income_categories),
+                "incomes": deepcopy(self.incomes),
+                "income_rules": deepcopy(self.income_rules),
+                "accounts": deepcopy(self.accounts),
+                "default_account_id": self.default_account_id,
+                "internal_transfers": deepcopy(self.internal_transfers),
             },
         }
         return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
@@ -1296,6 +1370,11 @@ class BillTrackerManager:
             "settlements",
             "recurring_expenses",
             "recurring_occurrences",
+            "income_categories",
+            "incomes",
+            "income_rules",
+            "accounts",
+            "internal_transfers",
         )
         for key in keys:
             if not isinstance(data.get(key, []), list):
@@ -1304,11 +1383,28 @@ class BillTrackerManager:
             raise billy_error("backup_too_many_bills")
         if len(data.get("recurring_expenses", [])) > 10_000:
             raise billy_error("backup_too_many_recurring")
+        if len(data.get("incomes", [])) > 50_000 or len(data.get("income_rules", [])) > 10_000:
+            raise ValueError("Backup contains too many income records")
+        if len(data.get("internal_transfers", [])) > 50_000:
+            raise ValueError("Backup contains too many internal transfers")
+        if len(data.get("accounts", [])) > 200:
+            raise ValueError("Backup contains too many accounts")
+        if not isinstance(data.get("accounts_config", {}), dict):
+            raise ValueError("Backup contains an invalid accounts configuration")
 
         previous = {key: deepcopy(getattr(self, key)) for key in keys}
+        previous_accounts_config = deepcopy(self.accounts_config)
+        previous_default_account_id = self.default_account_id
         try:
             for key in keys:
-                setattr(self, key, [dict(item) for item in data.get(key, [])])
+                # Validate shape before installing imported objects. Malformed
+                # data is rejected without mutating the current installation.
+                values = data.get(key, [])
+                if not all(isinstance(item, dict) for item in values):
+                    raise ValueError(f"Invalid backup section: {key}")
+                setattr(self, key, [dict(item) for item in values])
+            self.accounts_config = dict(data.get("accounts_config") or {})
+            self.default_account_id = str(data.get("default_account_id") or "") or None
             self._normalize_payers()
             if not self.categories:
                 self.categories = deepcopy(DEFAULT_CATEGORIES)
@@ -1317,6 +1413,9 @@ class BillTrackerManager:
             self._migrate_settlements()
             self._migrate_recurring_expenses()
             self._migrate_recurring_occurrences()
+            self._migrate_income()
+            self._migrate_accounts()
+            self._sync_income_occurrences()
             self._sync_recurring_occurrences()
             self._sync_bill_placeholders()
             self._sort()
@@ -1324,6 +1423,8 @@ class BillTrackerManager:
         except Exception:
             for key, value in previous.items():
                 setattr(self, key, value)
+            self.accounts_config = previous_accounts_config
+            self.default_account_id = previous_default_account_id
             raise
 
         return {
@@ -1333,6 +1434,11 @@ class BillTrackerManager:
             "settlements": len(self.settlements),
             "recurring_expenses": len(self.recurring_expenses),
             "recurring_occurrences": len(self.recurring_occurrences),
+            "income_categories": len(self.income_categories),
+            "incomes": len(self.incomes),
+            "income_rules": len(self.income_rules),
+            "internal_transfers": len(self.internal_transfers),
+            "accounts": len(self.accounts),
         }
 
     # ------------------------------------------------------------------
@@ -1703,6 +1809,7 @@ class BillTrackerManager:
     def snapshot(self, forecast_months: int = 12) -> dict[str, Any]:
         forecast_months = max(1, min(int(forecast_months), 24))
         self._sync_recurring_occurrences()
+        self._sync_income_occurrences()
         today = date.today()
         return {
             "schema_version": STORAGE_SCHEMA_VERSION,
@@ -1719,6 +1826,16 @@ class BillTrackerManager:
             "recurring_occurrences": [
                 self._public_recurring_occurrence(x) for x in self.recurring_occurrences
             ],
+            "income_categories": [dict(x) for x in self.income_categories],
+            "incomes": [dict(x) for x in self.incomes if not x.get("voided")],
+            "income_rules": [dict(x) for x in self.income_rules],
+            "income_monthly": self.income_monthly_totals(),
+            "income_forecast": self.income_forecast_monthly_totals(forecast_months),
+            "income_summary": self.income_summary(),
+            "account_balances": self.account_balances(),
+            "accounts": [dict(account) for account in self.accounts],
+            "default_account_id": self.default_account_id,
+            "internal_transfers": [dict(item) for item in self.internal_transfers],
             "recurring_history": self.recurring_history_items(),
             "current_month_recurring": self.recurring_month_items(today.year, today.month),
             "balances": self.balances(),
@@ -3120,6 +3237,11 @@ class BillTrackerManager:
                 "default_contract": self._normalize_optional_text(raw.get("default_contract", ""), 100),
             }
             try:
+                item["document_archive"] = normalize_archive_config(raw.get("document_archive"))
+            except ValueError:
+                item["document_archive"] = normalize_archive_config(None)
+                changed = True
+            try:
                 item["placeholder"] = self._normalize_placeholder_config(item, raw.get("placeholder"))
             except ValueError:
                 item["placeholder"] = self._normalize_placeholder_config(item, None)
@@ -3251,8 +3373,22 @@ class BillTrackerManager:
                     item.get("consumption_unit") or category.get("consumption_unit", "")
                 ),
                 "note": str(item.get("note", "")).strip(),
+                "account_id": str(item.get("account_id") or "") or None,
+                "document_url": "",
+                "document_path": None,
+                "document_sha256": None,
+                "document_error": None,
                 "created_at": str(item.get("created_at") or datetime.now().astimezone().isoformat(timespec="seconds")),
             }
+            try:
+                new_item["document_url"] = self._normalize_document_url(item.get("document_url"))
+            except ValueError:
+                changed = True
+            # The internal archive path is generated by Billy, never accepted
+            # directly from a WebSocket client.
+            for field in ("document_path", "document_sha256", "document_error"):
+                if item.get(field):
+                    new_item[field] = str(item[field])
             if new_item != raw:
                 changed = True
             migrated.append(new_item)
@@ -3426,6 +3562,219 @@ class BillTrackerManager:
         await self._save()
         self.hass.bus.async_fire(EVENT_UPDATED)
 
+    @staticmethod
+    def _normalize_document_url(value: str | None) -> str:
+        url = str(value or "").strip()
+        if not url:
+            return ""
+        parts = urlsplit(url)
+        if (
+            len(url) > 2048 or parts.scheme not in {"http", "https"}
+            or not parts.hostname or parts.username or parts.password
+        ):
+            raise ValueError("Document URL must be an HTTP(S) address without credentials")
+        return url
+
+    def _queue_document_archive(self, bill: dict[str, Any]) -> None:
+        """Archive in the background only for an explicitly opted-in category."""
+        if not bill.get("document_url") or bill.get("document_path"):
+            return
+        category = self.category(str(bill.get("category_id") or ""))
+        if not category:
+            return
+        config = normalize_archive_config(category.get("document_archive"))
+        if config["enabled"] and config["source_host"]:
+            self.hass.async_create_task(self._archive_document_safely(str(bill["id"])))
+
+    async def _archive_document_safely(self, expense_id: str) -> None:
+        try:
+            await self.async_archive_document(expense_id)
+        except Exception as err:  # noqa: BLE001
+            self._logger.warning("Billy could not archive document for %s: %s", expense_id, err)
+
+    async def async_archive_document(self, expense_id: str) -> dict[str, Any]:
+        bill = next((x for x in self.expenses if x["id"] == expense_id), None)
+        if bill is None:
+            raise ValueError("Bill not found")
+        category = self.category(str(bill.get("category_id") or ""))
+        if category is None:
+            raise ValueError("Bill category not found")
+        source_url = str(bill.get("document_url") or "")
+        try:
+            relative_path, checksum = await archive_pdf(self.hass, dict(bill), dict(category))
+        except Exception as err:
+            if str(bill.get("document_url") or "") == source_url:
+                bill["document_error"] = str(err)[:200]
+                await self._save_and_notify()
+            raise
+        if str(bill.get("document_url") or "") != source_url or bill not in self.expenses:
+            # The bill was edited/deleted while the fetch was in progress.
+            raise ValueError("Document URL changed during archiving")
+        bill["document_path"] = relative_path
+        bill["document_sha256"] = checksum
+        bill["document_error"] = None
+        await self._save_and_notify()
+        return self._public_expense(bill)
+
+    async def async_read_document(self, expense_id: str) -> dict[str, str]:
+        bill = next((x for x in self.expenses if x["id"] == expense_id), None)
+        if not bill or not bill.get("document_path"):
+            raise ValueError("Archived document not found")
+        content = await read_pdf(self.hass, str(bill["document_path"]))
+        return {
+            "content_base64": base64.b64encode(content).decode("ascii"),
+            "filename": f"billy-{expense_id}.pdf",
+            "mime_type": "application/pdf",
+        }
+
+    async def async_receive_document_chunk(
+        self, user_id: str, expense_id: str, upload_id: str,
+        index: int, total_chunks: int, total_size: int, chunk: bytes,
+    ) -> dict[str, Any]:
+        """Receive bounded ordered chunks rather than a giant WebSocket message."""
+        if not any(row["id"] == expense_id for row in self.expenses):
+            raise ValueError("Bill not found")
+        if not (1 <= total_chunks <= 128 and 0 <= index < total_chunks):
+            raise ValueError("Invalid document chunk index")
+        if not (5 <= total_size <= MAX_PDF_BYTES and 0 < len(chunk) <= 256 * 1024):
+            raise ValueError("Document upload exceeds limits")
+        now = monotonic()
+        for key, current in tuple(self._document_uploads.items()):
+            if now - current["started"] > 600:
+                self._document_uploads.pop(key, None)
+        key = (user_id, upload_id)
+        if index == 0:
+            if key in self._document_uploads:
+                raise ValueError("Upload already started")
+            # A failed/disconnected attempt must not block a fresh retry.
+            for previous_key, previous in tuple(self._document_uploads.items()):
+                if previous_key[0] == user_id and previous["expense_id"] == expense_id:
+                    self._document_uploads.pop(previous_key, None)
+            if len(self._document_uploads) >= 4:
+                raise ValueError("Too many concurrent document uploads")
+            self._document_uploads[key] = {
+                "expense_id": expense_id, "total_chunks": total_chunks,
+                "total_size": total_size, "started": now,
+                "next_index": 0, "payload": bytearray(),
+            }
+        current = self._document_uploads.get(key)
+        if (
+            current is None or current["expense_id"] != expense_id
+            or current["total_chunks"] != total_chunks
+            or current["total_size"] != total_size
+            or current["next_index"] != index
+        ):
+            self._document_uploads.pop(key, None)
+            raise ValueError("Out-of-order document upload")
+        payload = current["payload"]
+        payload.extend(chunk)
+        if len(payload) > total_size:
+            self._document_uploads.pop(key, None)
+            raise ValueError("Document upload is larger than declared")
+        current["next_index"] += 1
+        if index < total_chunks - 1:
+            return {"complete": False, "received": len(payload)}
+        self._document_uploads.pop(key, None)
+        if len(payload) != total_size:
+            raise ValueError("Incomplete document upload")
+        bill = await self.async_upload_document(expense_id, bytes(payload))
+        return {"complete": True, "bill": bill}
+
+    async def async_upload_document(self, expense_id: str, content: bytes) -> dict[str, Any]:
+        """Manually attach/replace a PDF, even when auto-archiving is disabled."""
+        bill = next((row for row in self.expenses if row["id"] == expense_id), None)
+        if bill is None:
+            raise ValueError("Bill not found")
+        category = self.category(str(bill.get("category_id") or ""))
+        if category is None:
+            raise ValueError("Bill category not found")
+        if len(content) > MAX_PDF_BYTES or not content.startswith(b"%PDF-"):
+            raise ValueError("Only PDF documents up to 8 MiB can be uploaded")
+        old_path = str(bill.get("document_path") or "")
+        if old_path:
+            validate_owned_pdf_path(self.hass, old_path, expense_id)
+        path, checksum = await archive_pdf_bytes(
+            self.hass, dict(bill), dict(category), content, manual=True
+        )
+        if bill not in self.expenses:
+            await delete_archived_pdf(self.hass, path, expense_id)
+            raise ValueError("Bill was removed during upload")
+        previous = {key: bill.get(key) for key in (
+            "document_path", "document_sha256", "document_error", "document_url"
+        )}
+        bill.update({
+            "document_path": path, "document_sha256": checksum,
+            "document_error": None, "document_url": "",
+        })
+        try:
+            await self._save_and_notify()
+        except Exception:
+            bill.update(previous)
+            if path != old_path:
+                await delete_archived_pdf(self.hass, path, expense_id)
+            raise
+        if old_path and old_path != path and not any(
+            other is not bill and other.get("document_path") == old_path
+            for other in self.expenses
+        ):
+            try:
+                await delete_archived_pdf(self.hass, old_path, expense_id)
+            except OSError as err:
+                self._logger.warning("Could not remove replaced PDF for %s: %s", expense_id, err)
+                return {**self._public_expense(bill), "document_cleanup_error": True}
+        return self._public_expense(bill)
+
+    async def async_delete_document(self, expense_id: str) -> dict[str, Any]:
+        """Remove a bill's PDF association and its owned archived file."""
+        bill = next((row for row in self.expenses if row["id"] == expense_id), None)
+        if bill is None:
+            raise ValueError("Bill not found")
+        old_path = str(bill.get("document_path") or "")
+        if not old_path and not bill.get("document_url"):
+            raise ValueError("Bill has no document")
+        if old_path:
+            # Validate ownership before clearing metadata, to avoid an
+            # irreversible partial deletion on a malformed imported path.
+            validate_owned_pdf_path(self.hass, old_path, expense_id)
+        previous = {key: bill.get(key) for key in (
+            "document_path", "document_sha256", "document_error", "document_url"
+        )}
+        bill.update({
+            "document_path": None, "document_sha256": None,
+            "document_error": None, "document_url": "",
+        })
+        try:
+            await self._save_and_notify()
+        except Exception:
+            bill.update(previous)
+            raise
+        if old_path and not any(
+            other.get("document_path") == old_path for other in self.expenses
+        ):
+            try:
+                await delete_archived_pdf(self.hass, old_path, expense_id)
+            except OSError as err:
+                self._logger.warning("Could not remove archived PDF for %s: %s", expense_id, err)
+                return {**self._public_expense(bill), "document_cleanup_error": True}
+        return self._public_expense(bill)
+
+    async def async_archive_attachment(self, expense_id: str, content: bytes) -> dict[str, Any]:
+        """Persist a PDF supplied by the existing IMAP parser for an imported bill."""
+        bill = next((x for x in self.expenses if x["id"] == expense_id), None)
+        if not bill:
+            raise ValueError("Bill not found")
+        category = self.category(str(bill.get("category_id") or ""))
+        if not category:
+            raise ValueError("Bill category not found")
+        path, checksum = await archive_pdf_bytes(self.hass, dict(bill), dict(category), content)
+        if bill not in self.expenses:
+            raise ValueError("Bill was removed during archiving")
+        bill["document_path"] = path
+        bill["document_sha256"] = checksum
+        bill["document_error"] = None
+        await self._save_and_notify()
+        return self._public_expense(bill)
+
     async def _save(self) -> None:
         await self._store.async_save(
             {
@@ -3436,6 +3785,12 @@ class BillTrackerManager:
                 "settlements": self.settlements,
                 "recurring_expenses": self.recurring_expenses,
                 "recurring_occurrences": self.recurring_occurrences,
+                "income_categories": self.income_categories,
+                "incomes": self.incomes,
+                "income_rules": self.income_rules,
+                "accounts": self.accounts,
+                "default_account_id": self.default_account_id,
+                "internal_transfers": self.internal_transfers,
             }
         )
 
@@ -3444,6 +3799,10 @@ class BillTrackerManager:
         self.settlements.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
         self.recurring_expenses.sort(key=lambda x: (not bool(x.get("active", True)), str(x.get("name", "")).casefold()))
         self.recurring_occurrences.sort(key=lambda x: (str(x.get("due_date", "")), str(x.get("id", ""))), reverse=True)
+        if hasattr(self, "incomes"):
+            self.incomes.sort(key=lambda x: (str(x.get("expected_date", "")), str(x.get("created_at", ""))), reverse=True)
+        if hasattr(self, "income_rules"):
+            self.income_rules.sort(key=lambda x: str(x.get("name", "")).casefold())
 
     def _validate_optional_payer(self, payer_id: str | None) -> str | None:
         value = str(payer_id or "")

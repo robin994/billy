@@ -1,6 +1,6 @@
-const BILLY_FRONTEND_VERSION = '0.14.1'
-const BILLY_IMPL_URL = `/bill_tracker/bill-tracker-card-impl.js?v=${BILLY_FRONTEND_VERSION}`
-const BILLY_WIDGETS_URL = `/bill_tracker/billy-widgets.js?v=${BILLY_FRONTEND_VERSION}`
+const BILLY_FRONTEND_VERSION = '0.15.0'
+const BILLY_FRONTEND_CACHE_VERSION = '0.15.0-r5'
+const BILLY_IMPL_URL = `/bill_tracker/bill-tracker-card-impl.js?v=${BILLY_FRONTEND_CACHE_VERSION}`
 
 const BOOTSTRAP_TEXT = {
   en: {
@@ -8,53 +8,36 @@ const BOOTSTRAP_TEXT = {
     frontendError: 'Billy frontend failed to load',
     editorLoading: 'Loading Billy editor…',
     editorError: 'Billy editor failed to load',
-    cardName: 'Billy - Bill Tracker',
-    cardDescription:
-      'Recurring bills, expense splitting, balances and forecasts',
   },
   it: {
     loading: 'Caricamento Billy…',
     frontendError: 'Impossibile caricare il frontend di Billy',
     editorLoading: 'Caricamento editor Billy…',
     editorError: 'Impossibile caricare l’editor di Billy',
-    cardName: 'Billy - Gestione bollette',
-    cardDescription: 'Bollette ricorrenti, divisione spese, saldi e previsioni',
   },
   es: {
     loading: 'Cargando Billy…',
     frontendError: 'No se pudo cargar la interfaz de Billy',
     editorLoading: 'Cargando el editor de Billy…',
     editorError: 'No se pudo cargar el editor de Billy',
-    cardName: 'Billy - Gestión de facturas',
-    cardDescription:
-      'Facturas recurrentes, reparto de gastos, saldos y previsiones',
   },
   fr: {
     loading: 'Chargement de Billy…',
     frontendError: 'Impossible de charger l’interface Billy',
     editorLoading: 'Chargement de l’éditeur Billy…',
     editorError: 'Impossible de charger l’éditeur Billy',
-    cardName: 'Billy - Gestion des factures',
-    cardDescription:
-      'Factures récurrentes, partage des dépenses, soldes et prévisions',
   },
   de: {
     loading: 'Billy wird geladen…',
     frontendError: 'Billy-Oberfläche konnte nicht geladen werden',
     editorLoading: 'Billy-Editor wird geladen…',
     editorError: 'Billy-Editor konnte nicht geladen werden',
-    cardName: 'Billy - Rechnungsverwaltung',
-    cardDescription:
-      'Wiederkehrende Rechnungen, Kostenteilung, Salden und Prognosen',
   },
   pt: {
     loading: 'A carregar Billy…',
     frontendError: 'Não foi possível carregar a interface do Billy',
     editorLoading: 'A carregar o editor do Billy…',
     editorError: 'Não foi possível carregar o editor do Billy',
-    cardName: 'Billy - Gestão de contas',
-    cardDescription:
-      'Contas recorrentes, divisão de despesas, saldos e previsões',
   },
 }
 
@@ -67,7 +50,7 @@ function bootstrapText(key) {
 }
 
 let billyImplementationPromise = null
-let billyWidgetsPromise = null
+let legacyWarningShown = false
 
 function loadBillyImplementation() {
   if (!billyImplementationPromise) {
@@ -77,16 +60,6 @@ function loadBillyImplementation() {
     })
   }
   return billyImplementationPromise
-}
-
-function loadBillyWidgets() {
-  if (!billyWidgetsPromise) {
-    billyWidgetsPromise = import(BILLY_WIDGETS_URL).catch((error) => {
-      billyWidgetsPromise = null
-      throw error
-    })
-  }
-  return billyWidgetsPromise
 }
 
 // Home Assistant can assign hass before the custom element is registered.
@@ -123,6 +96,12 @@ class BillyCardHost extends HTMLElement {
   }
 
   connectedCallback() {
+    if (!legacyWarningShown) {
+      console.warn(
+        'Billy: custom:bill-tracker-card is deprecated. Use /billy or the Billy Lovelace widgets; the legacy card will be removed in 1.0.0.',
+      )
+      legacyWarningShown = true
+    }
     upgradeEarlyProperty(this, 'hass')
     this._ensureImplementation()
   }
@@ -257,34 +236,20 @@ class BillyCardEditorHost extends HTMLElement {
   }
 }
 
-// Register the lightweight host elements before exposing Billy to HA's card picker.
-// This avoids the picker trying to instantiate the full card while its implementation
-// module is still downloading/evaluating on a cold frontend load.
-if (!customElements.get('bill-tracker-card')) {
-  customElements.define('bill-tracker-card', BillyCardHost)
+// Keep existing dashboards working without advertising the old card in the
+// picker. Extra HA modules can execute before HA installs its scoped custom
+// element registry; repeat registration at window load if it was lost.
+function registerLegacyHosts() {
+  if (!customElements.get('bill-tracker-card')) {
+    customElements.define('bill-tracker-card', BillyCardHost)
+  }
+  if (!customElements.get('bill-tracker-card-editor')) {
+    customElements.define('bill-tracker-card-editor', BillyCardEditorHost)
+  }
 }
-if (!customElements.get('bill-tracker-card-editor')) {
-  customElements.define('bill-tracker-card-editor', BillyCardEditorHost)
-}
-
-window.customCards = window.customCards || []
-if (!window.customCards.some((card) => card.type === 'bill-tracker-card')) {
-  window.customCards.push({
-    type: 'bill-tracker-card',
-    name: bootstrapText('cardName'),
-    description: bootstrapText('cardDescription'),
-    preview: false,
-    documentationURL: 'https://github.com/robin994/billy',
-  })
+registerLegacyHosts()
+if (document.readyState !== 'complete') {
+  window.addEventListener('load', registerLegacyHosts, { once: true })
 }
 
-// Start preloading immediately, but the custom element hosts above are already
-// available even if the implementation takes longer to arrive.
-loadBillyImplementation().catch((error) => {
-  console.error('Billy implementation preload failed', error)
-})
-loadBillyWidgets().catch((error) => {
-  console.error('Billy widgets preload failed', error)
-})
-
-console.info(`Billy frontend bootstrap v${BILLY_FRONTEND_VERSION} loaded`)
+console.info(`Billy legacy card host v${BILLY_FRONTEND_VERSION} loaded`)

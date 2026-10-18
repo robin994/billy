@@ -1,5 +1,42 @@
 # Changelog
 
+## In development (issue #12, unreleased)
+
+- Added optional PDF invoice archiving for bill types, including IMAP PDF
+  attachments and approved-host HTTP(S) URLs, using Home Assistant's media
+  directory or mounted media share.
+- Introduced a separate Income section: categories, one-time and variable
+  recurring income, editable confirmed monthly receipts, and optional
+  income-versus-expense chart overlay.
+- Added configurable manual accounts (custom names, types and opening
+  balances), default-account selection, per-bill and per-income account
+  assignment, and cents-accurate internal transfers between arbitrary
+  accounts. The combined balance is conserved across transfers.
+- Each account now requires one existing payer owner; payers may own zero or
+  more accounts. Accounts can be reassigned, while payer deletion is blocked
+  until their accounts are reassigned or removed. Pre-existing orphan accounts
+  receive a stable legacy owner during migration.
+- Localized the six built-in income category labels in all six supported
+  languages, without changing persisted category IDs or custom names.
+- Added inline PDF preview and confirmed manual upload/replace/delete actions
+  to bill editing. Administrators can upload up to 8 MiB PDFs to the existing
+  Home Assistant media archive using bounded WebSocket chunks.
+- Extended JSON backups with income data, account configuration, transaction
+  assignments and transfers. Older backups and the earlier two-account
+  prototype's records are migrated.
+- Bumped the storage schema to 18 and refreshed frontend module cache to
+  `0.15.0-r5`. These features have not yet been released or tested in a
+  running Home Assistant instance.
+
+## 0.15.0
+
+- Deprecated `custom:bill-tracker-card`. Existing Lovelace dashboards continue to work, but the old card is no longer offered in the card picker and will be removed in Billy 1.0.0.
+- Added a dedicated `billy-lovelace.js` entrypoint for all seven supported dashboard widgets, independent of the legacy full-card bootstrap and the `/billy` sidebar.
+- Kept the legacy custom element and editor for existing dashboards, but load their full implementation only on use instead of preloading it on every Home Assistant frontend startup.
+- Register the new `/bill_tracker/billy-lovelace.js?v=0.15.0-r1` resource alongside the versioned legacy resource in Lovelace storage, preserving existing cards and avoiding early module-registration races.
+- Recheck custom-element registrations after Home Assistant startup for YAML-mode installations, where frontend extra modules can run before the scoped registry is ready.
+- Aligned frontend cache versions and added regression tests for legacy cards, widget registration and resource upgrades. Storage schema remains unchanged.
+
 ## 0.14.1
 
 - Versioned the Lovelace bootstrap resource URL so Home Assistant clients reload the card registration script after updates, addressing the missing `bill-tracker-card` element and stalled loading indicator.

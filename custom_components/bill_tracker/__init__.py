@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import inspect
 import logging
 from datetime import datetime
@@ -34,6 +35,7 @@ from .const import (
     SUPPORTED_INTERVALS,
 )
 from .manager import BillTrackerManager
+from .document_archive import MAX_PDF_BYTES
 from .updater import BillyUpdater
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,29 +46,35 @@ PLATFORMS = ["sensor", "update"]
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 FRONTEND_PATH = FRONTEND_DIR / "bill-tracker-card.js"
 FRONTEND_IMPL_PATH = FRONTEND_DIR / "bill-tracker-card-impl.js"
+LOVELACE_BOOTSTRAP_PATH = FRONTEND_DIR / "billy-lovelace.js"
 FRONTEND_I18N_PATH = FRONTEND_DIR / "bill-tracker-i18n.js"
 PARSER_MANAGER_PATH = FRONTEND_DIR / "billy-parser-manager.js"
 BILLY_REIMBURSEMENT_HISTORY_PATH = FRONTEND_DIR / "billy-reimbursement-history.js"
 BILLY_PANEL_PATH = FRONTEND_DIR / "billy-panel.js"
 EXTRA_I18N_PATH = FRONTEND_DIR / "billy-extra-i18n.js"
 BILLY_WIDGETS_PATH = FRONTEND_DIR / "billy-widgets.js"
+BILLY_INCOME_PATH = FRONTEND_DIR / "billy-income.js"
+BILLY_ACCOUNTS_PATH = FRONTEND_DIR / "billy-accounts.js"
 FRONTEND_URL = "/bill_tracker/bill-tracker-card.js"
 FRONTEND_IMPL_URL = "/bill_tracker/bill-tracker-card-impl.js"
+LOVELACE_BOOTSTRAP_URL = "/bill_tracker/billy-lovelace.js"
 FRONTEND_I18N_URL = "/bill_tracker/bill-tracker-i18n.js"
 PARSER_MANAGER_URL = "/bill_tracker/billy-parser-manager.js"
 BILLY_REIMBURSEMENT_HISTORY_URL = "/bill_tracker/billy-reimbursement-history.js"
 BILLY_PANEL_URL = "/bill_tracker/billy-panel.js"
 EXTRA_I18N_URL = "/bill_tracker/billy-extra-i18n.js"
 BILLY_WIDGETS_URL = "/bill_tracker/billy-widgets.js"
+BILLY_INCOME_URL = "/bill_tracker/billy-income.js"
+BILLY_ACCOUNTS_URL = "/bill_tracker/billy-accounts.js"
 BILLY_PANEL_MODULE_URL = f"{BILLY_PANEL_URL}?v={FRONTEND_CACHE_VERSION}"
 BILLY_PANEL_ROUTE = "billy"
-# A stable URL can leave Lovelace using an obsolete cached bootstrap after
-# upgrading Billy, before the custom element has been registered.
+# The legacy card stays available for dashboards that already use it.
 FRONTEND_MODULE_URL = f"{FRONTEND_URL}?v={FRONTEND_CACHE_VERSION}"
+LOVELACE_BOOTSTRAP_MODULE_URL = f"{LOVELACE_BOOTSTRAP_URL}?v={FRONTEND_CACHE_VERSION}"
 
 
 async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
-    """Register Billy as a Lovelace module in addition to the global frontend URL."""
+    """Register widgets and the legacy host independently in Lovelace storage."""
     try:
         from homeassistant.components.lovelace.const import LOVELACE_DATA
         from homeassistant.components.lovelace.resources import ResourceStorageCollection
@@ -92,22 +100,30 @@ async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
         if inspect.isawaitable(items):
             items = await items
         items = items or []
-        matches = [
-            item
-            for item in items
-            if str(item.get(CONF_URL, "")).split("?", 1)[0] == FRONTEND_URL
-        ]
-        if matches:
-            item = matches[0]
-            if item.get(CONF_URL) != FRONTEND_MODULE_URL or item.get(CONF_TYPE) != "module":
-                await resources.async_update_item(
-                    item[CONF_ID],
-                    {"res_type": "module", CONF_URL: FRONTEND_MODULE_URL},
-                )
-        else:
-            await resources.async_create_item(
-                {"res_type": "module", CONF_URL: FRONTEND_MODULE_URL}
+        # Keep the old resource registered until 1.0.0. Lovelace resources
+        # load after HA's custom-element registry polyfill; extra modules can
+        # run before it and lose custom element registrations.
+        for resource_url, module_url in (
+            (LOVELACE_BOOTSTRAP_URL, LOVELACE_BOOTSTRAP_MODULE_URL),
+            (FRONTEND_URL, FRONTEND_MODULE_URL),
+        ):
+            match = next(
+                (
+                    item
+                    for item in items
+                    if str(item.get(CONF_URL, "")).split("?", 1)[0] == resource_url
+                ),
+                None,
             )
+            if match is None:
+                await resources.async_create_item(
+                    {"res_type": "module", CONF_URL: module_url}
+                )
+            elif match.get(CONF_URL) != module_url or match.get(CONF_TYPE) != "module":
+                await resources.async_update_item(
+                    match[CONF_ID],
+                    {"res_type": "module", CONF_URL: module_url},
+                )
     except Exception:  # noqa: BLE001
         _LOGGER.exception("Could not register Billy as a Lovelace resource")
 
@@ -135,6 +151,26 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         ws_update,
         ws_set_paid,
         ws_set_reimbursement,
+        ws_document_archive,
+        ws_document_read,
+        ws_document_upload,
+        ws_document_delete,
+        ws_income_add,
+        ws_income_update,
+        ws_income_delete,
+        ws_income_rule_add,
+        ws_income_rule_update,
+        ws_income_rule_delete,
+        ws_income_category_add,
+        ws_income_category_update,
+        ws_income_category_delete,
+        ws_account_add,
+        ws_account_update,
+        ws_account_delete,
+        ws_account_set_default,
+        ws_internal_transfer_add,
+        ws_internal_transfer_update,
+        ws_internal_transfer_delete,
         ws_recurring_add,
         ws_recurring_update,
         ws_recurring_set_active,
@@ -161,6 +197,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     await hass.http.async_register_static_paths(
         [
+            StaticPathConfig(
+                LOVELACE_BOOTSTRAP_URL, str(LOVELACE_BOOTSTRAP_PATH), False
+            ),
             StaticPathConfig(FRONTEND_URL, str(FRONTEND_PATH), False),
             StaticPathConfig(FRONTEND_IMPL_URL, str(FRONTEND_IMPL_PATH), False),
             StaticPathConfig(FRONTEND_I18N_URL, str(FRONTEND_I18N_PATH), False),
@@ -173,8 +212,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             StaticPathConfig(BILLY_PANEL_URL, str(BILLY_PANEL_PATH), False),
             StaticPathConfig(EXTRA_I18N_URL, str(EXTRA_I18N_PATH), False),
             StaticPathConfig(BILLY_WIDGETS_URL, str(BILLY_WIDGETS_PATH), False),
+            StaticPathConfig(BILLY_INCOME_URL, str(BILLY_INCOME_PATH), False),
+            StaticPathConfig(BILLY_ACCOUNTS_URL, str(BILLY_ACCOUNTS_PATH), False),
         ]
     )
+    # Widgets and the lightweight legacy host are registered independently.
+    # The deprecated full card implementation is loaded only if requested.
+    add_extra_js_url(hass, LOVELACE_BOOTSTRAP_MODULE_URL)
     add_extra_js_url(hass, FRONTEND_MODULE_URL)
     # Register Billy through Home Assistant's supported custom-panel loader.
     # Remove a previous definition first so integration reloads cannot retain stale panel metadata.
@@ -201,8 +245,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def _sync_recurring_at_midnight(_now) -> None:
         recurring_changed = await manager.async_sync_recurring_occurrences()
+        income_changed = await manager.async_sync_income_occurrences()
         placeholders_changed = await manager.async_sync_bill_placeholders()
-        if not recurring_changed and not placeholders_changed:
+        if not recurring_changed and not income_changed and not placeholders_changed:
             hass.bus.async_fire(EVENT_UPDATED)
 
     entry.async_on_unload(
@@ -302,6 +347,8 @@ _EXPENSE_SCHEMA = {
     vol.Optional("provider"): str,
     vol.Optional("contract"): str,
     vol.Optional("consumption"): vol.Coerce(float),
+    vol.Optional("document_url"): str,
+    vol.Optional("account_id"): str,
 }
 
 
@@ -328,6 +375,8 @@ def _expense_kwargs(msg):
         "provider": msg.get("provider"),
         "contract": msg.get("contract"),
         "consumption": msg.get("consumption"),
+        "document_url": msg.get("document_url"),
+        "account_id": msg.get("account_id"),
     }
 
 
@@ -417,6 +466,415 @@ async def ws_delete(hass, connection, msg):
         _ws_error(connection, msg, err, "not_configured")
         return
     connection.send_result(msg["id"], {"deleted": deleted})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "bill_tracker/document/archive", vol.Required("expense_id"): str}
+)
+@websocket_api.async_response
+async def ws_document_archive(hass, connection, msg):
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Only administrators can fetch remote PDFs")
+        return
+    try:
+        item = await _manager(hass).async_archive_document(msg["expense_id"])
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "archive_failed")
+        return
+    connection.send_result(msg["id"], item)
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "bill_tracker/document/read", vol.Required("expense_id"): str}
+)
+@websocket_api.async_response
+async def ws_document_read(hass, connection, msg):
+    try:
+        document = await _manager(hass).async_read_document(msg["expense_id"])
+    except (ValueError, RuntimeError, OSError) as err:
+        _ws_error(connection, msg, err, "document_not_found")
+        return
+    connection.send_result(msg["id"], document)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/document/upload",
+    vol.Required("expense_id"): str,
+    vol.Required("upload_id"): vol.All(str, vol.Length(min=1, max=80)),
+    vol.Required("chunk_index"): vol.All(vol.Coerce(int), vol.Range(min=0, max=127)),
+    vol.Required("total_chunks"): vol.All(vol.Coerce(int), vol.Range(min=1, max=128)),
+    vol.Required("total_size"): vol.All(vol.Coerce(int), vol.Range(min=5, max=MAX_PDF_BYTES)),
+    vol.Required("content_base64"): str,
+})
+@websocket_api.async_response
+async def ws_document_upload(hass, connection, msg):
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Only administrators can upload PDFs")
+        return
+    encoded = msg["content_base64"]
+    if len(encoded) > ((256 * 1024 + 2) // 3) * 4:
+        connection.send_error(msg["id"], "document_too_large", "PDF chunk is too large")
+        return
+    try:
+        chunk = base64.b64decode(encoded, validate=True)
+        result = await _manager(hass).async_receive_document_chunk(
+            connection.user.id, msg["expense_id"], msg["upload_id"],
+            msg["chunk_index"], msg["total_chunks"], msg["total_size"], chunk,
+        )
+    except (ValueError, RuntimeError, OSError, binascii.Error) as err:
+        _ws_error(connection, msg, err, "invalid_pdf_upload")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/document/delete",
+    vol.Required("expense_id"): str,
+})
+@websocket_api.async_response
+async def ws_document_delete(hass, connection, msg):
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Only administrators can remove PDFs")
+        return
+    try:
+        result = await _manager(hass).async_delete_document(msg["expense_id"])
+    except (ValueError, RuntimeError, OSError) as err:
+        _ws_error(connection, msg, err, "document_delete_failed")
+        return
+    connection.send_result(msg["id"], result)
+
+
+_INCOME_ENTRY = {
+    vol.Required("description"): str,
+    vol.Required("category_id"): str,
+    vol.Required("expected_date"): str,
+    vol.Required("estimated_amount"): vol.Coerce(float),
+    vol.Optional("received", default=False): bool,
+    vol.Optional("actual_amount"): vol.Coerce(float),
+    vol.Optional("received_date"): str,
+    vol.Optional("note", default=""): str,
+    vol.Optional("account_id"): str,
+}
+
+
+def _income_kwargs(msg):
+    return {
+        "description": msg["description"],
+        "category_id": msg["category_id"],
+        "expected_date": msg["expected_date"],
+        "estimated_amount": msg["estimated_amount"],
+        "received": msg["received"],
+        "actual_amount": msg.get("actual_amount"),
+        "received_date": msg.get("received_date"),
+        "note": msg.get("note", ""),
+        "account_id": msg.get("account_id"),
+    }
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bill_tracker/income/add", **_INCOME_ENTRY})
+@websocket_api.async_response
+async def ws_income_add(hass, connection, msg):
+    try:
+        item = await _manager(hass).async_add_income(**_income_kwargs(msg))
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_income")
+        return
+    connection.send_result(msg["id"], item)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/income/update",
+    vol.Required("income_id"): str,
+    **_INCOME_ENTRY,
+})
+@websocket_api.async_response
+async def ws_income_update(hass, connection, msg):
+    try:
+        item = await _manager(hass).async_update_income(msg["income_id"], **_income_kwargs(msg))
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_income")
+        return
+    if item is None:
+        connection.send_error(msg["id"], "income_not_found", "Income not found")
+        return
+    connection.send_result(msg["id"], item)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/income/delete", vol.Required("income_id"): str,
+})
+@websocket_api.async_response
+async def ws_income_delete(hass, connection, msg):
+    connection.send_result(msg["id"], {
+        "deleted": await _manager(hass).async_delete_income(msg["income_id"]),
+    })
+
+
+_INCOME_RULE_ENTRY = {
+    vol.Required("name"): str,
+    vol.Required("category_id"): str,
+    vol.Required("estimated_amount"): vol.Coerce(float),
+    vol.Required("interval_months"): vol.In((1, 2, 3, 4, 6, 12)),
+    vol.Required("start_date"): str,
+    vol.Optional("end_date", default=""): str,
+    vol.Optional("amount_mode", default="fixed"): vol.In(("fixed", "last", "average3", "average6", "average12")),
+    vol.Optional("active", default=True): bool,
+    vol.Optional("note", default=""): str,
+    vol.Optional("account_id"): str,
+}
+
+
+def _income_rule_kwargs(msg):
+    result = {key: msg[key] for key in (
+        "name", "category_id", "estimated_amount", "interval_months",
+        "start_date", "end_date", "amount_mode", "active", "note",
+    )}
+    result["account_id"] = msg.get("account_id")
+    return result
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bill_tracker/income/rule/add", **_INCOME_RULE_ENTRY})
+@websocket_api.async_response
+async def ws_income_rule_add(hass, connection, msg):
+    try:
+        item = await _manager(hass).async_add_income_rule(**_income_rule_kwargs(msg))
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_income_rule")
+        return
+    connection.send_result(msg["id"], item)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/income/rule/update",
+    vol.Required("rule_id"): str, **_INCOME_RULE_ENTRY,
+})
+@websocket_api.async_response
+async def ws_income_rule_update(hass, connection, msg):
+    try:
+        item = await _manager(hass).async_update_income_rule(msg["rule_id"], **_income_rule_kwargs(msg))
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_income_rule")
+        return
+    if item is None:
+        connection.send_error(msg["id"], "income_rule_not_found", "Recurring income not found")
+        return
+    connection.send_result(msg["id"], item)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/income/rule/delete", vol.Required("rule_id"): str,
+})
+@websocket_api.async_response
+async def ws_income_rule_delete(hass, connection, msg):
+    connection.send_result(msg["id"], {
+        "deleted": await _manager(hass).async_delete_income_rule(msg["rule_id"]),
+    })
+
+
+_INCOME_CATEGORY_ENTRY = {
+    vol.Required("name"): str,
+    vol.Optional("color", default="#6B8394"): str,
+}
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/income/category/add", **_INCOME_CATEGORY_ENTRY,
+})
+@websocket_api.async_response
+async def ws_income_category_add(hass, connection, msg):
+    try:
+        item = await _manager(hass).async_add_income_category(name=msg["name"], color=msg["color"])
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_income_category")
+        return
+    connection.send_result(msg["id"], item)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/income/category/update",
+    vol.Required("category_id"): str, **_INCOME_CATEGORY_ENTRY,
+})
+@websocket_api.async_response
+async def ws_income_category_update(hass, connection, msg):
+    try:
+        item = await _manager(hass).async_update_income_category(
+            msg["category_id"], name=msg["name"], color=msg["color"]
+        )
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_income_category")
+        return
+    if item is None:
+        connection.send_error(msg["id"], "income_category_not_found", "Income category not found")
+        return
+    connection.send_result(msg["id"], item)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/income/category/delete",
+    vol.Required("category_id"): str,
+})
+@websocket_api.async_response
+async def ws_income_category_delete(hass, connection, msg):
+    try:
+        deleted = await _manager(hass).async_delete_income_category(msg["category_id"])
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "income_category_in_use")
+        return
+    connection.send_result(msg["id"], {"deleted": deleted})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/accounts/add",
+    vol.Required("name"): str,
+    vol.Required("account_type"): str,
+    vol.Required("opening_balance"): vol.Coerce(float),
+    vol.Required("opening_date"): str,
+    vol.Required("payer_id"): str,
+    vol.Optional("make_default", default=False): bool,
+})
+@websocket_api.async_response
+async def ws_account_add(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_add_account(
+            name=msg["name"],
+            account_type=msg["account_type"],
+            opening_balance=msg["opening_balance"],
+            opening_date=msg["opening_date"],
+            payer_id=msg["payer_id"],
+            make_default=msg["make_default"],
+        )
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_accounts")
+        return
+    connection.send_result(msg["id"], result)
+
+
+_ACCOUNT_UPDATE = {
+    vol.Required("name"): str,
+    vol.Required("account_type"): str,
+    vol.Required("opening_balance"): vol.Coerce(float),
+    vol.Required("opening_date"): str,
+    vol.Required("payer_id"): str,
+    vol.Optional("make_default", default=False): bool,
+}
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/accounts/update",
+    vol.Required("account_id"): str,
+    **_ACCOUNT_UPDATE,
+})
+@websocket_api.async_response
+async def ws_account_update(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_update_account(
+            msg["account_id"],
+            name=msg["name"],
+            account_type=msg["account_type"],
+            opening_balance=msg["opening_balance"],
+            opening_date=msg["opening_date"],
+            payer_id=msg["payer_id"],
+            make_default=msg["make_default"],
+        )
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_accounts")
+        return
+    if result is None:
+        connection.send_error(msg["id"], "account_not_found", "Account not found")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/accounts/delete",
+    vol.Required("account_id"): str,
+})
+@websocket_api.async_response
+async def ws_account_delete(hass, connection, msg):
+    try:
+        deleted = await _manager(hass).async_delete_account(msg["account_id"])
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "account_in_use")
+        return
+    connection.send_result(msg["id"], {"deleted": deleted})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/accounts/default",
+    vol.Required("account_id"): str,
+})
+@websocket_api.async_response
+async def ws_account_set_default(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_set_default_account(msg["account_id"])
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "account_not_found")
+        return
+    connection.send_result(msg["id"], result)
+
+
+_TRANSFER_SCHEMA = {
+    vol.Required("from_account"): str,
+    vol.Required("to_account"): str,
+    vol.Required("amount"): vol.Coerce(float),
+    vol.Required("transfer_date"): str,
+    vol.Optional("note", default=""): str,
+}
+
+
+def _transfer_kwargs(msg):
+    return {
+        "from_account": msg["from_account"],
+        "to_account": msg["to_account"],
+        "amount": msg["amount"],
+        "transfer_date": msg["transfer_date"],
+        "note": msg.get("note", ""),
+    }
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/accounts/transfer/add",
+    **_TRANSFER_SCHEMA,
+})
+@websocket_api.async_response
+async def ws_internal_transfer_add(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_add_internal_transfer(**_transfer_kwargs(msg))
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_transfer")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/accounts/transfer/update",
+    vol.Required("transfer_id"): str,
+    **_TRANSFER_SCHEMA,
+})
+@websocket_api.async_response
+async def ws_internal_transfer_update(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_update_internal_transfer(
+            msg["transfer_id"], **_transfer_kwargs(msg)
+        )
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_transfer")
+        return
+    if result is None:
+        connection.send_error(msg["id"], "transfer_not_found", "Internal transfer not found")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/accounts/transfer/delete",
+    vol.Required("transfer_id"): str,
+})
+@websocket_api.async_response
+async def ws_internal_transfer_delete(hass, connection, msg):
+    connection.send_result(msg["id"], {
+        "deleted": await _manager(hass).async_delete_internal_transfer(msg["transfer_id"]),
+    })
 
 
 _RECURRING_COMMON = {
@@ -569,6 +1027,11 @@ _CATEGORY_COMMON = {
     vol.Optional("consumption_unit", default=""): str,
     vol.Optional("default_provider", default=""): str,
     vol.Optional("default_contract", default=""): str,
+    vol.Optional("document_archive"): {
+        vol.Optional("enabled", default=False): bool,
+        vol.Optional("subpath", default="billy/documents"): str,
+        vol.Optional("source_host", default=""): str,
+    },
     vol.Optional("placeholder"): {
         vol.Optional("enabled", default=False): bool,
         vol.Optional("day", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=31)),
@@ -585,6 +1048,9 @@ _CATEGORY_COMMON = {
 )
 @websocket_api.async_response
 async def ws_category_add(hass, connection, msg):
+    if msg.get("document_archive", {}).get("enabled") and not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Only administrators can enable PDF downloads")
+        return
     try:
         category = await _manager(hass).async_add_category(
             name=msg["name"],
@@ -597,6 +1063,7 @@ async def ws_category_add(hass, connection, msg):
             default_provider=msg.get("default_provider", ""),
             default_contract=msg.get("default_contract", ""),
             placeholder=msg.get("placeholder"),
+            document_archive=msg.get("document_archive"),
         )
     except (ValueError, RuntimeError) as err:
         _ws_error(connection, msg, err, "invalid_category")
@@ -613,6 +1080,9 @@ async def ws_category_add(hass, connection, msg):
 )
 @websocket_api.async_response
 async def ws_category_update(hass, connection, msg):
+    if msg.get("document_archive", {}).get("enabled") and not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Only administrators can configure PDF downloads")
+        return
     try:
         category = await _manager(hass).async_update_category(
             msg["category_id"],
@@ -626,6 +1096,7 @@ async def ws_category_update(hass, connection, msg):
             default_provider=msg.get("default_provider", ""),
             default_contract=msg.get("default_contract", ""),
             placeholder=msg.get("placeholder"),
+            document_archive=msg.get("document_archive"),
         )
     except (ValueError, RuntimeError) as err:
         _ws_error(connection, msg, err, "invalid_category")

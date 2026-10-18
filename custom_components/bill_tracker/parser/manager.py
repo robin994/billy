@@ -14,6 +14,7 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_change
 
 from ..extractors import PdfExtractionError, extract_pdf_text
+from ..document_archive import MAX_PDF_BYTES
 from ..importers import BillImportCoordinator
 from ..sources import ImapSource, ImapSourceError
 from .catalog import CatalogError, ParserCatalogClient
@@ -989,7 +990,39 @@ class ParserManager:
         row["imported_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
         await self.storage.async_save()
         self._notify_import_updated()
+        try:
+            await self._archive_import_attachment(row, expense)
+        except Exception as err:  # noqa: BLE001
+            # Document archiving is optional. An already imported bill must
+            # never become a failed/duplicate import when a PDF is unavailable.
+            _LOGGER.warning("Billy PDF archive skipped for import %s: %s", import_id, err)
         return dict(row)
+
+    async def _archive_import_attachment(
+        self, row: dict[str, Any], expense: dict[str, Any]
+    ) -> None:
+        """Archive a PDF from IMAP when the associated bill type opts in."""
+        category = self.bill_manager.category(str(row.get("category_id") or ""))
+        archive_config = (category or {}).get("document_archive") or {}
+        if not archive_config.get("enabled") or not expense.get("id"):
+            return
+        source = row.get("source") or {}
+        if source.get("type") != "imap" or not source.get("entry_id") or not source.get("uid"):
+            return
+        envelope = ImapSource.envelope(source)
+        fetched = await self.imap.async_fetch(envelope)
+        envelope = self._merge_fetched_envelope(envelope, fetched)
+        candidates = [
+            part for part in envelope.parts
+            if part.content_type.lower().split(";", 1)[0].strip() == "application/pdf"
+            or part.filename.lower().endswith(".pdf")
+        ]
+        for part in candidates:
+            content = await self.imap.async_fetch_part(envelope, part)
+            if not content.startswith(b"%PDF-") or len(content) > MAX_PDF_BYTES:
+                continue
+            await self.bill_manager.async_archive_attachment(str(expense["id"]), content)
+            return
 
     def _normalize_payment_defaults(
         self,
@@ -1248,6 +1281,16 @@ class ParserManager:
             "folder": envelope.folder,
             "source_fingerprint": source_fingerprint,
             "semantic_fingerprint": semantic,
+            # Preserve lightweight metadata only (never the PDF bytes). Some
+            # providers omit attachment descriptors on subsequent fetches.
+            "parts": {
+                part.part: {
+                    "content_type": part.content_type,
+                    "filename": part.filename,
+                    "content_transfer_encoding": part.content_transfer_encoding,
+                }
+                for part in envelope.parts
+            },
         }
         return BillCandidate(
             id=uuid4().hex,
