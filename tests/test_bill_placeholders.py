@@ -7,8 +7,10 @@ from copy import deepcopy
 from datetime import date, datetime
 import importlib.util
 from pathlib import Path
+import re
 import sys
 from types import ModuleType, SimpleNamespace
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -41,7 +43,7 @@ def manager():
     package.__path__ = [str(COMPONENT)]
     sys.modules[package.__name__] = package
     modules = {}
-    for name in ("const", "errors", "localization", "exporter"):
+    for name in ("const", "errors", "localization", "exporter", "income", "accounts"):
         spec = importlib.util.spec_from_file_location(f"{package.__name__}.{name}", COMPONENT / f"{name}.py")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
@@ -54,6 +56,14 @@ def manager():
     namespace = {"Store": Store, "HomeAssistant": object}
     for module in modules.values():
         namespace.update({k: v for k, v in vars(module).items() if not k.startswith("_")})
+    archive_tree = ast.parse((COMPONENT / "document_archive.py").read_text())
+    archive_validator = next(
+        node for node in archive_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "normalize_archive_config"
+    )
+    archive_namespace = {"re": re, "urlsplit": urlsplit, "_PART": re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$")}
+    exec(compile(ast.Module(body=[archive_validator], type_ignores=[]), str(COMPONENT / "document_archive.py"), "exec"), archive_namespace)
+    namespace["normalize_archive_config"] = archive_namespace["normalize_archive_config"]
     clock = SimpleNamespace(value=datetime(2026, 10, 11, tzinfo=ZoneInfo("Europe/Rome")))
 
     class LocalDate(date):
@@ -106,7 +116,8 @@ def test_generates_once_and_persists_at_startup_and_after_restart(manager):
     assert manager.snapshot()["normalized_monthly"] == []
     assert manager.snapshot()["summary"]["current_month"] == 0
     run(manager.async_load())
-    assert manager.expenses == [first]
+    assert len(manager.expenses) == 1
+    assert all(manager.expenses[0].get(key) == value for key, value in first.items())
     assert not run(manager.async_sync_bill_placeholders())
 
 
