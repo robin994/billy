@@ -100,6 +100,31 @@ class _ManagerHarness:
         return f"fingerprint:{parser_id}:{version}"
 
 
+def test_catalog_snapshot_includes_parsers_from_other_countries():
+    snapshot = _load_method("catalog_snapshot")
+    manager = _ManagerHarness(_official_catalog())
+    manager.storage.data["catalog_other_countries"] = {
+        "BE": {
+            "schema_version": 2,
+            "country": "BE",
+            "source_commit": "be-commit",
+            "parsers": [{
+                "id": "be.example.electricity",
+                "country": "BE",
+                "version": 1,
+                "provider": "Belgian Provider",
+                "status": "experimental",
+            }],
+        }
+    }
+    result = snapshot(manager)
+    assert result["countries"] == ["BE", "IT"]
+    assert {row["id"] for row in result["parsers"]} == {
+        "it.example.energy", "be.example.electricity"
+    }
+    assert result["counts"]["available"] == 2
+
+
 class _InstallStorageHarness:
     def __init__(self, catalog):
         self.data = {

@@ -394,13 +394,20 @@ class ParserManager:
         return changed
 
     def _stored_catalog_for_country(self, country: str) -> dict[str, Any]:
-        catalog = self.storage.data.get("catalog")
+        catalog = (self.storage.data.get("catalog") if country == self.catalog_country()
+                   else (self.storage.data.get("catalog_other_countries") or {}).get(country))
         if not isinstance(catalog, dict) or not catalog.get("parsers"):
             return {"country": country, "parsers": []}
         try:
             return self.catalog_client.normalize_stored_catalog(catalog, country)
         except CatalogError:
             return {"country": country, "parsers": []}
+
+    def _all_stored_catalogs(self) -> list[dict[str, Any]]:
+        primary = self.catalog_country()
+        other = self.storage.data.get("catalog_other_countries") or {}
+        return [self._stored_catalog_for_country(code) for code in
+                [primary, *sorted(code for code in other if code != primary)]]
 
     async def async_refresh_catalog(self) -> dict[str, Any]:
         country = self.catalog_country()
@@ -432,6 +439,34 @@ class ParserManager:
             "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
         self.storage.data["catalog_cache"] = next_cache
+        index = (next_cache.get("index") or {}).get("payload") or {}
+        countries = index.get("countries") or {}
+        previous_other = self.storage.data.get("catalog_other_countries") or {}
+        previous_caches = self.storage.data.get("catalog_other_caches") or {}
+        refreshed_other = {}
+        refreshed_caches = {}
+        for other_country in countries:
+            if other_country == country:
+                continue
+            try:
+                other_catalog, other_cache, other_stale = await self.catalog_client.async_fetch_catalog(
+                    other_country, previous_caches.get(other_country) or {"index": next_cache["index"]}
+                )
+                other_catalog["using_cache"] = bool(other_stale)
+                refreshed_other[other_country] = other_catalog
+                refreshed_caches[other_country] = other_cache
+                self._backfill_installed_source_commits(other_catalog)
+            except CatalogError as err:
+                if other_country in previous_other:
+                    refreshed_other[other_country] = {
+                        **previous_other[other_country], "using_cache": True,
+                        "refresh_error": str(err),
+                    }
+                    refreshed_caches[other_country] = previous_caches.get(other_country, {})
+                else:
+                    _LOGGER.warning("Unable to load parser catalog for %s: %s", other_country, err)
+        self.storage.data["catalog_other_countries"] = refreshed_other
+        self.storage.data["catalog_other_caches"] = refreshed_caches
         self._backfill_installed_source_commits(self.storage.data["catalog"])
         await self.storage.async_save()
         return self.catalog_snapshot()
@@ -445,7 +480,11 @@ class ParserManager:
         rows: list[dict[str, Any]] = []
         catalog_ids: set[str] = set()
 
-        for item in catalog.get("parsers", []) or []:
+        other_catalogs = self.storage.data.get("catalog_other_countries") or {}
+        for item in (
+            row for shard in [catalog, *other_catalogs.values()]
+            for row in shard.get("parsers", []) or []
+        ):
             row = self.catalog_client._normalize_catalog_item(item)
             parser_id = str(item.get("id") or "")
             catalog_ids.add(parser_id)
@@ -576,7 +615,9 @@ class ParserManager:
             parser = self.parsers.get(parser_id, {})
             metadata = parser.get("metadata", {}) if isinstance(parser, dict) else {}
             installed_country = self.catalog_client.normalize_country(metadata.get("country"))
-            if installed_country and installed_country != country:
+            if installed_country and installed_country != country and installed_country not in (
+                self.storage.data.get("catalog_other_countries") or {}
+            ):
                 # Keep the parser installed and active, but do not mix another
                 # country's local parser into the selected catalog view.
                 continue
@@ -648,6 +689,9 @@ class ParserManager:
         catalog["counts"] = counts
         catalog["custom_count"] = len(custom)
         catalog["country"] = country
+        catalog["countries"] = sorted({
+            country, *(self.storage.data.get("catalog_other_countries") or {})
+        })
         return catalog
 
     def community_fingerprint(self, parser_id: str, version: int) -> str:
@@ -754,6 +798,13 @@ class ParserManager:
             await self.async_refresh_catalog()
             catalog = self._stored_catalog_for_country(country)
         item = next((row for row in catalog.get("parsers", []) if row.get("id") == parser_id), None)
+        if item is None:
+            for other_catalog in self._all_stored_catalogs():
+                candidate = next((row for row in other_catalog.get("parsers", [])
+                                  if row.get("id") == parser_id), None)
+                if candidate is not None:
+                    catalog, item = other_catalog, candidate
+                    break
         if item is None:
             raise CatalogError("Parser not found in the remote catalog")
         if not self._version_supported(str(item.get("min_billy_version") or "0.0.0")):

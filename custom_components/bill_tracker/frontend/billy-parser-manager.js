@@ -524,8 +524,8 @@ class BillyParserManagerPanel extends HTMLElement {
   _countries() {
     return [
       ...new Set(
-        this._rows()
-          .map((row) => String(row.country || ''))
+        [...(this._data?.catalog?.countries || []),
+          ...this._rows().map((row) => String(row.country || ''))]
           .filter(Boolean),
       ),
     ].sort()
