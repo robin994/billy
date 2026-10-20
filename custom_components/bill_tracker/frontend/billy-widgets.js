@@ -1,6 +1,6 @@
-import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.15.0-r5'
+import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.15.1-r1'
 
-const BILLY_WIDGETS_VERSION = '0.15.0'
+const BILLY_WIDGETS_VERSION = '0.15.1'
 
 const WIDGET_TEXT = {
   en: {
@@ -550,6 +550,9 @@ class BillyWidgetBase extends HTMLElement {
 
   setConfig(config) {
     this._config = { ...this.constructor.getStubConfig(), ...(config || {}) }
+    // Row sizing is opt-in. Without it, Sections cards follow their content height.
+    const rows = Number(this._config.rows)
+    this.toggleAttribute('data-fixed-rows', Number.isInteger(rows) && rows >= 1 && rows <= 12)
     this._render()
     if (this._hass) this._load()
   }
@@ -567,7 +570,18 @@ class BillyWidgetBase extends HTMLElement {
   }
 
   getGridOptions() {
-    return { columns: 6, min_columns: 3 }
+    const configured = this._config.columns
+    const numericColumns = Number(configured)
+    const columns = configured === 'full'
+      ? 'full'
+      : Number.isInteger(numericColumns) && numericColumns >= 3 && numericColumns <= 12
+        ? numericColumns
+        : 6
+    const configuredRows = Number(this._config.rows)
+    const rows = Number.isInteger(configuredRows) && configuredRows >= 1 && configuredRows <= 12
+      ? configuredRows
+      : 'auto'
+    return { columns, min_columns: 3, rows }
   }
 
   get locale() {
@@ -642,18 +656,21 @@ class BillyWidgetBase extends HTMLElement {
 
   _styles(extra = '') {
     return `
-      :host{display:block}
+      :host{display:block;min-width:0}
       *{box-sizing:border-box}
-      ha-card{height:100%;overflow:hidden;background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
-      .card{padding:16px}
-      .head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+      ha-card{height:auto;min-width:0;max-width:100%;background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
+      :host([data-fixed-rows]) ha-card{height:100%}
+      .card{padding:16px;min-width:0;container-type:inline-size}
+      .head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;min-width:0}
+      .head>div{min-width:0;flex:1}
       .head h2{margin:0;font-size:17px;font-weight:700;line-height:1.25}
       .head p{margin:3px 0 0;color:var(--secondary-text-color);font-size:12px}
-      .link{border:0;background:transparent;color:var(--primary-color);font:inherit;font-size:12px;font-weight:650;cursor:pointer;padding:2px 0}
+      .link{border:0;background:transparent;color:var(--primary-color);font:inherit;font-size:12px;font-weight:650;cursor:pointer;padding:2px 0;white-space:nowrap}
       .muted{color:var(--secondary-text-color)}
       .empty,.loading,.error{padding:22px 8px;text-align:center;color:var(--secondary-text-color);font-size:13px}
       .error{color:var(--error-color,#db4437)}
       .amount{font-variant-numeric:tabular-nums}
+      @container (max-width:270px){.head{flex-wrap:wrap}}
       ${extra}
     `
   }
@@ -691,14 +708,15 @@ class BillySummaryCard extends BillyWidgetBase {
 
   get extraStyles() {
     return `
-      .hero{display:grid;grid-template-columns:1.25fr 1fr;gap:10px;margin-bottom:10px}
-      .metric{padding:12px;border-radius:12px;background:var(--secondary-background-color)}
+      .hero{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px}
+      .metric{padding:12px;min-width:0;border-radius:12px;background:var(--secondary-background-color)}
       .metric.primary{background:color-mix(in srgb,var(--primary-color) 12%,var(--card-background-color));border:1px solid color-mix(in srgb,var(--primary-color) 24%,transparent)}
       .label{display:block;color:var(--secondary-text-color);font-size:11px;margin-bottom:4px}
-      .value{display:block;font-size:20px;font-weight:750}
+      .value{display:block;font-size:20px;font-weight:750;line-height:1.2;overflow-wrap:anywhere}
       .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
       .grid .value{font-size:15px}
-      @media(max-width:420px){.hero{grid-template-columns:1fr}.grid{grid-template-columns:1fr 1fr}}
+      @container (max-width:390px){.hero{grid-template-columns:1fr}.value{font-size:18px}}
+      @container (max-width:245px){.grid{grid-template-columns:1fr}}
     `
   }
 
@@ -906,7 +924,15 @@ class BillyUpcomingCard extends BillyWidgetBase {
 
   get extraStyles() {
     return `
-      .list{display:flex;flex-direction:column}.item{display:grid;grid-template-columns:55px minmax(0,1fr) auto;gap:9px;align-items:center;padding:9px 0;border-bottom:1px solid var(--divider-color)}.item:last-child{border-bottom:0}.date{font-size:11px;color:var(--secondary-text-color)}.name{min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kind{display:block;margin-top:2px;font-size:10px;color:var(--secondary-text-color)}.price{font-size:12px;font-weight:700}
+      .list{display:flex;flex-direction:column}
+      .item{display:grid;grid-template-columns:55px minmax(0,1fr) auto;gap:9px;align-items:center;padding:9px 0;border-bottom:1px solid var(--divider-color)}
+      .item:last-child{border-bottom:0}
+      .date{font-size:11px;color:var(--secondary-text-color)}
+      .name{min-width:0;font-size:13px;overflow-wrap:anywhere}
+      .bill-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+      .kind{display:block;margin-top:2px;font-size:10px;color:var(--secondary-text-color)}
+      .price{font-size:12px;font-weight:700;white-space:nowrap;text-align:right}
+      @container (max-width:330px){.item{grid-template-columns:48px minmax(0,1fr)}.price{grid-column:2;text-align:left}}
     `
   }
 
@@ -971,7 +997,7 @@ class BillyUpcomingCard extends BillyWidgetBase {
       ? `<div class="list">${items
           .map(
             (item) =>
-              `<div class="item"><div class="date">${esc(item.due ? dateLabel(item.due, this.locale) : '—')}</div><div class="name">${esc(item.name)}<span class="kind">${esc(item.source === 'placeholder' ? this.t('placeholderBill') : item.source === 'recurring' ? this.t('recurring') : item.source === 'bill_forecast' ? this.t('estimatedBill') : this.t('bill'))}</span></div><div class="price amount">${this.money(item.amount)}</div></div>`,
+              `<div class="item"><div class="date">${esc(item.due ? dateLabel(item.due, this.locale) : '—')}</div><div class="name"><span class="bill-name">${esc(item.name)}</span><span class="kind">${esc(item.source === 'placeholder' ? this.t('placeholderBill') : item.source === 'recurring' ? this.t('recurring') : item.source === 'bill_forecast' ? this.t('estimatedBill') : this.t('bill'))}</span></div><div class="price amount">${this.money(item.amount)}</div></div>`,
           )
           .join('')}</div>`
       : `<div class="empty">${esc(this.t('nothingDue'))}</div>`
@@ -995,7 +1021,16 @@ class BillyRecurringCard extends BillyWidgetBase {
 
   get extraStyles() {
     return `
-      .list{display:flex;flex-direction:column}.item{display:grid;grid-template-columns:9px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--divider-color)}.item:last-child{border-bottom:0}.dot{width:9px;height:36px;border-radius:999px;background:var(--primary-color)}.name{font-size:13px;font-weight:650}.meta{display:block;margin-top:3px;color:var(--secondary-text-color);font-size:10px}.price{text-align:right;font-size:12px;font-weight:700}.remaining{display:block;margin-top:2px;color:var(--secondary-text-color);font-size:10px;font-weight:400}
+      ha-card{min-height:170px}
+      .list{display:flex;flex-direction:column}
+      .item{display:grid;grid-template-columns:9px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--divider-color)}
+      .item:last-child{border-bottom:0}
+      .dot{width:9px;height:36px;border-radius:999px;background:var(--primary-color)}
+      .name{font-size:13px;font-weight:650;overflow-wrap:anywhere}
+      .meta{display:block;margin-top:3px;color:var(--secondary-text-color);font-size:10px}
+      .price{text-align:right;font-size:12px;font-weight:700;white-space:nowrap}
+      .remaining{display:block;margin-top:2px;color:var(--secondary-text-color);font-size:10px;font-weight:400}
+      @container (max-width:300px){.item{grid-template-columns:9px minmax(0,1fr)}.price{grid-column:2;text-align:left}}
     `
   }
 
@@ -1055,7 +1090,17 @@ class BillyBalancesCard extends BillyWidgetBase {
 
   get extraStyles() {
     return `
-      .list{display:flex;flex-direction:column}.debt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--divider-color)}.debt:last-child{border-bottom:0}.route{font-size:13px}.route strong{font-weight:700}.meta{display:block;color:var(--secondary-text-color);font-size:10px;margin-top:2px}.right{display:flex;align-items:center;gap:7px}.price{font-size:12px;font-weight:700}.paypal{border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);color:var(--primary-text-color);padding:5px 7px;font-size:10px;text-decoration:none}
+      ha-card{min-height:170px}
+      .list{display:flex;flex-direction:column}
+      .debt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--divider-color)}
+      .debt:last-child{border-bottom:0}
+      .route{font-size:13px;overflow-wrap:anywhere}
+      .route strong{font-weight:700}
+      .meta{display:block;color:var(--secondary-text-color);font-size:10px;margin-top:2px}
+      .right{display:flex;align-items:center;gap:7px;min-width:0}
+      .price{font-size:12px;font-weight:700;overflow-wrap:anywhere}
+      .paypal{border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);color:var(--primary-text-color);padding:5px 7px;font-size:10px;text-decoration:none}
+      @container (max-width:325px){.debt{grid-template-columns:minmax(0,1fr)}.right{flex-wrap:wrap}}
     `
   }
 
@@ -1114,7 +1159,12 @@ class BillyParserStatusCard extends BillyWidgetBase {
 
   get extraStyles() {
     return `
-      .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.stat{padding:12px;border-radius:11px;background:var(--secondary-background-color)}.value{display:block;font-size:21px;font-weight:750}.label{display:block;margin-top:3px;color:var(--secondary-text-color);font-size:10px}.alert{color:var(--warning-color,#f39c12)}.bad{color:var(--error-color,#db4437)}
+      .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+      .stat{padding:12px;min-width:0;border-radius:11px;background:var(--secondary-background-color)}
+      .value{display:block;font-size:21px;font-weight:750;overflow-wrap:anywhere}
+      .label{display:block;margin-top:3px;color:var(--secondary-text-color);font-size:10px}
+      .alert{color:var(--warning-color,#f39c12)}.bad{color:var(--error-color,#db4437)}
+      @container (max-width:240px){.stats{grid-template-columns:1fr}}
     `
   }
 

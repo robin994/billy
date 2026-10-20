@@ -1,6 +1,11 @@
 # Changelog
 
-## In development (issue #12, unreleased)
+## 0.15.1
+
+Released: 2026-10-20.
+
+This release includes the income/accounts and PDF features initially developed
+for issue #12, plus user-facing improvements requested in issues #13 and #14.
 
 - Added optional PDF invoice archiving for bill types, including IMAP PDF
   attachments and approved-host HTTP(S) URLs, using Home Assistant's media
@@ -21,12 +26,26 @@
 - Added inline PDF preview and confirmed manual upload/replace/delete actions
   to bill editing. Administrators can upload up to 8 MiB PDFs to the existing
   Home Assistant media archive using bounded WebSocket chunks.
+- Added switchable sorting in the Bills page by billing month, due date or
+  actual payment date (latest first), with missing dates last. The selected
+  mode persists per user; bill rows keep amount, status and PDF actions aligned.
+- Improved Lovelace widget responsiveness and automatic heights. Summary
+  metrics use equal-width columns, Upcoming supports full-width Sections
+  placement and two-line bill names, and Recurring/Reimbursements can opt into
+  matching grid row heights without stretching every other widget.
+- Fixed the multi-country parser catalog refresh. Billy now fetches and displays
+  the available country shards (including Belgium) rather than only the
+  Home Assistant default country's catalog, allowing parsers from other
+  countries to be installed directly.
 - Extended JSON backups with income data, account configuration, transaction
   assignments and transfers. Older backups and the earlier two-account
   prototype's records are migrated.
-- Bumped the storage schema to 18 and refreshed frontend module cache to
-  `0.15.0-r5`. These features have not yet been released or tested in a
-  running Home Assistant instance.
+- Reorganized the README into a product overview, with anonymized illustrative
+  promotional assets. Detailed usage instructions now live in
+  `docs/USER_GUIDE.md`; historical release notes remain in this changelog.
+- Bumped the storage schema to 18 and frontend code/cache to
+  `0.15.1-r1`. Automated tests validate these changes; manual testing in a
+  running Home Assistant instance is still recommended.
 
 ## 0.15.0
 

@@ -1,521 +1,134 @@
 <p align="center">
-  <img src="docs/images/billy-logo.png" alt="Billy logo" width="180">
+  <img src="docs/images/billy-logo.png" alt="Billy logo" width="112">
 </p>
 
-# Billy
+<h1 align="center">Billy</h1>
 
-## Billy 0.15.0
+<p align="center"><strong>Know what you owe. Plan what comes next.</strong></p>
+<p align="center">Bills, recurring expenses, shared payments, forecasts and automatic email parsing — all inside Home Assistant.</p>
 
-Billy's full application lives in the `/billy` sidebar. Seven dedicated Lovelace widgets remain supported; the older `custom:bill-tracker-card` is deprecated but still works in existing dashboards through Billy 0.x.
+<p align="center">
+  <a href="#installation">Get started</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#lovelace-widgets">Lovelace widgets</a> ·
+  <a href="docs/USER_GUIDE.md">User guide</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
-Billy is a Home Assistant bill manager focused on household expenses: provider bills, recurring costs, forecasts, payment tracking, shared expenses, reimbursements and automatic bill parsing from email.
+<p align="center">
+  <img src="docs/images/promo/billy-hero.webp" alt="Billy for Home Assistant — illustrated overview, bills, parsers and widgets" width="100%">
+</p>
 
-### What's new in 0.15.0
+<p align="center"><sub>Promotional mockups use fictional sample data. Actual Home Assistant layouts may vary.</sub></p>
 
-- **Independent Lovelace widgets** — the seven widgets use `/bill_tracker/billy-lovelace.js?v=0.15.0-r5` instead of depending on the old full-size card's bootstrap.
-- **Legacy card deprecated** — existing `custom:bill-tracker-card` configurations keep working, but the card is hidden from the card picker. Its large implementation is only downloaded if the legacy card is actually used.
-- **Independent, compatible resources** — on startup, Billy registers the new widget entrypoint alongside the legacy card host in Home Assistant's storage-mode resource registry. Both use versioned URLs and work independently.
-- **Backward-compatible storage** — existing bills, parsers, settings, backups and the `/billy` application remain supported.
+Billy is an open-source Home Assistant custom integration for organizing household finances **without connecting to your bank**. Manage provider invoices, track subscriptions and installment plans, split expenses between household members, and see upcoming costs before they are due.
 
-To migrate an existing Lovelace view, replace `type: custom:bill-tracker-card` with one or more of the supported widgets below; use `/billy` for editing bills, reimbursements, parser management and settings. For example:
+## Features
 
-```yaml
-type: custom:billy-summary-card
-title: Billy
-```
+| | |
+|---|---|
+| **Bills and payment history** | Record invoices, due dates, actual payment dates, payment status, bill types and PDFs. Search, filter, sort and export your history. |
+| **Forecasts and spending charts** | Compare past expenses with upcoming bills, normalize irregular billing cycles and include recurring commitments. |
+| **Recurring expenses** | Track subscriptions, rent, loans, mortgages and installment plans independently of utility invoices. |
+| **Payers, accounts and transfers** | Split bills among payers, assign payments and income to multiple manually managed accounts, and record internal transfers. |
+| **Reimbursements** | Track outstanding shares separately from provider payment status, including partial reimbursements and settlement history. |
+| **Income tracking** | Record confirmed or expected income, including variable recurring salaries and one-time receipts. |
+| **Automatic bill parsing** | Use Home Assistant IMAP sources and community YAML parsers to extract supported invoices from emails and PDFs. |
+| **Parser community** | Discover providers across multiple countries, install and test parsers, share your own, and provide version-scoped feedback. |
+| **Native Home Assistant UI** | A dedicated `/billy` sidebar with seven compact Lovelace dashboard widgets, localized in six languages. |
 
-Removing the deprecated card from a dashboard is optional in 0.15.0, but recommended before Billy 1.0.0. No manual resource setup is needed with a normal storage-mode Lovelace installation. If using `lovelace: resource_mode: yaml`, ensure `/bill_tracker/billy-lovelace.js?v=0.15.0-r5` is configured as a module resource for widgets and keep `/bill_tracker/bill-tracker-card.js?v=0.15.0-r5` if you still have legacy cards. Billy also provides frontend extra modules as a fallback, but Home Assistant may load those before its custom-element registry is ready.
+## Explore Billy
 
-### Development preview: issue #12
+### Overview, bills and parser management
 
-The local development branch includes an initial **optional PDF document archive**
-and a separate **Income** section with editable variable recurring salaries,
-income categories, actual-versus-expected totals, and a chart overlay.
-There are no bank integrations. The PDF archive supports Home Assistant's media
-directory, including pre-mounted network shares; direct SFTP/WebDAV are not yet
-included. The new **Accounts / Conti** subtab provides multiple user-defined
-accounts with customizable names, types, opening balances and dates, plus
-editable transfers between any pair. Each confirmed receipt and paid bill can
-be assigned to its actual account; forecasts never alter balances.
-An account must belong to an existing payer, and a payer can own any number of
-accounts (including none). A payer with linked accounts cannot be deleted
-until those accounts are reassigned or removed.
-The six built-in income categories have translated labels in all six supported
-languages. Archived bill PDFs can be viewed directly from the bill list; an
-existing bill's editor also supports manual PDF upload, replacement and
-deletion (administrator-only, 8 MiB maximum, confirmation required).
+<p align="center">
+  <img src="docs/images/promo/billy-features.webp" alt="Billy overview, bills history and automatic parser manager — illustrated feature showcase" width="100%">
+</p>
 
-See [Income & document archive development notes](docs/INCOME_AND_DOCUMENT_ARCHIVE.md)
-for configuration, security constraints, and incomplete items. These changes have
-not yet been released or integration-tested on a running Home Assistant instance.
+The **Overview** combines spending trends and forecasts; **Bills** keeps due dates, payment dates, reimbursement status and PDF attachments accessible; **Parsers** discovers and manages declarative parser definitions from the [billy-parser community catalog](https://github.com/robin994/billy-parser).
 
-### What's new in 0.14.1
+### Lovelace widgets
 
-- **Lovelace card loading fix** — the card bootstrap resource now has a versioned URL so Home Assistant fetches the current custom-element registration after an update; early Home Assistant context assignments are also restored to ensure bills load in the original card.
-- **Consistent frontend cache** — all JavaScript imports use fresh version keys, preventing mixed old/new modules.
+<p align="center">
+  <img src="docs/images/promo/billy-lovelace-widgets.webp" alt="Billy Lovelace dashboard widgets — illustrated demo with fictitious data" width="100%">
+</p>
 
-### What's new in 0.14.0
+Add focused cards to existing Home Assistant dashboards:
 
-- **Monthly bill checklist** — bill types can now create an unpaid provisional bill automatically, with a configurable creation day, last/forecast/fixed amount, optional due day and a starting month for non-monthly schedules.
-- **No duplicate provisional invoices** — adding the real bill manually, through CSV or through a parser replaces the matching provisional entry while preserving its ID. Existing real bills prevent automatic creation.
-- **Confirmation before accounting** — provisional entries appear among unpaid bills, while estimates, normalized spending and reimbursements use confirmed invoices. Marking a provisional bill paid in the Billy panel opens its amount for confirmation first.
-- **Home Assistant reminders** — the sensor exposes the current month's unpaid list, count and total, and the Upcoming widget has an **Unpaid this month** filter.
+| Widget | Card type |
+|---|---|
+| Summary | `custom:billy-summary-card` |
+| Spending history | `custom:billy-spending-card` |
+| Expense breakdown | `custom:billy-breakdown-card` |
+| Upcoming expenses | `custom:billy-upcoming-card` |
+| Recurring expenses | `custom:billy-recurring-card` |
+| Reimbursements / balances | `custom:billy-balances-card` |
+| Parser status | `custom:billy-parser-status-card` |
 
-See [Monthly bill checklist](docs/BILL_PLACEHOLDERS.md) for configuration, scheduling rules and reminder examples.
-
-### What's new in 0.13.8
-
-- **Stable custom parser editor** — YAML drafts, bill type, enabled/automatic-import options and email test data survive normal Home Assistant state updates and validation results. Focus and selection are preserved when the editor needs to rerender.
-- **Existing parser edits** — fixed the `expected_parser_id` validation error when saving an existing custom parser, while retaining the protection against changing its ID.
-
-### What's new in 0.13.7
-
-- **Renamed bill types in exports** — XLSX/PDF reports now respect a custom bill type name instead of falling back to the built-in label associated with its internal ID.
-- **Consumption field refresh** — when creating a bill, changing its bill type now immediately enables/disables Consumption and updates its unit. Consumption is clarified as analytics data and does not affect payer splits.
-
-### What's new in 0.13.6
-
-- **Exclude from estimates** — individual bills and entire bill types can now be kept in history/tracking while being excluded from future forecast calculations.
-- **Forecast-safe cadence tracking** — excluding an individual bill removes its amount from the estimate without losing its billing month as the cadence anchor for the next expected bill.
-
-### What's new in 0.13.5
-
-- **Reimbursement history data fix** — fixed the lazy-loaded history element receiving `hass` before its custom-element class was registered. Completed and pending reimbursements now load correctly in Storico rimborsi.
-
-### What's new in 0.13.4
-
-- **Resilient Billy panel loading** — reimbursement history is now loaded only when its top-level tab is opened, so a missing or failed secondary module can no longer prevent Panoramica, Bollette, Ricorrenti, Parser and Impostazioni from loading.
-
-### What's new in 0.13.3
-
-- **Reimbursement history loading hotfix** — the new history module is now explicitly registered as a Home Assistant static frontend path, fixing the generic “Unable to load custom panel” error when `/billy` imports it.
-
-### What's new in 0.13.2
-
-- **Dedicated reimbursement history** — a new top-level section lists completed reimbursements and amounts still pending between users.
-- **Full reimbursement timeline** — completed transfers show their recorded date/time, payer direction, amount and status, with filters for status, payer and year.
-- **Item-level history details** — each reimbursement can be opened to inspect the bills and recurring charges included in it; older records remain readable even when their per-item reimbursed amount predates itemized settlement storage.
-- **Manual completions included** — reimbursements marked complete directly from a bill or recurring occurrence also appear in the history and can be reverted from their detail view.
-
-### What's new in 0.13.1
-
-- **Frontend hotfix** — fixed an invalid JavaScript template literal in the reimbursement payment-link helper that prevented the Billy panel from loading.
-
-### What's new in 0.13.0
-
-- **Itemized user reimbursements** — the Overview now exposes a “View details” action for each reimbursement, showing the individual bills and recurring charges that compose the amount.
-- **Partial reimbursements** — select only the items to reimburse now; unselected items remain pending for a future payment, while the existing full reimbursement action still settles the complete balance.
-- **Selection-aware payment links** — PayPal, Revolut, Venmo and Cash App actions in the detail view use the currently selected reimbursement amount.
-
-### What's new in 0.12.4
-
-- **Custom → official parser promotion** — when a custom parser is accepted into the Billy parser catalog with the same ID, installing the official version now replaces the local custom definition automatically while preserving its configuration.
-
-### What's new in 0.12.3
-
-- **Safer parser approval** — parser imports without a parser-specific split now fall back to Billy's configured default split instead of failing with `The expense split is empty`.
-- **Manual fallback for failed imports** — failed parser candidates can be opened as a prefilled manual bill, preserving the usable data already extracted by the parser.
-
-### What's new in 0.12.2
-
-- **Clearer post-update state** — after an update the "Billy updates" card shows a "restart required" banner with a Restart button, and it also flags an update applied through HACS or a manual copy. A Home Assistant restart is always needed for the new code — and the version numbers — to take effect.
-
-### What's new in 0.12.0
-
-- **Built-in updater** — Billy exposes an `update` entity (Settings › Updates) with release notes and one-click install, and a "Billy updates" card in Settings › System that shows the changelog and installs the latest build in place. A Home Assistant restart is still required to load the new code.
-- **Consistent version display** — the panel and parser manager now report the version of the running integration instead of a value baked into the cached frontend bundle, so it matches the Integrations page even right after an update.
-- **Localized error messages** — the websocket API now returns stable error codes with an English fallback instead of hardcoded Italian text, and the Billy panel, Lovelace card and parser manager translate them into the user's language (English, Italian, Spanish, French, German, Portuguese).
-
-### What's new in 0.11.9
-
-- **Short and long billing periods** — Billy now preserves exact billing-period dates (`YYYY-MM-DD`) and automatically identifies unusually short or long bills, such as split invoices generated after a tariff or contract change.
-- **Smarter forecasts for split bills** — short/long bills are normalized using their actual number of covered days before they are used for future estimates, so two partial invoices are not mistaken for two complete billing cycles.
-- **Day-aware normalized history** — costs that span multiple calendar months are distributed according to the real number of covered days instead of being split evenly by month.
-- **Billing-period badges** — the Billy application and Lovelace card can highlight short/long periods and show the number of billed days.
-- **Exact parser billing dates** — automatic imports now keep the complete `period_start` and `period_end` dates extracted by community parsers instead of reducing them to month-only values.
-- **CSV/backup compatibility** — exact billing-period dates are preserved during export/import and in Billy backups, while existing month-only records remain supported.
-- **Multiple reimbursement providers** — each payer can configure PayPal.Me, Revolut, Venmo and Cash App and select a preferred payment method.
-- **Provider-aware payment buttons** — reimbursement actions automatically use the payer's preferred provider and show labels such as `Pay with Revolut`, `Pay with Venmo` or `Pay with Cash App` instead of assuming PayPal.
-- **Backward-compatible PayPal migration** — existing `paypal_me` payer settings are automatically migrated to the new multi-payment model.
-- **Cashflow-aware monthly spending** — paid bills are counted in the month of their actual `payment_date`, while recurring charges are counted in the month of their scheduled due date, so monthly and yearly spending reflects when money really leaves the household budget.
-- **New Lovelace widget pack** — Billy now provides dedicated Summary, Spending, Breakdown, Upcoming, Recurring, Balances and Parser Status cards for custom Home Assistant dashboards.
-- **Improved localization** — Billy's sidebar, parser manager, widgets, payment settings and Home Assistant configuration strings are now fully localized in English, Italian, Spanish, French, German and Portuguese.
-- **Community parser workflow documentation** — the README now documents Catalog v2, country-specific parser catalogs, Experimental/Verified lifecycle, anonymous community feedback and how to connect Home Assistant IMAP sources.
-- **Parsed-bill review queue in Bills** — parser candidates waiting for approval are now visible directly in the Bills section, where they can be accepted or rejected before becoming real expenses.
-- **Parser-specific payer defaults** — each parser can now define its own default payer and split percentages, which are applied when a parsed bill is accepted or automatically imported.
-
-### What Billy can do
-
-- Track provider bills manually or import them automatically from email.
-- Track subscriptions, mortgages, installment plans and other recurring expenses independently from provider invoices.
-- Forecast future costs and normalize non-monthly bills into monthly-equivalent spending.
-- Split bills between multiple payers and track reimbursements separately from provider payment status.
-- Open the configured PayPal.Me, Revolut, Venmo or Cash App reimbursement link for each payer.
-- Install declarative parsers from the community `billy-parser` catalog.
-- Create and test local custom parsers directly from Billy.
-- Share a custom parser with the community as Experimental without uploading the original invoice, email or PDF.
-- Use Billy either as the full `/billy` sidebar application or through compact Lovelace dashboard widgets.
-
-### Recurring expenses
-
-The new **Ricorrenti / Recurring** tab tracks predictable costs that normally do not arrive as a monthly invoice email: subscriptions, mortgages, installment plans and other fixed recurring charges. Each rule can define an amount, cadence (monthly, every 2/3/4/6 months or yearly), activation date, optional expiration/renewal date, automatic renewal, provider/contract metadata and notes.
-
-Installment plans can also define a total installment count. Billy calculates the final due date, how many installments remain and the remaining committed amount. Recurring rules can be paused, resumed, edited or deleted without creating fake provider invoices in bill history.
-
-Recurring charges are included in the regular **forecast** on their exact due months. The normalized forecast also includes their monthly-equivalent cost, so an annual subscription contributes `amount / 12` to the normalized monthly planning view. Overview now shows recurring monthly equivalent, charges due next month, active recurring count and remaining installment commitment.
-
-Provider bills and recurring rules remain separate concepts: a recurring rule predicts a cost; it does not mark a provider invoice as paid and it is not an email-parser result.
-
-For provider invoices that need a paid/unpaid monthly checklist, enable **Create an unpaid bill each period** in **Settings → Bill types**. See [Monthly bill checklist](docs/BILL_PLACEHOLDERS.md).
-
-### Split and reimbursements for recurring expenses
-
-Recurring charges use the same payer/split model as normal bills. A recurring rule stores its usual payer and split percentages; when a charge becomes due, Billy materializes a lightweight occurrence containing the amount and payer/split snapshot. That occurrence participates in **Rimborsi tra utenti / User reimbursements** and in PayPal quick-pay exactly like a split bill, but it is not inserted into provider-bill history.
-
-Each due recurring occurrence has its own reimbursement status and can be marked reimbursed/pending from **Billy → Ricorrenti → Gestisci rimborsi**. Reimbursements confirmed from Overview are stored in the shared reimbursement history and cannot be overridden by the quick checkbox until the recorded reimbursement is undone.
-
-To avoid accidental historical debt, adding or migrating a long-running subscription/mortgage starts reimbursement tracking from its latest due charge, not from the original activation date. Future due occurrences are materialized daily at Home Assistant local midnight. Pausing a recurring rule stops new occurrences; resuming starts again from the next real charge without backfilling the paused gap.
-
-### Parser authoring in Billy
-
-The **Parser** tab can create a new local custom parser, edit it, validate/test it against optional email metadata, export it and share it with the community. No invoice PDF, email body or attachment is uploaded by the community publish action.
-
-## Automatic bill parsing
-
-Billy can listen to one or more Home Assistant IMAP sources and automatically detect supported provider emails. The parser runtime is deliberately declarative: community parsers are YAML definitions, not executable Python, JavaScript or shell code.
-
-The high-level flow is:
-
-```text
-Provider email arrives
-        ↓
-Home Assistant IMAP emits metadata
-        ↓
-Billy prefilters parsers by sender / subject
-        ↓
-Only potentially matching messages are fetched
-        ↓
-Email body and required attachments are extracted
-        ↓
-Parser detection rules calculate a score
-        ↓
-Fields are extracted from email and/or PDF text
-        ↓
-Cross-source verification and deduplication
-        ↓
-Review or automatic import, depending on configuration
-```
-
-### Privacy-first fetching
-
-Billy first evaluates inexpensive metadata such as sender, subject and attachment information. The complete message is fetched only when at least one installed parser passes its prefilter. Parsers can then use the email body and selected attachments.
-
-PDF attachments are processed as text documents. Billy does not currently perform OCR, so scanned image-only PDFs may require a future OCR-capable extractor or a parser that can rely on the email body instead.
-
-## Connecting your email
-
-Billy does **not** store your mailbox password and does not create its own mail account connection. It uses Home Assistant's existing **IMAP integration**.
-
-1. In Home Assistant, add and configure the **IMAP** integration for the mailbox that receives your bills.
-2. Verify that Home Assistant receives messages from that account correctly.
-3. Open **Billy → Settings → Automatic parsing / IMAP sources**.
-4. Select one or more IMAP entries that Billy is allowed to use.
-5. Open **Billy → Parser**, refresh the catalog and install the parsers for your providers.
-6. Configure each installed parser with the Billy bill type it should import into and choose whether automatic import is enabled.
-
-Billy can use multiple IMAP integrations at the same time, which is useful when household bills arrive on different mailboxes.
-
-The parser source configuration stores only the selected Home Assistant IMAP entry IDs. Mail credentials continue to be managed by Home Assistant.
-
-## The community parser catalog
-
-Official/community parsers live in the separate [`billy-parser`](https://github.com/robin994/billy-parser) repository. Billy uses the scalable Catalog v2 layout:
-
-```text
-catalog/
-  index.json
-  it.json
-  fr.json
-  ...
-
-parsers/
-  <country>/<provider>/<type>.yaml
-```
-
-Billy first downloads `catalog/index.json`, selects the shard for the configured/Home Assistant country and downloads only that country's catalog. Parser YAML is downloaded only when a parser is installed or updated.
-
-The catalog refreshes automatically every day at **00:00 Home Assistant local time**. Installed parsers are never silently replaced just because the remote catalog changed.
-
-### Parser lifecycle
-
-The parser lifecycle is community-driven:
-
-```text
-Local custom parser
-        ↓
-Share with community
-        ↓
-Automatic repository validation
-        ↓
-Experimental
-        ↓
-Users install and test it
-        ↓
-Community feedback
-        ↓
-Verified
-```
-
-Lifecycle values are:
-
-- **Experimental** — newly published parser that still needs community validation.
-- **Verified** — parser that reached the automatic community verification threshold.
-- **Outdated** — parser that is no longer recommended, usually because the provider format changed or a replacement exists.
-
-No maintainer review is required for the normal Experimental → Verified path. The `billy-parser` automation validates submissions, records feedback and regenerates the catalog.
-
-### Sharing a parser
-
-From a locally saved custom parser, click **Share with community / Condividi con la community**. Billy opens a machine-readable GitHub submission containing parser metadata and the YAML definition.
-
-Billy does **not** attach:
-
-- the original bill PDF;
-- the email body;
-- customer names or addresses;
-- bill amounts from the source message;
-- mailbox credentials.
-
-The repository automation validates the submission and, when valid, publishes it as `experimental`.
-
-### Community feedback
-
-Installed Experimental parsers can be rated from Billy as:
-
-- **Working**;
-- **Partial**;
-- **Failed**.
-
-Feedback is tied to a specific parser version. Billy generates a persistent random local community identifier and sends only a SHA-256 fingerprint scoped to `parser_id + version`, allowing duplicate votes to be avoided without sending the original local identifier or bill contents.
-
-When a new parser version is published, its feedback starts from zero. Votes for an older version are not inherited by the new one.
-
-## Lovelace dashboard widgets
-
-Billy ships seven supported dashboard widgets alongside the `/billy` sidebar application. They share the Billy WebSocket backend rather than duplicating business logic.
-
-The widget pack is registered automatically via `/bill_tracker/billy-lovelace.js?v=0.15.0-r1`. No manual resource URLs are required for a storage-mode installation. Existing legacy cards remain compatible via the separately registered `/bill_tracker/bill-tracker-card.js?v=0.15.0-r1` host until Billy 1.0.0.
-
-Available cards:
-
-| Card          | Lovelace type                     | Purpose                                                                                        |
-| ------------- | --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Summary       | `custom:billy-summary-card`       | Current month, outstanding bills, next month, yearly total, recurring costs and reimbursements |
-| Spending      | `custom:billy-spending-card`      | Historical spending plus recurring costs and forecast                                          |
-| Breakdown     | `custom:billy-breakdown-card`     | Ranked bill-type / recurring-cost breakdown                                                    |
-| Upcoming      | `custom:billy-upcoming-card`      | Upcoming unpaid bills, forecasts and recurring charges                                         |
-| Recurring     | `custom:billy-recurring-card`     | Active subscriptions, mortgages, installments and next due dates                               |
-| Balances      | `custom:billy-balances-card`      | User-to-user reimbursements and PayPal quick-pay links                                         |
-| Parser status | `custom:billy-parser-status-card` | Installed parsers, Experimental parsers, updates and errors                                    |
-
-All cards are registered in `window.customCards`, so they are available from the Home Assistant Lovelace card picker as well as through YAML configuration.
-
-### Summary widget
-
-```yaml
-type: custom:billy-summary-card
-title: Billy
-```
-
-### Spending chart
-
-```yaml
-type: custom:billy-spending-card
-title: Spending
-months: 12
-forecast_months: 3
-show_recurring: true
-```
-
-### Expense breakdown
-
-```yaml
-type: custom:billy-breakdown-card
-title: This month
-limit: 8
-show_recurring: true
-```
-
-### Upcoming expenses
+For example, on a **Sections** dashboard you can let the Upcoming widget fill the available width:
 
 ```yaml
 type: custom:billy-upcoming-card
 title: Upcoming expenses
 days: 90
 limit: 8
-forecast_months: 3
+columns: full
 ```
 
-To show only the current month's unpaid bill checklist, including overdue entries and entries without a due date:
+Widgets use content-based heights by default. To align Recurring and Reimbursements cards, set the same optional `rows` value (for example `rows: 3`) on both. See the [Lovelace widget configuration guide](docs/USER_GUIDE.md#lovelace-dashboard-widgets) for other options.
 
-```yaml
-type: custom:billy-upcoming-card
-title: Bills to pay this month
-filter: unpaid_this_month
-limit: 20
-```
+## Installation
 
-### Recurring expenses
+**Requirements:** Home Assistant 2026.3.0 or later. Billy is a custom integration, not a built-in Home Assistant component.
 
-```yaml
-type: custom:billy-recurring-card
-title: Recurring
-limit: 8
-active_only: true
-```
+### HACS (recommended)
 
-### Reimbursements / balances
+1. In HACS, add [`robin994/billy`](https://github.com/robin994/billy) under **Custom repositories** as an **Integration**.
+2. Download/install **Bill Tracker** from HACS.
+3. Restart Home Assistant.
+4. Go to **Settings → Devices & services → Add integration**, search for **Bill Tracker**, and complete setup.
+5. Open **Billy** in the sidebar at `/billy`.
 
-```yaml
-type: custom:billy-balances-card
-title: Reimbursements
-limit: 6
-show_paypal: true
-```
+### Manual installation
 
-### Parser status
+Copy the `custom_components/bill_tracker` folder into your Home Assistant `config/custom_components/` directory, restart Home Assistant, and add the **Bill Tracker** integration through **Devices & services**. Manual installs retain the same settings and data model.
 
-```yaml
-type: custom:billy-parser-status-card
-title: Billy Parser
-```
+After setup, create payers and bill types in **Billy → Settings**. You can add bills manually immediately; email parsing is optional.
 
-### Example Billy dashboard
+## Optional automatic email parsing
 
-```yaml
-type: grid
-columns: 2
-square: false
-cards:
-  - type: custom:billy-summary-card
+Billy uses your existing **Home Assistant IMAP integration**. Configure your mailbox in Home Assistant, select the IMAP source under **Billy → Settings**, then refresh and install the parsers for the providers you use.
 
-  - type: custom:billy-parser-status-card
+Parsers are **declarative YAML**, never downloaded executable code. Billy prefilters messages by metadata before fetching content, verifies/parser-matches attachments as needed, and supports review before importing. Only install parsers for providers you trust. Scanned image-only PDFs are not OCR-supported.
 
-  - type: custom:billy-spending-card
-    months: 12
-    forecast_months: 3
-    show_recurring: true
+See [Automatic parsing documentation](docs/AUTOMATIC_PARSING.md), the [community parser catalog](https://github.com/robin994/billy-parser), and the [full user guide](docs/USER_GUIDE.md).
 
-  - type: custom:billy-breakdown-card
-    limit: 8
-    show_recurring: true
+## Data, privacy and updates
 
-  - type: custom:billy-upcoming-card
-    days: 90
-    limit: 8
+- Billy stores bills, payer assignments, income and manually entered accounts within your Home Assistant environment. **It does not connect to bank APIs.**
+- Your IMAP credentials remain with Home Assistant. The community parser publishing workflow does not attach the source email or bill PDF.
+- Optional document archiving uses Home Assistant's media directory, including mounted network shares. Manual PDF management is administrator-only, subject to confirmation and an 8 MiB upload limit.
+- Community parser feedback is version-scoped. See the [user guide](docs/USER_GUIDE.md#community-feedback) for its identifier/fingerprint behavior.
+- Billy's built-in updater checks the repository's **`main` branch**, and installed updates require a **Home Assistant restart** before the new version runs. GitHub release downloads are not required for this mechanism.
 
-  - type: custom:billy-recurring-card
-    limit: 8
+For detailed configuration and security constraints, see [Income & document archive](docs/INCOME_AND_DOCUMENT_ARCHIVE.md) and [Monthly bill checklist](docs/BILL_PLACEHOLDERS.md).
 
-  - type: custom:billy-balances-card
-    show_paypal: true
-```
+## Documentation and release history
 
-### Main sidebar areas
+- [Full user guide](docs/USER_GUIDE.md)
+- [Automatic parsing](docs/AUTOMATIC_PARSING.md)
+- [Monthly bill checklist](docs/BILL_PLACEHOLDERS.md)
+- [Income, accounts and document archive](docs/INCOME_AND_DOCUMENT_ARCHIVE.md)
+- [Changelog — version-by-version updates](CHANGELOG.md)
+- [GitHub issues and feature requests](https://github.com/robin994/billy/issues)
 
-- **Panoramica / Overview** — full-width dashboard, forecasts, reimbursements and recurring commitments.
-- **Bollette / Bills** — complete provider-bill history with manual CRUD, payment status and user-reimbursement status.
-- **Ricorrenti / Recurring** — subscriptions, mortgages, installments and predictable scheduled costs.
-- **Parser** — country-sharded community catalog, local parser authoring, testing, sharing and Experimental feedback.
-- **Impostazioni / Settings** — bill types, payers, IMAP sources, system status and developer/support links.
+The deprecated `custom:bill-tracker-card` remains available to existing dashboards during Billy 0.x, but new dashboards should use the seven dedicated widgets. For Lovelace installations in YAML resource mode, register `/bill_tracker/billy-lovelace.js?v=0.15.1-r1` as a JavaScript module; keep the legacy `bill-tracker-card.js` resource only if an existing dashboard still uses it.
 
-In Billy 0.15.0 and later, the widget resource is `/bill_tracker/billy-lovelace.js` with a version query parameter. The historical `/bill_tracker/bill-tracker-card.js` endpoint continues to serve only the deprecated legacy card.
+## Contributing and support
 
-## Billy 0.9.1
+Bug reports, parser requests and improvements are welcome through [Billy issues](https://github.com/robin994/billy/issues). To publish or improve a provider-specific parser, use the [billy-parser repository](https://github.com/robin994/billy-parser).
 
-Billy keeps the Lovelace `custom:bill-tracker-card`, while the `/billy` sidebar panel is the full-size application.
+Maintained by [@robin994](https://github.com/robin994). If you find Billy useful, consider [starring the repository](https://github.com/robin994/billy) or [supporting its development](https://paypal.me/rtortora94).
 
-### Sidebar application
-
-- **Panoramica / Overview**: wide dashboard with KPI, forecast, bill-type breakdown, upcoming/recent bills, parser health and a dedicated **Rimborsi tra utenti / User reimbursements** section.
-- **Bollette / Bills**: native complete bill list instead of embedding the Lovelace card. It includes search/filtering, pagination, manual bill creation, edit/delete actions and a quick provider-payment toggle.
-- **Parser**: scalable catalog with country/type/status filters, Outdated markers and explicit install/update/remove actions.
-- **Impostazioni / Settings**: bill types, payers, IMAP sources, system status and a new **Developer & support** area.
-
-### Provider payments vs user reimbursements
-
-Billy now treats these as two independent concepts:
-
-- **Bolletta pagata / Provider paid** means the configured payer actually paid the utility/provider invoice.
-- **Rimborso tra utenti / User reimbursement** means another Billy participant reimbursed their share to the payer.
-
-Confirming a reimbursement no longer marks provider bills as paid, and undoing a reimbursement no longer reopens provider bills. Split balances are calculated from bill shares independently of the provider-payment checkbox, then reduced by recorded reimbursements.
-
-The Overview provides quick **Pay with PayPal** and **Confirm reimbursement** actions, plus recent reimbursement history.
-
-### Reimbursement status in Bills
-
-The full **Bollette / Bills** tab now has an independent reimbursement filter and status for each bill. You can filter bills by **To reimburse**, **Reimbursed**, or **No reimbursement**. A bill with multiple participants can also show **Partially reimbursed**.
-
-When no reimbursement has already been recorded in the reimbursement history, the row includes a quick checkbox to mark all user reimbursements for that bill as completed or pending. This changes only the user-to-user balance; it never changes whether the provider invoice itself is paid. Bills linked to recorded reimbursement history are intentionally locked to that history to prevent double-accounting.
-
-### Developer & support
-
-The Billy Settings panel now credits **Roberto Tortora** as creator/maintainer and links to:
-
-- Billy: `https://github.com/robin994/billy`
-- billy-parser: `https://github.com/robin994/billy-parser`
-- GitHub profile: `https://github.com/robin994`
-- LinkedIn: `https://www.linkedin.com/in/roberto-tortora-379928109/`
-- optional PayPal.Me support: `https://paypal.me/rtortora94`
-
-Both repositories include an explicit action encouraging users to open the project and leave a GitHub star.
-
-The parser catalog continues to refresh automatically every day at **00:00 Home Assistant local time** without silently upgrading installed parser YAML files. The old unversioned Lovelace resource mentioned in this historical section was superseded by the versioned widget entrypoint in Billy 0.15.0.
-
-## 0.6.3 parser compatibility
-
-Billy 0.6.3 adds support for abbreviated Italian dates used in provider invoices and anchors automatic imports to the billing/competence month before the due date. The 0.5.2-based dashboard UI from 0.6.2 is unchanged.
-
-# Billy 0.6.2
-
-Billy is a Home Assistant custom integration for tracking recurring household bills,
-forecasting upcoming costs, splitting expenses between payers and importing bill data.
-
-This archive is a **complete source package** for the integration. It is not an overlay:
-`custom_components/bill_tracker` contains the full Python integration, Lovelace frontend,
-translations, automatic parser runtime, IMAP source adapter and tests required by this build.
-
-## 0.6.x automatic parsing
-
-- External `billy-parser` catalog with SHA-256 verified parser downloads. Current Billy versions use the country-sharded Catalog v2, with legacy `parser.json` retained only as compatibility fallback.
-- Declarative YAML parser schema v1; downloaded parsers cannot execute Python/JavaScript/shell code.
-- Official parsers stored under `/config/billy/parsers/official`.
-- Custom parsers stored under `/config/billy/parsers/custom` and exportable.
-- Home Assistant IMAP integration using metadata prefiltering before message-body fetching.
-- PDF text extraction via `pypdf`; OCR is intentionally out of scope.
-- Email/PDF cross-verification, confidence scoring, review queue and optional verified auto-import.
-- Source and semantic deduplication.
-- Parser/source/review management through the native Billy options flow.
-
-## 0.6.2 fixes
-
-- Restored the bill-history filters removed by the first 0.6 frontend rewrite:
-  bill type, paid/unpaid status, all history/year/month range, page size and pagination.
-- Restored the styled **Pay with PayPal** action and localized reimbursement counts.
-- Fixed IMAP event scheduling so parser processing runs on the Home Assistant event loop.
-- Fixed hassfest manifest ordering and the config-entry-only `CONFIG_SCHEMA`.
-- Registers the Lovelace resource after Lovelace setup and bumps frontend assets to 0.6.2
-  to invalidate stale browser caches.
-
-See `docs/AUTOMATIC_PARSING.md` for parser setup and privacy details.
-
-## Billy sidebar panel
-
-Billy 0.7.0 adds a sidebar panel at `/billy` while keeping `custom:bill-tracker-card` available for Lovelace dashboards. The panel reuses the existing bill UI and includes scalable parser management in the same application surface.
-
-## Community parser publishing
-
-Billy's Parser page can share a locally saved custom parser with the community. Billy opens a machine-readable GitHub submission containing parser metadata plus the declarative YAML. The `billy-parser` workflow validates it and publishes valid submissions automatically as **Experimental**, without maintainer approval.
-
-Community feedback is version-scoped and drives automatic promotion from **Experimental** to **Verified**. Parsers that are no longer recommended can be marked **Outdated** and point to a replacement. The catalog exposes only aggregate feedback counts; it does not expose installation fingerprints or bill data.
+---
+**Billy 0.15.1** · Open source · Home Assistant integration

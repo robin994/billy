@@ -1,11 +1,11 @@
-import './billy-parser-manager.js?v=0.15.0-r5'
+import './billy-parser-manager.js?v=0.15.1-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.15.0-r5'
+} from './billy-extra-i18n.js?v=0.15.1-r1'
 
-const BILLY_PANEL_VERSION = '0.15.0'
+const BILLY_PANEL_VERSION = '0.15.1'
 
 const TEXT = {
   en: {
@@ -136,6 +136,10 @@ const TEXT = {
     exportDownload: 'Download export',
     exportFailed: 'Export failed: {error}',
     searchBills: 'Search bills…',
+    sortBills: 'Sort bills',
+    sortBillingMonth: 'Billing month (newest first)',
+    sortDueDate: 'Due date (newest first)',
+    sortPaymentDate: 'Payment date (newest first)',
     allTypes: 'All bill types',
     allStatuses: 'All statuses',
     allReimbursementStatuses: 'All reimbursements',
@@ -485,6 +489,10 @@ const TEXT = {
     exportDownload: 'Scarica export',
     exportFailed: 'Export fallito: {error}',
     searchBills: 'Cerca bollette…',
+    sortBills: 'Ordina bollette',
+    sortBillingMonth: 'Mese di riferimento (recenti prima)',
+    sortDueDate: 'Scadenza (recenti prima)',
+    sortPaymentDate: 'Pagamento (recenti prima)',
     allTypes: 'Tutte le tipologie',
     allStatuses: 'Tutti gli stati',
     allReimbursementStatuses: 'Tutti i rimborsi',
@@ -2210,6 +2218,8 @@ class BillyBills extends HTMLElement {
     this._status = 'all'
     this._reimbursement = 'all'
     this._year = 'all'
+    this._sort = 'billing'
+    this._sortLoadedFor = null
     this._page = 1
     this._pageSize = 25
     this._editing = null
@@ -2226,6 +2236,7 @@ class BillyBills extends HTMLElement {
       previousConnection && previousConnection !== value?.connection
     const firstAssignment = !this._hass
     this._hass = value
+    this._loadSortPreference()
     if (!this.isConnected) return
     if (connectionChanged) {
       this._unsubscribe?.()
@@ -2482,6 +2493,30 @@ class BillyBills extends HTMLElement {
     return (this._data?.payers || []).find((row) => row.id === id) || null
   }
 
+  _sortPreferenceKey() {
+    return `billy.bills.sort.v1:${this._hass?.user?.id || 'local'}`
+  }
+
+  _loadSortPreference() {
+    const key = this._sortPreferenceKey()
+    if (this._sortLoadedFor === key) return
+    this._sortLoadedFor = key
+    try {
+      const saved = globalThis.localStorage?.getItem(key)
+      this._sort = ['billing', 'due', 'payment'].includes(saved) ? saved : 'billing'
+    } catch (_error) {
+      this._sort = 'billing'
+    }
+  }
+
+  _saveSortPreference() {
+    try {
+      globalThis.localStorage?.setItem(this._sortPreferenceKey(), this._sort)
+    } catch (_error) {
+      // Sorting remains available even if browser storage is blocked.
+    }
+  }
+
   _filtered() {
     const query = this._search.trim().toLocaleLowerCase(localeOf(this._hass))
     return (this._data?.expenses || [])
@@ -2525,9 +2560,23 @@ class BillyBills extends HTMLElement {
         return haystack.includes(query)
       })
       .sort((a, b) => {
+        if (this._sort === 'due' || this._sort === 'payment') {
+          const field = this._sort === 'due' ? 'due_date' : 'payment_date'
+          const sortDate = (row) => {
+            const value = String(row[field] || '')
+            return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ''
+          }
+          const aDate = sortDate(a)
+          const bDate = sortDate(b)
+          // Missing dates stay at the bottom; never substitute the billing month.
+          if (!aDate && bDate) return 1
+          if (aDate && !bDate) return -1
+          const order = bDate.localeCompare(aDate)
+          if (order) return order
+        }
         const aKey = `${String(a.paid_year || a.year).padStart(4, '0')}${String(a.paid_month || a.month).padStart(2, '0')}${a.created_at || ''}`
         const bKey = `${String(b.paid_year || b.year).padStart(4, '0')}${String(b.paid_month || b.month).padStart(2, '0')}${b.created_at || ''}`
-        return bKey.localeCompare(aKey)
+        return bKey.localeCompare(aKey) || String(a.id || '').localeCompare(String(b.id || ''))
       })
   }
 
@@ -2553,7 +2602,7 @@ class BillyBills extends HTMLElement {
         <label class="paid-toggle" title="${escapeHtml(this._t('paymentStatus'))}"><input type="checkbox" data-paid-id="${escapeHtml(row.id)}" ${row.paid ? 'checked' : ''}><span></span></label>
         <i class="category-color" style="background:${safeColor(category?.color || row.category_color)}"></i>
         <div class="bill-main"><strong>${escapeHtml(row.category || '')}</strong><small>${escapeHtml(details || '—')}</small><small>${escapeHtml([row.payer, splitText].filter(Boolean).join(' · '))}</small>${row.is_placeholder ? `<small class="estimate-excluded">${escapeHtml(this._t('placeholderBill'))}</small>` : ''}${row.exclude_from_estimates ? `<small class="estimate-excluded">${escapeHtml(this._t('excludedFromEstimates'))}</small>` : ''}</div>
-        <div class="bill-month"><span>${escapeHtml(this._monthLabel(row))}</span><small>${escapeHtml(`${this._t('due')}: ${this._date(row.due_date)}`)}</small>${row.period_type === 'short' || row.period_type === 'long' ? `<small class="period-badge ${escapeHtml(row.period_type)}">${escapeHtml(this._t(row.period_type === 'short' ? 'shortPeriod' : 'longPeriod', { days: row.period_days || 0 }))}</small>` : ''}</div>
+        <div class="bill-month"><span>${escapeHtml(this._monthLabel(row))}</span>${row.due_date ? `<small>${escapeHtml(`${this._t('dueDate')}: ${this._date(row.due_date)}`)}</small>` : ''}${row.paid ? `<small>${escapeHtml(`${this._t('paymentDate')}: ${this._date(row.payment_date)}`)}</small>` : ''}${row.period_type === 'short' || row.period_type === 'long' ? `<small class="period-badge ${escapeHtml(row.period_type)}">${escapeHtml(this._t(row.period_type === 'short' ? 'shortPeriod' : 'longPeriod', { days: row.period_days || 0 }))}</small>` : ''}</div>
         <div class="bill-state">
           <span class="state ${row.paid ? 'paid' : 'unpaid'}">${escapeHtml(row.paid ? this._t('providerPaid') : this._t('providerUnpaid'))}</span>
           <div class="reimbursement-line">
@@ -2563,9 +2612,10 @@ class BillyBills extends HTMLElement {
         </div>
         <strong class="bill-amount">${escapeHtml(this._money(row.amount))}</strong>
         <div class="bill-actions">
-          ${row.document_path ? `<button type="button" data-open-document="${escapeHtml(row.id)}" title="${escapeHtml(this._pdfT('view'))}"><ha-icon icon="mdi:file-pdf-box"></ha-icon> ${escapeHtml(this._pdfT('view'))}</button>` : ''}
-          ${!row.document_path && safeDocumentUrl(row.document_url) ? `<a href="${escapeHtml(safeDocumentUrl(row.document_url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(this._pdfT('view'))} ↗</a>` : ''}
-          ${!row.document_path && row.document_url && category?.document_archive?.enabled ? `<button type="button" data-archive-document="${escapeHtml(row.id)}" title="${escapeHtml(row.document_error || 'Archive PDF')}"><ha-icon icon="mdi:download"></ha-icon></button>` : ''}
+          ${row.document_path ? `<button class="document-action" type="button" data-open-document="${escapeHtml(row.id)}" title="${escapeHtml(this._pdfT('view'))}"><ha-icon icon="mdi:file-pdf-box"></ha-icon> ${escapeHtml(this._pdfT('view'))}</button>` : ''}
+          ${!row.document_path && safeDocumentUrl(row.document_url) ? `<a class="document-action" href="${escapeHtml(safeDocumentUrl(row.document_url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(this._pdfT('view'))} ↗</a>` : ''}
+          ${!row.document_path && !safeDocumentUrl(row.document_url) && row.document_url && category?.document_archive?.enabled ? `<button class="document-action" type="button" data-archive-document="${escapeHtml(row.id)}" title="${escapeHtml(row.document_error || 'Archive PDF')}"><ha-icon icon="mdi:download"></ha-icon></button>` : ''}
+          ${!row.document_path && !safeDocumentUrl(row.document_url) && !(row.document_url && category?.document_archive?.enabled) ? '<span class="bill-document-placeholder" aria-hidden="true"></span>' : ''}
           <button type="button" data-edit-bill="${escapeHtml(row.id)}">${escapeHtml(this._t('edit'))}</button>
           <button type="button" class="danger" data-delete-bill="${escapeHtml(row.id)}">${escapeHtml(this._t('delete'))}</button>
         </div>
@@ -2817,6 +2867,11 @@ class BillyBills extends HTMLElement {
           <select id="bill-status"><option value="all" ${this._status === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allStatuses'))}</option><option value="unpaid" ${this._status === 'unpaid' ? 'selected' : ''}>${escapeHtml(this._t('providerUnpaid'))}</option><option value="paid" ${this._status === 'paid' ? 'selected' : ''}>${escapeHtml(this._t('providerPaid'))}</option></select>
           <select id="bill-reimbursement"><option value="all" ${this._reimbursement === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allReimbursementStatuses'))}</option><option value="pending" ${this._reimbursement === 'pending' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementPending'))}</option><option value="done" ${this._reimbursement === 'done' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementDone'))}</option><option value="none" ${this._reimbursement === 'none' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementNone'))}</option></select>
           <select id="bill-year"><option value="all">${escapeHtml(this._t('allYears'))}</option>${years.map((year) => `<option value="${year}" ${String(this._year) === String(year) ? 'selected' : ''}>${year}</option>`).join('')}</select>
+          <select id="bill-sort" aria-label="${escapeHtml(this._t('sortBills'))}">
+            <option value="billing" ${this._sort === 'billing' ? 'selected' : ''}>${escapeHtml(this._t('sortBillingMonth'))}</option>
+            <option value="due" ${this._sort === 'due' ? 'selected' : ''}>${escapeHtml(this._t('sortDueDate'))}</option>
+            <option value="payment" ${this._sort === 'payment' ? 'selected' : ''}>${escapeHtml(this._t('sortPaymentDate'))}</option>
+          </select>
         </div>
         <section class="list-card"><div id="bill-rows">${this._rowsHtml()}</div><div id="bill-pager">${this._pagerHtml()}</div></section>
       </div>
@@ -2868,6 +2923,15 @@ class BillyBills extends HTMLElement {
       .getElementById('bill-search')
       ?.addEventListener('input', (event) => {
         this._search = event.target.value
+        this._page = 1
+        this._renderListOnly()
+      })
+    this.shadowRoot
+      .getElementById('bill-sort')
+      ?.addEventListener('change', (event) => {
+        this._sort = ['billing', 'due', 'payment'].includes(event.target.value)
+          ? event.target.value : 'billing'
+        this._saveSortPreference()
         this._page = 1
         this._renderListOnly()
       })
@@ -3286,6 +3350,51 @@ class BillyBills extends HTMLElement {
       .pdf-buttons a{color:var(--primary-color);text-decoration:underline}
       @media(max-width:1100px){.toolbar{grid-template-columns:1fr 1fr}.bill-row{grid-template-columns:34px 8px minmax(180px,1fr) auto auto}.bill-month{grid-column:3}.bill-state{grid-column:4;grid-row:1}.bill-amount{grid-column:4;grid-row:2}.bill-actions{grid-column:5;grid-row:1 / span 2}}
       @media(max-width:720px){.hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%}.hero-actions button{flex:1}.review-row{grid-template-columns:1fr}.review-actions{flex-wrap:wrap}.toolbar{grid-template-columns:1fr}.bill-row{grid-template-columns:32px 8px minmax(0,1fr) auto;padding:12px}.bill-month{grid-column:3}.bill-state{grid-column:3}.bill-amount{grid-column:3;text-align:left}.bill-actions{grid-column:4;grid-row:1 / span 4;flex-direction:column}.form-grid,.split-grid{grid-template-columns:1fr}.span2{grid-column:auto}.modal{padding:8px}.modal-card{padding:16px}}
+      /* Columns have fixed slots: an optional PDF must not move the amount or action buttons. */
+      .bills-page,.list-card{container-type:inline-size}
+      .toolbar{grid-template-columns:minmax(210px,1.5fr) repeat(5,minmax(110px,1fr))}
+      .toolbar select{min-width:0;width:100%;text-overflow:ellipsis}
+      .bill-row{
+        grid-template-columns:32px 8px minmax(210px,1fr) minmax(146px,180px) minmax(128px,155px) 108px 230px;
+        grid-template-areas:"paid swatch main month state amount actions";
+        gap:12px;
+      }
+      .bill-row>.paid-toggle{grid-area:paid}
+      .bill-row>.category-color{grid-area:swatch}
+      .bill-row>.bill-main{grid-area:main}
+      .bill-row>.bill-month{grid-area:month}
+      .bill-row>.bill-state{grid-area:state;min-width:0}
+      .bill-row>.bill-amount{grid-area:amount;font-variant-numeric:tabular-nums}
+      .bill-row>.bill-actions{grid-area:actions;display:grid;grid-template-columns:minmax(0,1fr) 43px 57px;align-items:center;gap:5px;min-width:0;width:100%}
+      .bill-actions .document-action{display:inline-flex;align-items:center;justify-content:center;gap:3px;min-width:0;overflow:hidden;white-space:nowrap;padding:6px 5px;border:1px solid var(--divider-color);border-radius:10px;color:var(--primary-text-color);font:inherit;font-size:11px;text-decoration:none}
+      .bill-actions .document-action ha-icon{--mdc-icon-size:15px;flex:none}
+      .bill-actions .bill-document-placeholder{display:block}
+      .bill-actions .danger{padding-inline:5px}
+      @container (max-width:1120px){
+        .toolbar{grid-template-columns:repeat(3,minmax(0,1fr))}
+        .toolbar .search{grid-column:1/-1}
+        .bill-row{
+          grid-template-columns:32px 8px minmax(0,1fr) minmax(142px,160px) 230px;
+          grid-template-areas:"paid swatch main month state" "paid swatch main amount actions";
+        }
+        .bill-amount{justify-self:end}
+      }
+      @container (max-width:760px){
+        .toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}
+        .bill-row{
+          grid-template-columns:32px 8px minmax(0,1fr) auto;
+          grid-template-areas:"paid swatch main amount" "paid swatch month month" "paid swatch state state" "paid swatch actions actions";
+        }
+        .bill-month,.bill-state{justify-self:start}
+        .bill-amount{justify-self:end;text-align:right}
+        .bill-actions{justify-self:end;max-width:230px}
+      }
+      @container (max-width:440px){
+        .toolbar{grid-template-columns:minmax(0,1fr)}
+        .toolbar .search{grid-column:1}
+        .bill-row{column-gap:8px}
+        .bill-row>.bill-actions{max-width:100%}
+      }
     `
   }
 }
@@ -4900,7 +5009,7 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.15.0-r5').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.15.1-r1').catch((error) => {
         this._incomePromise = null
         const section = this.shadowRoot?.querySelector('[data-section="income"]')
         if (section) section.textContent = `Unable to load Billy Income: ${error.message || error}`
@@ -4918,7 +5027,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.15.0-r5'
+        './billy-reimbursement-history.js?v=0.15.1-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(
