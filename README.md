@@ -16,10 +16,10 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/promo/billy-hero.webp" alt="Billy for Home Assistant — illustrated overview, bills, parsers and widgets" width="100%">
+  <img src="docs/images/promo/billy-english-showcase.webp" alt="Billy for Home Assistant — English product showcase featuring bill management, spending forecasts, automatic parsers and Lovelace widgets" width="100%">
 </p>
 
-<p align="center"><sub>Promotional mockups use fictional sample data. Actual Home Assistant layouts may vary.</sub></p>
+<p align="center"><sub>Illustrative product showcase with fictional sample data. Actual Home Assistant layouts may vary.</sub></p>
 
 Billy is an open-source Home Assistant custom integration for organizing household finances **without connecting to your bank**. Manage provider invoices, track subscriptions and installment plans, split expenses between household members, and see upcoming costs before they are due.
 
@@ -39,19 +39,9 @@ Billy is an open-source Home Assistant custom integration for organizing househo
 
 ## Explore Billy
 
-### Overview, bills and parser management
+The **Overview** brings spending trends and forecasts together. **Bills** keeps due dates, actual payments, reimbursement status and PDF attachments accessible. **Parsers** discovers and manages provider definitions from the [billy-parser community catalog](https://github.com/robin994/billy-parser).
 
-<p align="center">
-  <img src="docs/images/promo/billy-features.webp" alt="Billy overview, bills history and automatic parser manager — illustrated feature showcase" width="100%">
-</p>
-
-The **Overview** combines spending trends and forecasts; **Bills** keeps due dates, payment dates, reimbursement status and PDF attachments accessible; **Parsers** discovers and manages declarative parser definitions from the [billy-parser community catalog](https://github.com/robin994/billy-parser).
-
-### Lovelace widgets
-
-<p align="center">
-  <img src="docs/images/promo/billy-lovelace-widgets.webp" alt="Billy Lovelace dashboard widgets — illustrated demo with fictitious data" width="100%">
-</p>
+## Lovelace widgets
 
 Add focused cards to existing Home Assistant dashboards:
 
