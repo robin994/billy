@@ -1,6 +1,6 @@
-import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.15.1-r1'
+import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.15.2-r1'
 
-const BILLY_WIDGETS_VERSION = '0.15.1'
+const BILLY_WIDGETS_VERSION = '0.15.2'
 
 const WIDGET_TEXT = {
   en: {
@@ -542,6 +542,11 @@ class BillyWidgetBase extends HTMLElement {
     this._loading = false
     this._error = ''
     this._connection = null
+    this._unsubscribe = null
+    this._subscriptionPending = false
+    this._subscriptionToken = 0
+    this._reloadPending = false
+    this._everConnected = false
   }
 
   static getStubConfig() {
@@ -558,11 +563,63 @@ class BillyWidgetBase extends HTMLElement {
   }
 
   set hass(value) {
+    const previousLocale = this.locale
+    const previousCurrency = this.currency
     const previousConnection = this._connection
     this._hass = value
     this._connection = value?.connection || null
-    if (!this._data || previousConnection !== this._connection) this._load()
-    else this._render()
+    if (previousConnection !== this._connection) {
+      this._unsubscribeEvents()
+      this._data = null
+      this._parserData = null
+      this._error = ''
+      this._subscribeEvents()
+      this._load()
+    } else if (!this._data && !this._loading && !this._error) {
+      this._load()
+    } else if (previousLocale !== this.locale || previousCurrency !== this.currency) {
+      this._render()
+    }
+    // HA calls this setter for every state change. Replacing the Shadow DOM
+    // on unrelated changes disrupts scroll anchoring in the iOS companion app.
+  }
+
+  connectedCallback() {
+    this._subscribeEvents()
+    if (this._everConnected && this._hass) this._load()
+    this._everConnected = true
+  }
+
+  disconnectedCallback() {
+    this._unsubscribeEvents()
+  }
+
+  _unsubscribeEvents() {
+    this._subscriptionToken++
+    this._subscriptionPending = false
+    this._unsubscribe?.()
+    this._unsubscribe = null
+  }
+
+  async _subscribeEvents() {
+    const connection = this._connection
+    if (!this.isConnected || !connection?.subscribeEvents || this._unsubscribe || this._subscriptionPending) return
+    const token = ++this._subscriptionToken
+    this._subscriptionPending = true
+    try {
+      const unsubscribe = await connection.subscribeEvents(() => {
+        if (this.isConnected && this._connection === connection) this._load()
+      }, 'bill_tracker_updated')
+      if (token === this._subscriptionToken && this.isConnected && this._connection === connection) {
+        this._unsubscribe = unsubscribe
+      } else {
+        unsubscribe?.()
+      }
+    } catch (_error) {
+      // An unavailable event subscription must not prevent initial data loading.
+    } finally {
+      if (token === this._subscriptionToken) this._subscriptionPending = false
+    }
   }
 
   getCardSize() {
@@ -621,13 +678,19 @@ class BillyWidgetBase extends HTMLElement {
   }
 
   async _load() {
-    if (!this._hass || this._loading) return
+    if (!this._hass) return
+    if (this._loading) {
+      this._reloadPending = true
+      return
+    }
+    const hass = this._hass
+    const connection = this._connection
     this._loading = true
     this._error = ''
-    this._render()
+    if (!this._data && !this.shadowRoot?.querySelector('.loading')) this._render()
     try {
       const tasks = [
-        this._hass.callWS({
+        hass.callWS({
           type: 'bill_tracker/list',
           forecast_months: Math.max(
             1,
@@ -636,15 +699,21 @@ class BillyWidgetBase extends HTMLElement {
         }),
       ]
       if (this.needsParserData)
-        tasks.push(this._hass.callWS({ type: 'bill_tracker/parser/list' }))
+        tasks.push(hass.callWS({ type: 'bill_tracker/parser/list' }))
       const result = await Promise.all(tasks)
-      this._data = result[0]
-      if (this.needsParserData) this._parserData = result[1]
+      if (connection === this._connection) {
+        this._data = result[0]
+        if (this.needsParserData) this._parserData = result[1]
+      }
     } catch (error) {
-      this._error = error?.message || String(error)
+      if (connection === this._connection) this._error = error?.message || String(error)
     } finally {
       this._loading = false
-      this._render()
+      if (connection === this._connection) this._render()
+      if (this._reloadPending || connection !== this._connection) {
+        this._reloadPending = false
+        this._load()
+      }
     }
   }
 
@@ -676,7 +745,7 @@ class BillyWidgetBase extends HTMLElement {
   }
 
   _shell(title, subtitle, body, view = 'dashboard') {
-    if (this._loading && !this._data)
+    if (!this._data && !this._error)
       body = `<div class="loading">${esc(this.t('loading'))}</div>`
     if (this._error) body = `<div class="error">${esc(this._error)}</div>`
     return `

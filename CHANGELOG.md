@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.15.2
+
+- Addressed the Home Assistant iOS app's Lovelace dashboard scrolling issue
+  reported in #15: Billy widgets no longer replace their Shadow DOM on every
+  unrelated Home Assistant state change.
+- Widgets now refresh their financial data on `bill_tracker_updated` events,
+  while preserving the card DOM during requests and avoiding duplicate loads.
+  Subscriptions are cleaned up when cards are removed from a dashboard.
+- Reduced the initial loading layout changes and added regression tests for
+  scrolling stability, connection changes, language changes and async cleanup.
+- Refreshed the frontend cache key to `0.15.2-r1`. Testing in the Home
+  Assistant companion app on a physical iOS device is still required to
+  confirm the reported behavior is resolved.
+
 ## 0.15.1
 
 Released: 2026-10-20.

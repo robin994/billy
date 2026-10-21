@@ -162,7 +162,7 @@ When a new parser version is published, its feedback starts from zero. Votes for
 
 Billy ships seven supported dashboard widgets alongside the `/billy` sidebar application. They share the Billy WebSocket backend rather than duplicating business logic.
 
-The widget pack is registered automatically via `/bill_tracker/billy-lovelace.js?v=0.15.1-r1`. No manual resource URLs are required for a storage-mode installation. Existing legacy cards remain compatible via the separately registered `/bill_tracker/bill-tracker-card.js?v=0.15.1-r1` host until Billy 1.0.0.
+The widget pack is registered automatically via `/bill_tracker/billy-lovelace.js?v=0.15.2-r1`. No manual resource URLs are required for a storage-mode installation. Existing legacy cards remain compatible via the separately registered `/bill_tracker/bill-tracker-card.js?v=0.15.2-r1` host until Billy 1.0.0.
 
 Available cards:
 
