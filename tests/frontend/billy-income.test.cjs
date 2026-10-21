@@ -7,7 +7,7 @@ const { JSDOM } = require('jsdom')
 const incomeJs = fs.readFileSync(path.join(__dirname, '../../custom_components/bill_tracker/frontend/billy-income.js'), 'utf8')
 const accountsJs = fs.readFileSync(path.join(__dirname, '../../custom_components/bill_tracker/frontend/billy-accounts.js'), 'utf8')
 
-async function mountedIncome(language = 'en') {
+async function mountedIncome(language = 'en', mode = 'entries') {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'https://ha.local/billy?view=income',
     runScripts: 'outside-only',
@@ -36,6 +36,7 @@ async function mountedIncome(language = 'en') {
   }
   const writes = []
   const element = dom.window.document.createElement('billy-income')
+  element.setAttribute('mode', mode)
   dom.window.document.body.appendChild(element)
   element.hass = {
     language, locale: { language }, config: { currency: 'EUR' },
@@ -83,11 +84,12 @@ test('Billy Income opens the exact recurring occurrence and submits its actual s
   assert.equal(update.account_id, 'a2')
 })
 
-test('Income section displays recurring amount estimation mode and independent plan editor', async (t) => {
-  const { dom, element } = await mountedIncome()
+test('Recurring income is managed from its dedicated mode, including estimation rules', async (t) => {
+  const { dom, element } = await mountedIncome('en', 'rules')
   t.after(() => dom.window.close())
-  element.shadowRoot.querySelector('[data-tab="rules"]').click()
-  assert.match(element.shadowRoot.textContent, /Recurring plans/)
+  assert.equal(element.shadowRoot.querySelector('[data-tab]'), null)
+  assert.ok(element.shadowRoot.querySelector('#new-rule'))
+  assert.equal(element.shadowRoot.querySelector('#add'), null)
   assert.match(element.shadowRoot.textContent, /Average of last 3/)
   element.shadowRoot.querySelector('[data-edit-rule="salary-rule"]').click()
   const form = element.shadowRoot.querySelector('#modal form')
@@ -97,15 +99,14 @@ test('Income section displays recurring amount estimation mode and independent p
   assert.equal(form.elements.account_id.value, 'a1')
 })
 
-test('Income Accounts subtab mounts the dynamic account manager', async (t) => {
+test('Income displays only actual and expected receipts, without account or recurring subtabs', async (t) => {
   const { dom, element } = await mountedIncome()
   t.after(() => dom.window.close())
-  element.shadowRoot.querySelector('[data-tab="accounts"]').click()
-  const accounts = element.shadowRoot.querySelector('billy-accounts')
-  assert.ok(accounts)
-  assert.match(accounts.shadowRoot.textContent, /Create your first account/)
-  assert.ok(accounts._hass?.connection)
-  assert.ok(accounts._data)
+  assert.ok(element.shadowRoot.querySelector('#add'))
+  assert.equal(element.shadowRoot.querySelector('[data-tab]'), null)
+  assert.equal(element.shadowRoot.querySelector('billy-accounts'), null)
+  assert.equal(element.shadowRoot.querySelector('#new-rule'), null)
+  assert.match(element.shadowRoot.textContent, /Salary/)
 })
 
 for (const [language, label] of [

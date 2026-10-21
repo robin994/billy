@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.16.0
+
+Released: 2026-10-21.
+
+- Reorganized the Billy navigation in response to issue #16. **Accounts** is
+  now a dedicated main tab showing account balances and internal transfers.
+- Moved creating, editing, deleting, assigning payers and choosing the default
+  account to **Settings → Accounts**. The Accounts overview links directly to
+  the configuration screen without duplicating account editors.
+- Added account and incoming/outgoing filters to transfer history. Selecting
+  an account card filters its outgoing transfers; the transfer action is more
+  prominent on the Accounts page.
+- Split **Recurring** into **Expenses** and **Income** views. Income entries
+  remain in the main **Income** tab, while recurring income plans now live in
+  **Recurring → Income** with their original editing and forecasting behavior.
+- Preserved direct links to the new views and translated navigation labels in
+  English, Italian, Spanish, French, German and Portuguese.
+- Added frontend regression tests for navigation, transfer filtering, account
+  management, recurring-income editors and Home Assistant integration.
+- No storage migrations, account balance changes or WebSocket API changes are
+  required. Bumped the version and frontend resource cache to `0.16.0` /
+  `0.16.0-r1`.
+
+Automated tests cover these changes. Manual Home Assistant desktop/mobile UI
+testing is still recommended after upgrading; see the
+[issue #16 upgrade smoke-test checklist](docs/ISSUE_16_RELEASE_TEST.md).
+
 ## 0.15.2
 
 - Addressed the Home Assistant iOS app's Lovelace dashboard scrolling issue

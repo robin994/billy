@@ -40,6 +40,16 @@ const ACCOUNT_TEXT = {
     asOf: 'Balance as of {date}',
     needsTwo: 'Create at least two accounts to record an internal transfer.',
     accountError: 'Unable to save this account.',
+    manageAccounts: 'Manage accounts in Settings',
+    filterOutgoing: 'Show outgoing transfers from {name}',
+    filterAccount: 'Filter by account',
+    filterDirection: 'Direction',
+    allAccounts: 'All accounts',
+    allDirections: 'All directions',
+    outgoingTransfers: 'Outgoing',
+    incomingTransfers: 'Incoming',
+    noMatches: 'No transfers match these filters.',
+    loading: 'Loading accounts…',
   },
   it: {
     title: 'Conti',
@@ -81,13 +91,39 @@ const ACCOUNT_TEXT = {
     asOf: 'Saldo al {date}',
     needsTwo: 'Crea almeno due conti per registrare un giroconto.',
     accountError: 'Impossibile salvare il conto.',
+    manageAccounts: 'Gestisci conti nelle Impostazioni',
+    filterOutgoing: 'Mostra i giroconti in uscita da {name}',
+    filterAccount: 'Filtra per conto',
+    filterDirection: 'Direzione',
+    allAccounts: 'Tutti i conti',
+    allDirections: 'Tutte le direzioni',
+    outgoingTransfers: 'In uscita',
+    incomingTransfers: 'In entrata',
+    noMatches: 'Nessun giroconto corrisponde ai filtri.',
+    loading: 'Caricamento conti…',
   },
 }
 const ACCOUNT_OWNER_TEXT = {
-  es: { payer: 'Titular (pagador)', choosePayer: 'Selecciona un pagador', noPayers: 'Crea primero un pagador en Ajustes.' },
-  fr: { payer: 'Titulaire (payeur)', choosePayer: 'Sélectionnez un payeur', noPayers: 'Créez un payeur dans les paramètres avant d’ajouter un compte.' },
-  de: { payer: 'Inhaber (Zahler)', choosePayer: 'Zahler auswählen', noPayers: 'Erstellen Sie zuerst einen Zahler in den Einstellungen.' },
-  pt: { payer: 'Titular (pagador)', choosePayer: 'Selecione um pagador', noPayers: 'Crie primeiro um pagador nas Definições.' },
+  es: { payer: 'Titular (pagador)', choosePayer: 'Selecciona un pagador', noPayers: 'Crea primero un pagador en Ajustes.',
+    manageAccounts: 'Gestionar cuentas en Ajustes', filterOutgoing: 'Ver transferencias salientes de {name}',
+    filterAccount: 'Filtrar por cuenta', filterDirection: 'Dirección', allAccounts: 'Todas las cuentas',
+    allDirections: 'Todas las direcciones', outgoingTransfers: 'Salientes', incomingTransfers: 'Entrantes',
+    noMatches: 'No hay transferencias con estos filtros.', loading: 'Cargando cuentas…' },
+  fr: { payer: 'Titulaire (payeur)', choosePayer: 'Sélectionnez un payeur', noPayers: 'Créez un payeur dans les paramètres avant d’ajouter un compte.',
+    manageAccounts: 'Gérer les comptes dans les paramètres', filterOutgoing: 'Afficher les virements sortants de {name}',
+    filterAccount: 'Filtrer par compte', filterDirection: 'Direction', allAccounts: 'Tous les comptes',
+    allDirections: 'Toutes les directions', outgoingTransfers: 'Sortants', incomingTransfers: 'Entrants',
+    noMatches: 'Aucun virement ne correspond aux filtres.', loading: 'Chargement des comptes…' },
+  de: { payer: 'Inhaber (Zahler)', choosePayer: 'Zahler auswählen', noPayers: 'Erstellen Sie zuerst einen Zahler in den Einstellungen.',
+    manageAccounts: 'Konten in Einstellungen verwalten', filterOutgoing: 'Ausgehende Überweisungen von {name} anzeigen',
+    filterAccount: 'Nach Konto filtern', filterDirection: 'Richtung', allAccounts: 'Alle Konten',
+    allDirections: 'Alle Richtungen', outgoingTransfers: 'Ausgehend', incomingTransfers: 'Eingehend',
+    noMatches: 'Keine passenden Überweisungen.', loading: 'Konten werden geladen…' },
+  pt: { payer: 'Titular (pagador)', choosePayer: 'Selecione um pagador', noPayers: 'Crie primeiro um pagador nas Definições.',
+    manageAccounts: 'Gerir contas nas Definições', filterOutgoing: 'Ver transferências de saída de {name}',
+    filterAccount: 'Filtrar por conta', filterDirection: 'Direção', allAccounts: 'Todas as contas',
+    allDirections: 'Todas as direções', outgoingTransfers: 'Saída', incomingTransfers: 'Entrada',
+    noMatches: 'Nenhuma transferência corresponde aos filtros.', loading: 'A carregar contas…' },
 }
 const e = (value) => String(value ?? '').replaceAll('&', '&amp;')
   .replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
@@ -105,10 +141,95 @@ class BillyAccounts extends HTMLElement {
     this._data = null
     this._hass = null
     this._error = ''
+    this._mode = 'full'
+    this._transferAccount = 'all'
+    this._transferDirection = 'all'
+    this._unsubscribe = null
+    this._subscribing = false
+    this._subscriptionToken = 0
+    this._loading = false
+    this._reloadPending = false
   }
-  set hass(value) { this._hass = value }
+  static get observedAttributes() { return ['mode'] }
+  attributeChangedCallback(name, previous, next) {
+    if (name !== 'mode' || previous === next) return
+    this._mode = ['overview', 'settings'].includes(next) ? next : 'full'
+    if (this._data) this._render()
+  }
+  set hass(value) {
+    const previousConnection = this._hass?.connection
+    this._hass = value
+    if (!this.isConnected) return
+    if (previousConnection !== value?.connection) {
+      this._unsubscribeEvents()
+      this._subscribe()
+      this._load()
+    } else if (!this._data && !this._loading && !this._error) this._load()
+  }
   set data(value) { this._data = value; this._render() }
-  connectedCallback() { if (this._data) this._render() }
+  connectedCallback() {
+    this._subscribe()
+    if (!this._data) this._load()
+    else this._render()
+  }
+  disconnectedCallback() { this._unsubscribeEvents() }
+  _unsubscribeEvents() {
+    this._subscriptionToken++
+    this._subscribing = false
+    this._unsubscribe?.()
+    this._unsubscribe = null
+  }
+  async _subscribe() {
+    const connection = this._hass?.connection
+    if (!this.isConnected || !connection?.subscribeEvents || this._unsubscribe || this._subscribing) return
+    const token = ++this._subscriptionToken
+    this._subscribing = true
+    try {
+      const unsubscribe = await connection.subscribeEvents(() => {
+        if (this.isConnected && this._hass?.connection === connection) this._load()
+      }, 'bill_tracker_updated')
+      if (token === this._subscriptionToken && this.isConnected && this._hass?.connection === connection) {
+        this._unsubscribe = unsubscribe
+      } else unsubscribe?.()
+    } catch (_error) {
+      // A failed subscription does not prevent a direct data refresh.
+    } finally {
+      if (token === this._subscriptionToken) this._subscribing = false
+    }
+  }
+  async _load() {
+    if (!this._hass) return
+    if (this._loading) {
+      this._reloadPending = true
+      return
+    }
+    this._loading = true
+    const hass = this._hass
+    const connection = hass.connection
+    try {
+      const result = await hass.callWS({ type: 'bill_tracker/list', forecast_months: 12 })
+      if (this._hass?.connection === connection) {
+        this._error = ''
+        this.data = result
+      }
+    } catch (error) {
+      if (this._hass?.connection === connection) {
+        this._error = error?.message || String(error)
+        this._render()
+      }
+    } finally {
+      this._loading = false
+      if (this._reloadPending || this._hass?.connection !== connection) {
+        this._reloadPending = false
+        this._load()
+      }
+    }
+  }
+  _goToSettings() {
+    this.dispatchEvent(new CustomEvent('billy-navigate', {
+      bubbles: true, composed: true, detail: { view: 'settings', section: 'accounts' },
+    }))
+  }
   _t(key, replacements = {}) {
     const language = String(this._hass?.language || 'en').split('-')[0].toLowerCase()
     let result = (ACCOUNT_TEXT[language] || ACCOUNT_OWNER_TEXT[language] || ACCOUNT_TEXT.en)[key] || ACCOUNT_TEXT.en[key] || key
@@ -175,11 +296,26 @@ class BillyAccounts extends HTMLElement {
     </article>`
   }
   _render() {
-    if (!this._data) return
+    if (!this._data) {
+      this.shadowRoot.textContent = this._error || this._t('loading')
+      return
+    }
     const balances = this._data.account_balances || {}
     const rows = balances.accounts || []
     const configured = rows.length > 0
     const history = this._data.internal_transfers || []
+    const manage = this._mode !== 'overview'
+    const transfers = this._mode !== 'settings'
+    if (this._transferAccount !== 'all' && !rows.some(row => row.id === this._transferAccount)) {
+      this._transferAccount = 'all'
+      this._transferDirection = 'all'
+    }
+    const filteredHistory = history.filter(row => {
+      if (this._transferAccount === 'all') return true
+      if (this._transferDirection === 'outgoing') return row.from_account === this._transferAccount
+      if (this._transferDirection === 'incoming') return row.to_account === this._transferAccount
+      return row.from_account === this._transferAccount || row.to_account === this._transferAccount
+    })
     const payerNames = Object.fromEntries((this._data.payers || []).map((payer) => [payer.id, payer.name]))
     this.shadowRoot.innerHTML = `<style>${this._styles()}</style>
       <div class="account-page">
@@ -187,14 +323,14 @@ class BillyAccounts extends HTMLElement {
         <div class="header">
           <div><h2>${e(this._t('title'))}</h2><p>${e(this._t('intro'))}</p></div>
           <div class="actions">
-            <button type="button" class="primary" data-add-account ${!(this._data.payers || []).length ? 'disabled' : ''}>${e(this._t('addAccount'))}</button>
-            ${rows.length >= 2 ? `<button type="button" data-add-transfer>${e(this._t('addTransfer'))}</button>` : ''}
+            ${manage ? `<button type="button" class="primary" data-add-account ${!(this._data.payers || []).length ? 'disabled' : ''}>${e(this._t('addAccount'))}</button>` : `<button type="button" data-manage-accounts>${e(this._t('manageAccounts'))}</button>`}
+            ${transfers && rows.length >= 2 ? `<button type="button" class="primary" data-add-transfer>${e(this._t('addTransfer'))}</button>` : ''}
           </div>
         </div>
         ${!(this._data.payers || []).length ? `<p class="hint">${e(this._t('noPayers'))}</p>` : ''}
         ${configured ? `
           <div class="account-cards">
-            ${rows.map((row) => `<article class="account-card">
+            ${rows.map((row) => `<article class="account-card ${!manage ? 'selectable' : ''}" ${!manage ? `data-filter-outgoing="${e(row.id)}" role="button" tabindex="0" aria-label="${e(this._t('filterOutgoing', { name: row.name }))}"` : ''}>
               <div class="account-label">
                 <ha-icon icon="mdi:wallet-outline"></ha-icon>
                 <span>${e(row.name)}</span>
@@ -208,11 +344,11 @@ class BillyAccounts extends HTMLElement {
                 <span>+${e(this._money(row.income))} · ${e(this._t('incoming'))}</span>
                 <span>−${e(this._money(row.expenses))} · ${e(this._t('outgoing'))}</span>
               </div>
-              <div class="actions account-actions">
+              ${manage ? `<div class="actions account-actions">
                 <button data-edit-account="${e(row.id)}">${e(this._t('edit'))}</button>
                 ${!row.is_default ? `<button data-default-account="${e(row.id)}">${e(this._t('setDefault'))}</button>` : ''}
                 <button class="danger" data-delete-account="${e(row.id)}">${e(this._t('remove'))}</button>
-              </div>
+              </div>` : ''}
             </article>`).join('')}
             <article class="account-card combined">
               <div class="account-label"><ha-icon icon="mdi:cash-multiple"></ha-icon>
@@ -222,17 +358,32 @@ class BillyAccounts extends HTMLElement {
             </article>
           </div>
           <p class="hint">${e(this._t('scopeHelp'))}</p>
-          ${rows.length < 2 ? `<p class="hint">${e(this._t('needsTwo'))}</p>` : ''}
-          <section class="history">
+          ${transfers && rows.length < 2 ? `<p class="hint">${e(this._t('needsTwo'))}</p>` : ''}
+          ${transfers ? `<section class="history">
             <div class="history-head"><h3>${e(this._t('history'))}</h3>
               <span class="hint">${e(this._t('transferHelp'))}</span></div>
-            ${history.length ? history.map((row) => this._transferRow(row)).join('')
-              : `<div class="empty">${e(this._t('empty'))}</div>`}
-          </section>
+            <div class="transfer-filters">
+              <label>${e(this._t('filterAccount'))}
+                <select id="transfer-account">
+                  <option value="all">${e(this._t('allAccounts'))}</option>
+                  ${rows.map(row => `<option value="${e(row.id)}" ${this._transferAccount === row.id ? 'selected' : ''}>${e(row.name)}</option>`).join('')}
+                </select>
+              </label>
+              <label>${e(this._t('filterDirection'))}
+                <select id="transfer-direction" ${this._transferAccount === 'all' ? 'disabled' : ''}>
+                  <option value="all" ${this._transferDirection === 'all' ? 'selected' : ''}>${e(this._t('allDirections'))}</option>
+                  <option value="outgoing" ${this._transferDirection === 'outgoing' ? 'selected' : ''}>${e(this._t('outgoingTransfers'))}</option>
+                  <option value="incoming" ${this._transferDirection === 'incoming' ? 'selected' : ''}>${e(this._t('incomingTransfers'))}</option>
+                </select>
+              </label>
+            </div>
+            ${filteredHistory.length ? filteredHistory.map(row => this._transferRow(row)).join('')
+              : `<div class="empty">${e(this._t(history.length ? 'noMatches' : 'empty'))}</div>`}
+          </section>` : ''}
         ` : `<div class="setup">
           <ha-icon icon="mdi:bank-outline"></ha-icon><h3>${e(this._t('setOpening'))}</h3>
           <p>${e(this._t('setupHelp'))}</p>
-          <button type="button" class="primary" data-create-first ${!(this._data.payers || []).length ? 'disabled' : ''}>${e(this._t('setOpening'))}</button>
+          ${manage ? `<button type="button" class="primary" data-create-first ${!(this._data.payers || []).length ? 'disabled' : ''}>${e(this._t('setOpening'))}</button>` : `<button type="button" class="primary" data-manage-accounts>${e(this._t('manageAccounts'))}</button>`}
         </div>`}
         <div class="modal" id="accounts-modal" hidden>
           <div class="backdrop"></div><div class="dialog" id="accounts-dialog"></div>
@@ -241,6 +392,30 @@ class BillyAccounts extends HTMLElement {
     for (const button of this.shadowRoot.querySelectorAll('[data-add-account], [data-create-first]')) {
       button.addEventListener('click', () => this._openAccount())
     }
+    this.shadowRoot.querySelectorAll('[data-manage-accounts]').forEach(button =>
+      button.addEventListener('click', () => this._goToSettings()))
+    this.shadowRoot.querySelectorAll('[data-filter-outgoing]').forEach(card => {
+      const activate = () => {
+        this._transferAccount = card.dataset.filterOutgoing
+        this._transferDirection = 'outgoing'
+        this._render()
+      }
+      card.addEventListener('click', activate)
+      card.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        activate()
+      })
+    })
+    this.shadowRoot.getElementById('transfer-account')?.addEventListener('change', event => {
+      this._transferAccount = event.target.value
+      if (this._transferAccount === 'all') this._transferDirection = 'all'
+      this._render()
+    })
+    this.shadowRoot.getElementById('transfer-direction')?.addEventListener('change', event => {
+      this._transferDirection = event.target.value
+      this._render()
+    })
     for (const button of this.shadowRoot.querySelectorAll('[data-edit-account]')) {
       button.addEventListener('click', () => this._openAccount(button.dataset.editAccount))
     }
@@ -389,6 +564,11 @@ class BillyAccounts extends HTMLElement {
       .account-breakdown{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--secondary-text-color)}
       .history{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:13px;padding:15px}
       .history-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+      .account-card.selectable{cursor:pointer;transition:border-color .15s ease,background-color .15s ease}
+      .account-card.selectable:hover,.account-card.selectable:focus-visible{border-color:var(--primary-color);outline:2px solid transparent;background:color-mix(in srgb,var(--primary-color) 6%,var(--secondary-background-color))}
+      .transfer-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px}
+      .transfer-filters label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--secondary-text-color)}
+      .transfer-filters select{font:inherit;color:var(--primary-text-color);background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:9px;padding:9px 11px;width:100%;min-width:0}
       .transfer-row{border-top:1px solid var(--divider-color);display:grid;grid-template-columns:34px minmax(160px,1fr) auto auto;align-items:center;gap:12px;padding:13px 0}
       .transfer-row:first-of-type{border-top:0}.transfer-icon{border-radius:50%;background:color-mix(in srgb,var(--primary-color) 10%,transparent);color:var(--primary-color);width:31px;height:31px;display:grid;place-items:center}
       .transfer-icon ha-icon{--mdc-icon-size:19px}.transfer-main{display:flex;flex-direction:column;gap:5px;min-width:0}
@@ -406,7 +586,7 @@ class BillyAccounts extends HTMLElement {
       .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
       .error{border-radius:9px;border:1px solid var(--error-color,#d32f2f);padding:13px;color:var(--error-color,#d32f2f)}
       @media(max-width:900px){.account-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.account-card.combined{grid-column:1/-1}}
-      @media(max-width:700px){.account-cards{grid-template-columns:1fr}.account-card.combined{grid-column:auto}.transfer-row{grid-template-columns:32px minmax(0,1fr)}.transfer-amount,.transfer-row .actions{grid-column:2}.fields{grid-template-columns:1fr}.fields .wide{grid-column:auto}.dialog{padding:17px}.header .actions{width:100%}}
+      @media(max-width:700px){.account-cards{grid-template-columns:1fr}.account-card.combined{grid-column:auto}.transfer-filters{grid-template-columns:1fr}.transfer-row{grid-template-columns:32px minmax(0,1fr)}.transfer-amount,.transfer-row .actions{grid-column:2}.fields{grid-template-columns:1fr}.fields .wide{grid-column:auto}.dialog{padding:17px}.header .actions{width:100%}}
     `
   }
 }

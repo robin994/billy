@@ -1,5 +1,5 @@
 // Billy income management. Optional, independent from bills and banking.
-import './billy-accounts.js?v=0.15.2-r1'
+import './billy-accounts.js?v=0.16.0-r1'
 // The IDs and persisted English names stay stable across language changes.
 // Only built-in categories that still have their original name are translated.
 const DEFAULT_INCOME_CATEGORY_NAMES = {
@@ -13,6 +13,7 @@ const DEFAULT_INCOME_CATEGORY_NAMES = {
 const TRANSLATIONS = {
   en: {
     title: 'Income', subtitle: 'Track received income and recurring estimates, without bank connections.',
+    rulesSubtitle: 'Manage recurring income plans and estimated future receipts.',
     add: 'Add income', recurring: 'Recurring income', categories: 'Income categories',
     oneTime: 'Income entries', planned: 'Recurring plans', received: 'Received', pending: 'Expected',
     yearly: 'Received this year', monthly: 'Received this month', expected: 'Expected this month',
@@ -52,6 +53,7 @@ const TRANSLATIONS = {
   },
   it: {
     title: 'Entrate', subtitle: 'Registra incassi e previsioni ricorrenti, senza collegamenti bancari.',
+    rulesSubtitle: 'Gestisci le entrate ricorrenti e gli incassi futuri stimati.',
     add: 'Aggiungi entrata', recurring: 'Entrate ricorrenti', categories: 'Tipi di entrata',
     oneTime: 'Movimenti', planned: 'Piani ricorrenti', received: 'Incassato', pending: 'Previsto',
     yearly: 'Incassato quest’anno', monthly: 'Incassato questo mese', expected: 'Previsto questo mese',
@@ -111,10 +113,16 @@ class BillyIncome extends HTMLElement {
     this._error = ''
     this._loading = false
     this._unsubscribe = null
-    this._tab = 'entries'
+    this._mode = 'entries'
     this._query = ''
     this._status = 'all'
     this._page = 0
+  }
+  static get observedAttributes() { return ['mode'] }
+  attributeChangedCallback(name, previous, next) {
+    if (name !== 'mode' || previous === next) return
+    this._mode = next === 'rules' ? 'rules' : 'entries'
+    if (this._data) this._render()
   }
   set hass(value) {
     const changed = this._hass?.connection && this._hass.connection !== value?.connection
@@ -251,36 +259,30 @@ class BillyIncome extends HTMLElement {
       return
     }
     const sum = this._data?.income_summary || {}
+    const rules = this._mode === 'rules'
     this.shadowRoot.innerHTML = `<style>${this._styles()}</style><div class="shell">
-      <header><div><h1>${html(this._t('title'))}</h1><p>${html(this._t('subtitle'))}</p></div>
-        <div class="actions head-actions">${this._tab === 'accounts' ? '' : `<button class="primary" id="add">${html(this._t('add'))}</button>
-        <button id="new-rule">${html(this._t('recurring'))}</button>
-        <button id="categories">${html(this._t('categories'))}</button>`}</div></header>
+      <header><div><h1>${html(this._t(rules ? 'recurring' : 'title'))}</h1><p>${html(this._t(rules ? 'rulesSubtitle' : 'subtitle'))}</p></div>
+        <div class="actions head-actions">
+          ${rules ? `<button class="primary" id="new-rule">${html(this._t('recurring'))}</button>` : `<button class="primary" id="add">${html(this._t('add'))}</button>`}
+          <button id="categories">${html(this._t('categories'))}</button>
+        </div></header>
       ${this._error ? `<div class="error" role="alert">${html(this._error)}</div>` : ''}
-      ${this._tab === 'accounts' ? '' : `<div class="stats">
+      ${rules ? '' : `<div class="stats">
         <article><span>${html(this._t('monthly'))}</span><strong>${html(this._money(sum.month_received))}</strong></article>
         <article><span>${html(this._t('expected'))}</span><strong>${html(this._money(sum.month_pending))}</strong></article>
         <article><span>${html(this._t('yearly'))}</span><strong>${html(this._money(sum.year_received))}</strong></article>
       </div>
       <p class="hint">${html(this._t('incomeHint'))}</p>`}
-      <div class="content"><nav><button data-tab="entries" class="${this._tab === 'entries' ? 'active' : ''}">${html(this._t('oneTime'))}</button>
-        <button data-tab="rules" class="${this._tab === 'rules' ? 'active' : ''}">${html(this._t('planned'))}</button>
-        <button data-tab="accounts" class="${this._tab === 'accounts' ? 'active' : ''}">${html(this._t('accounts'))}</button></nav>
-      ${this._tab === 'entries'
+      <div class="content">${!rules
         ? `<div class="filters"><input id="search" placeholder="${html(this._t('search'))}" value="${html(this._query)}">
           <select id="status"><option value="all">${html(this._t('all'))}</option>
             <option value="received" ${this._status === 'received' ? 'selected' : ''}>${html(this._t('received'))}</option>
             <option value="pending" ${this._status === 'pending' ? 'selected' : ''}>${html(this._t('pending'))}</option>
           </select></div><div id="list">${this._rows()}</div>`
-        : this._tab === 'accounts' ? '<billy-accounts id="accounts-panel"></billy-accounts>' : this._rules()}</div>
+        : this._rules()}</div>
       <div id="modal" class="modal" hidden><div class="backdrop"></div><div id="dialog" class="dialog"></div></div>
     </div>`
     this._wire()
-    const accounts = this.shadowRoot.getElementById('accounts-panel')
-    if (accounts) {
-      accounts.hass = this._hass
-      accounts.data = this._data
-    }
   }
   _wireRows() {
     for (const el of this.shadowRoot.querySelectorAll('[data-edit]')) el.addEventListener('click', () => this._openIncome(el.dataset.edit))
@@ -298,9 +300,6 @@ class BillyIncome extends HTMLElement {
     this.shadowRoot.getElementById('add')?.addEventListener('click', () => this._openIncome())
     this.shadowRoot.getElementById('new-rule')?.addEventListener('click', () => this._openRule())
     this.shadowRoot.getElementById('categories')?.addEventListener('click', () => this._openCategories())
-    for (const el of this.shadowRoot.querySelectorAll('[data-tab]')) el.addEventListener('click', () => {
-      this._tab = el.dataset.tab; this._render()
-    })
     this.shadowRoot.getElementById('search')?.addEventListener('input', (event) => {
       this._query = event.target.value; this._page = 0
       this.shadowRoot.getElementById('list').innerHTML = this._rows()

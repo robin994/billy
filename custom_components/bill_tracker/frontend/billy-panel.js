@@ -1,11 +1,12 @@
-import './billy-parser-manager.js?v=0.15.2-r1'
+import './billy-parser-manager.js?v=0.16.0-r1'
+import './billy-accounts.js?v=0.16.0-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.15.2-r1'
+} from './billy-extra-i18n.js?v=0.16.0-r1'
 
-const BILLY_PANEL_VERSION = '0.15.2'
+const BILLY_PANEL_VERSION = '0.16.0'
 
 const TEXT = {
   en: {
@@ -13,6 +14,9 @@ const TEXT = {
     bills: 'Bills',
     recurring: 'Recurring',
     income: 'Income',
+    accounts: 'Accounts',
+    recurringExpenses: 'Recurring expenses',
+    recurringIncome: 'Recurring income',
     documentUrl: 'PDF document URL (optional)',
     cashAccount: 'Account for this payment',
     archiveAuto: 'Automatically archive invoice PDFs',
@@ -366,6 +370,9 @@ const TEXT = {
     bills: 'Bollette',
     recurring: 'Ricorrenti',
     income: 'Entrate',
+    accounts: 'Conti',
+    recurringExpenses: 'Spese ricorrenti',
+    recurringIncome: 'Entrate ricorrenti',
     documentUrl: 'URL del documento PDF (facoltativo)',
     cashAccount: 'Conto per questo pagamento',
     archiveAuto: 'Archivia automaticamente i PDF delle bollette',
@@ -4051,6 +4058,12 @@ class BillySettings extends HTMLElement {
     this._backupContent = ''
     this._backupFileName = ''
   }
+  set section(value) {
+    if (!['categories', 'payers', 'accounts', 'sources', 'rejectedImports', 'transfer', 'system', 'developer'].includes(value)) return
+    if (this._section === value) return
+    this._section = value
+    if (this._data) this._render()
+  }
 
   set hass(value) {
     const previousConnection = this._hass?.connection
@@ -4369,6 +4382,7 @@ class BillySettings extends HTMLElement {
 
     let content = this._categories()
     if (this._section === 'payers') content = this._payers()
+    if (this._section === 'accounts') content = '<billy-accounts id="settings-accounts" mode="settings"></billy-accounts>'
     if (this._section === 'sources') content = this._sources()
     if (this._section === 'rejectedImports') content = this._rejected()
     if (this._section === 'transfer') content = this._transfer()
@@ -4382,7 +4396,7 @@ class BillySettings extends HTMLElement {
         ${this._notice ? `<div class="notice">${escapeHtml(this._notice)}</div>` : ''}
         ${this._error ? `<div class="notice error">${escapeHtml(this._error)}</div>` : ''}
         <div class="settings-layout">
-          <aside>${this._sectionButton('categories', 'mdi:shape-outline')}${this._sectionButton('payers', 'mdi:account-group-outline')}${this._sectionButton('sources', 'mdi:email-outline')}${this._sectionButton('rejectedImports', 'mdi:receipt-text-remove-outline')}${this._sectionButton('transfer', 'mdi:swap-vertical-bold')}${this._sectionButton('system', 'mdi:cog-outline')}${this._sectionButton('developer', 'mdi:account-heart-outline')}</aside>
+          <aside>${this._sectionButton('categories', 'mdi:shape-outline')}${this._sectionButton('payers', 'mdi:account-group-outline')}${this._sectionButton('accounts', 'mdi:wallet-outline')}${this._sectionButton('sources', 'mdi:email-outline')}${this._sectionButton('rejectedImports', 'mdi:receipt-text-remove-outline')}${this._sectionButton('transfer', 'mdi:swap-vertical-bold')}${this._sectionButton('system', 'mdi:cog-outline')}${this._sectionButton('developer', 'mdi:account-heart-outline')}</aside>
           <section class="settings-content">${content}</section>
         </div>
       </div>
@@ -4391,12 +4405,16 @@ class BillySettings extends HTMLElement {
 
     for (const button of this.shadowRoot.querySelectorAll('[data-section]')) {
       button.addEventListener('click', () => {
-        this._section = button.dataset.section
         this._notice = ''
         this._error = null
-        this._render()
+        this.section = button.dataset.section
+        this.dispatchEvent(new CustomEvent('billy-settings-section-changed', {
+          bubbles: true, composed: true, detail: { section: this._section },
+        }))
       })
     }
+    const accounts = this.shadowRoot.getElementById('settings-accounts')
+    if (accounts) accounts.hass = this._hass
     this.shadowRoot
       .getElementById('add-category')
       ?.addEventListener('click', () => this._openCategory())
@@ -4852,6 +4870,9 @@ class BillyPanel extends HTMLElement {
     this._hass = null
     this._rendered = false
     this._view = this._viewFromLocation()
+    const params = new URLSearchParams(window.location.search)
+    this._recurringType = params.get('tab') === 'income' ? 'income' : 'expenses'
+    this._settingsSection = params.get('section') || 'categories'
     this._reimbursementHistoryPromise = null
     this._incomePromise = null
   }
@@ -4878,7 +4899,8 @@ class BillyPanel extends HTMLElement {
     this._syncHass()
     if (this._view === 'reimbursementArchive')
       this._ensureReimbursementHistoryModule()
-    if (this._view === 'income') this._ensureIncomeModule()
+    if (this._view === 'income' || (this._view === 'recurring' && this._recurringType === 'income'))
+      this._ensureIncomeModule()
   }
 
   _t(key) {
@@ -4904,6 +4926,7 @@ class BillyPanel extends HTMLElement {
         'bills',
         'recurring',
         'income',
+        'accounts',
         'reimbursementArchive',
         'parsers',
         'settings',
@@ -4919,7 +4942,7 @@ class BillyPanel extends HTMLElement {
     this._rendered = true
     this.shadowRoot.innerHTML = `
       <style>
-        :host{display:block;min-height:100%;color:var(--primary-text-color);background:var(--primary-background-color);box-sizing:border-box}*{box-sizing:border-box}.shell{min-height:100vh}.topbar{position:sticky;top:0;z-index:20;background:var(--app-header-background-color,var(--card-background-color));color:var(--app-header-text-color,var(--primary-text-color));border-bottom:1px solid var(--divider-color);box-shadow:0 1px 3px rgba(0,0,0,.08)}.topbar-inner{max-width:1560px;margin:0 auto;padding:16px 24px 0}.brand-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.title{font-size:25px;font-weight:750;line-height:1.15}.subtitle{color:var(--secondary-text-color);margin-top:4px;font-size:13px}.version{color:var(--secondary-text-color);font-size:11px;padding-top:6px;white-space:nowrap}nav{display:flex;gap:4px;margin-top:12px;overflow-x:auto}nav button{appearance:none;border:0;border-bottom:3px solid transparent;background:transparent;color:var(--secondary-text-color);font:inherit;font-weight:650;padding:11px 14px 10px;cursor:pointer;white-space:nowrap}nav button.active{color:var(--primary-color);border-bottom-color:var(--primary-color)}main{max-width:1560px;margin:0 auto;padding:24px}section[hidden]{display:none!important}billy-bills,billy-recurring,billy-income,billy-parser-manager,billy-dashboard,billy-settings,billy-reimbursement-history{display:block;width:100%}@media(max-width:700px){.topbar-inner{padding:13px 12px 0}main{padding:12px}.subtitle,.version{display:none}}
+        :host{display:block;min-height:100%;color:var(--primary-text-color);background:var(--primary-background-color);box-sizing:border-box}*{box-sizing:border-box}.shell{min-height:100vh}.topbar{position:sticky;top:0;z-index:20;background:var(--app-header-background-color,var(--card-background-color));color:var(--app-header-text-color,var(--primary-text-color));border-bottom:1px solid var(--divider-color);box-shadow:0 1px 3px rgba(0,0,0,.08)}.topbar-inner{max-width:1560px;margin:0 auto;padding:16px 24px 0}.brand-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.title{font-size:25px;font-weight:750;line-height:1.15}.subtitle{color:var(--secondary-text-color);margin-top:4px;font-size:13px}.version{color:var(--secondary-text-color);font-size:11px;padding-top:6px;white-space:nowrap}nav{display:flex;gap:4px;margin-top:12px;overflow-x:auto}nav button{appearance:none;border:0;border-bottom:3px solid transparent;background:transparent;color:var(--secondary-text-color);font:inherit;font-weight:650;padding:11px 14px 10px;cursor:pointer;white-space:nowrap}nav button.active{color:var(--primary-color);border-bottom-color:var(--primary-color)}main{max-width:1560px;margin:0 auto;padding:24px}section[hidden],.recurring-view[hidden]{display:none!important}billy-bills,billy-recurring,billy-income,billy-accounts,billy-parser-manager,billy-dashboard,billy-settings,billy-reimbursement-history{display:block;width:100%}.recurring-tabs{display:flex;gap:8px;margin-bottom:18px;border-bottom:1px solid var(--divider-color);padding-bottom:12px}.recurring-tabs button{border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color);border-radius:10px;padding:10px 16px;cursor:pointer;font:inherit;font-weight:650}.recurring-tabs button.active{color:var(--primary-color);border-color:var(--primary-color);background:color-mix(in srgb,var(--primary-color) 8%,var(--card-background-color))}@media(max-width:700px){.topbar-inner{padding:13px 12px 0}main{padding:12px}.subtitle,.version{display:none}.recurring-tabs button{flex:1}}
       </style>
       <div class="shell">
         <header class="topbar">
@@ -4930,6 +4953,7 @@ class BillyPanel extends HTMLElement {
               <button type="button" data-view="bills"></button>
               <button type="button" data-view="recurring"></button>
               <button type="button" data-view="income"></button>
+              <button type="button" data-view="accounts"></button>
               <button type="button" data-view="reimbursementArchive"></button>
               <button type="button" data-view="parsers"></button>
               <button type="button" data-view="settings"></button>
@@ -4939,8 +4963,16 @@ class BillyPanel extends HTMLElement {
         <main>
           <section data-section="dashboard"><billy-dashboard id="dashboard"></billy-dashboard></section>
           <section data-section="bills" hidden><billy-bills id="bills-panel"></billy-bills></section>
-          <section data-section="recurring" hidden><billy-recurring id="recurring-panel"></billy-recurring></section>
-          <section data-section="income" hidden><billy-income id="income-panel"></billy-income></section>
+          <section data-section="recurring" hidden>
+            <div class="recurring-tabs" role="tablist" aria-label="Recurring">
+              <button type="button" role="tab" data-recurring-type="expenses"></button>
+              <button type="button" role="tab" data-recurring-type="income"></button>
+            </div>
+            <div class="recurring-view" data-recurring-view="expenses"><billy-recurring id="recurring-panel"></billy-recurring></div>
+            <div class="recurring-view" data-recurring-view="income" hidden><billy-income mode="rules" id="recurring-income-panel"></billy-income></div>
+          </section>
+          <section data-section="income" hidden><billy-income mode="entries" id="income-panel"></billy-income></section>
+          <section data-section="accounts" hidden><billy-accounts mode="overview" id="accounts-panel"></billy-accounts></section>
           <section data-section="reimbursementArchive" hidden><billy-reimbursement-history id="reimbursement-history-panel"></billy-reimbursement-history></section>
           <section data-section="parsers" hidden><billy-parser-manager id="parser-manager"></billy-parser-manager></section>
           <section data-section="settings" hidden><billy-settings id="settings-panel"></billy-settings></section>
@@ -4953,10 +4985,24 @@ class BillyPanel extends HTMLElement {
     )) {
       button.addEventListener('click', () => this._setView(button.dataset.view))
     }
+    for (const button of this.shadowRoot.querySelectorAll('[data-recurring-type]')) {
+      button.addEventListener('click', () => {
+        this._recurringType = button.dataset.recurringType
+        this._setView('recurring')
+      })
+    }
     this.shadowRoot.addEventListener('billy-navigate', (event) => {
       const view = event.detail?.view
+      if (view === 'settings' && event.detail?.section) {
+        this._settingsSection = event.detail.section
+      }
       if (view) this._setView(view)
     })
+    this.shadowRoot.addEventListener('billy-settings-section-changed', (event) => {
+      this._settingsSection = event.detail?.section || 'categories'
+      if (this._view === 'settings') this._setView('settings')
+    })
+    this.shadowRoot.getElementById('settings-panel').section = this._settingsSection
     this._updateLabels()
     this._applyView()
   }
@@ -4968,6 +5014,7 @@ class BillyPanel extends HTMLElement {
         'bills',
         'recurring',
         'income',
+        'accounts',
         'reimbursementArchive',
         'parsers',
         'settings',
@@ -4975,13 +5022,20 @@ class BillyPanel extends HTMLElement {
     )
       return
     this._view = view
+    if (view === 'settings') this.shadowRoot.getElementById('settings-panel').section = this._settingsSection
     this._applyView()
     if (view === 'reimbursementArchive') this._ensureReimbursementHistoryModule()
-    if (view === 'income') this._ensureIncomeModule()
+    if (view === 'income' || (view === 'recurring' && this._recurringType === 'income'))
+      this._ensureIncomeModule()
     try {
       const url = new URL(window.location.href)
       if (view === 'dashboard') url.searchParams.delete('view')
       else url.searchParams.set('view', view)
+      if (view === 'recurring' && this._recurringType === 'income') url.searchParams.set('tab', 'income')
+      else url.searchParams.delete('tab')
+      if (view === 'settings' && this._settingsSection !== 'categories')
+        url.searchParams.set('section', this._settingsSection)
+      else url.searchParams.delete('section')
       window.history.replaceState(
         window.history.state,
         '',
@@ -5000,6 +5054,14 @@ class BillyPanel extends HTMLElement {
     )) {
       button.classList.toggle('active', button.dataset.view === this._view)
     }
+    for (const container of this.shadowRoot.querySelectorAll('[data-recurring-view]')) {
+      container.hidden = container.dataset.recurringView !== this._recurringType
+    }
+    for (const button of this.shadowRoot.querySelectorAll('[data-recurring-type]')) {
+      const active = button.dataset.recurringType === this._recurringType
+      button.classList.toggle('active', active)
+      button.setAttribute('aria-selected', String(active))
+    }
     this._syncHass()
   }
 
@@ -5009,10 +5071,12 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.15.2-r1').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.16.0-r1').catch((error) => {
         this._incomePromise = null
-        const section = this.shadowRoot?.querySelector('[data-section="income"]')
-        if (section) section.textContent = `Unable to load Billy Income: ${error.message || error}`
+        for (const id of ['income-panel', 'recurring-income-panel']) {
+          const section = this.shadowRoot?.getElementById(id)
+          if (section) section.textContent = `Unable to load Billy Income: ${error.message || error}`
+        }
         console.error('Billy income module failed to load', error)
       })
     }
@@ -5027,7 +5091,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.15.2-r1'
+        './billy-reimbursement-history.js?v=0.16.0-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(
@@ -5053,12 +5117,16 @@ class BillyPanel extends HTMLElement {
       'bills',
       'recurring',
       'income',
+      'accounts',
       'reimbursementArchive',
       'parsers',
       'settings',
     ]) {
       const button = this.shadowRoot.querySelector(`[data-view="${view}"]`)
       if (button) button.textContent = this._t(view)
+    }
+    for (const button of this.shadowRoot.querySelectorAll('[data-recurring-type]')) {
+      button.textContent = this._t(button.dataset.recurringType === 'income' ? 'recurringIncome' : 'recurringExpenses')
     }
   }
 
@@ -5069,6 +5137,8 @@ class BillyPanel extends HTMLElement {
       'bills-panel',
       'recurring-panel',
       'income-panel',
+      'recurring-income-panel',
+      'accounts-panel',
       'reimbursement-history-panel',
       'parser-manager',
       'settings-panel',
@@ -5076,7 +5146,7 @@ class BillyPanel extends HTMLElement {
       const element = this.shadowRoot.getElementById(id)
       if (!element) continue
       if (
-        id === 'income-panel' &&
+        (id === 'income-panel' || id === 'recurring-income-panel') &&
         !customElements.get('billy-income')
       )
         continue
@@ -5088,7 +5158,7 @@ class BillyPanel extends HTMLElement {
       // The history element exists before its lazy-loaded class is registered.
       // Remove any pre-upgrade own property so the real setter receives hass.
       if (
-        id === 'income-panel' &&
+        (id === 'income-panel' || id === 'recurring-income-panel') &&
         Object.prototype.hasOwnProperty.call(element, 'hass')
       )
         delete element.hass

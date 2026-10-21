@@ -51,7 +51,9 @@ large WebSocket message.
 
 ## Income management
 
-Open the new **Income** tab in the Billy sidebar. It supports:
+Open **Income / Entrate** in the Billy sidebar for confirmed and expected
+receipts. Open **Recurring / Ricorrenti → Income / Entrate** to manage
+recurring income plans. These sections support:
 
 - Custom income categories, plus preconfigured salary, pension, rent, bonus,
   external refund, and other categories.
@@ -73,8 +75,9 @@ Only **confirmed** income contributes to actual totals. Pending income
 contributes to forecasts. Neither the income module nor the chart communicates
 with banking providers or bank APIs. Internal shared-expense reimbursements
 are not automatically treated as external income, to prevent double counting.
-The new Accounts subtab provides two optional balances without connecting
-to a real bank. It does not reconcile against bank statements.
+The separate **Accounts / Conti** tab displays optional manually tracked
+balances without connecting to a real bank. It does not reconcile against
+bank statements.
 
 The new `income_categories`, `incomes`, and `income_rules` collections use
 the existing Home Assistant `Store` and are included in Billy JSON backups.
@@ -84,7 +87,10 @@ predict future months without marking anything received.
 
 ## User-defined accounts and internal transfers
 
-Open **Income / Entrate → Accounts / Conti**. Create as many accounts as
+Open **Settings / Impostazioni → Accounts / Conti** to create or edit accounts,
+assign a payer owner, choose a default account, and delete unused accounts.
+Open the main **Accounts / Conti** tab to review balances and make internal
+transfers. Create as many accounts as
 needed (up to a generous safety limit of 200), such as Checking, Savings,
 Cash, Prepaid card, Investment or another custom type. Names, types, balances
 and opening dates are configurable. There is no bank login, banking API, or
@@ -115,6 +121,10 @@ and must be greater than zero. It cannot predate either account's opening date
 or be dated in the future. An account cannot be deleted while referenced by a
 bill, income, recurring income rule, or transfer. Renaming it does not change
 transaction IDs; accounts can have custom names and types.
+The transfer history can be filtered by account and by incoming, outgoing or
+both directions. Selecting an account's balance card automatically filters to
+transfers going out of that account. The **Manage accounts in Settings** button
+opens account configuration directly.
 Billy blocks moving an opening date forward if this would silently exclude
 previously posted income, paid bills, or transfers.
 

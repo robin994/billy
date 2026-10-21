@@ -14,9 +14,30 @@ Detailed setup and usage for provider bills, recurring expenses, reimbursements,
 - Share a custom parser with the community as Experimental without uploading the original invoice, email or PDF.
 - Use Billy either as the full `/billy` sidebar application or through compact Lovelace dashboard widgets.
 
+## Accounts, income and recurring plans
+
+The main **Accounts / Conti** tab shows balances and internal transfer history.
+Select an account card to filter its outgoing transfers, or choose an account
+and direction (incoming, outgoing or both) in the history controls. The
+**Record a transfer** button moves money between two manually tracked accounts.
+
+Account creation, editing, deletion and default-account selection are in
+**Settings / Impostazioni → Accounts / Conti**. Accounts require a payer owner,
+which can be configured under **Settings → Payers**. Billy does not access
+bank accounts or import bank transactions.
+
+**Income / Entrate** is for actual and expected individual receipts. Use
+**Recurring / Ricorrenti → Expenses / Spese** for recurring costs and
+**Recurring / Ricorrenti → Income / Entrate** for recurring income plans.
+Recurring income estimates remain distinct from expenses and only confirmed
+receipts count as actual income.
+
+See [Income, accounts and document archive](INCOME_AND_DOCUMENT_ARCHIVE.md)
+for details and accounting rules.
+
 ## Recurring expenses
 
-The new **Ricorrenti / Recurring** tab tracks predictable costs that normally do not arrive as a monthly invoice email: subscriptions, mortgages, installment plans and other fixed recurring charges. Each rule can define an amount, cadence (monthly, every 2/3/4/6 months or yearly), activation date, optional expiration/renewal date, automatic renewal, provider/contract metadata and notes.
+The **Ricorrenti / Recurring → Expenses / Spese** section tracks predictable costs that normally do not arrive as a monthly invoice email: subscriptions, mortgages, installment plans and other fixed recurring charges. Each rule can define an amount, cadence (monthly, every 2/3/4/6 months or yearly), activation date, optional expiration/renewal date, automatic renewal, provider/contract metadata and notes.
 
 Installment plans can also define a total installment count. Billy calculates the final due date, how many installments remain and the remaining committed amount. Recurring rules can be paused, resumed, edited or deleted without creating fake provider invoices in bill history.
 
@@ -162,7 +183,7 @@ When a new parser version is published, its feedback starts from zero. Votes for
 
 Billy ships seven supported dashboard widgets alongside the `/billy` sidebar application. They share the Billy WebSocket backend rather than duplicating business logic.
 
-The widget pack is registered automatically via `/bill_tracker/billy-lovelace.js?v=0.15.2-r1`. No manual resource URLs are required for a storage-mode installation. Existing legacy cards remain compatible via the separately registered `/bill_tracker/bill-tracker-card.js?v=0.15.2-r1` host until Billy 1.0.0.
+The widget pack is registered automatically via `/bill_tracker/billy-lovelace.js?v=0.16.0-r1`. No manual resource URLs are required for a storage-mode installation. Existing legacy cards remain compatible via the separately registered `/bill_tracker/bill-tracker-card.js?v=0.16.0-r1` host until Billy 1.0.0.
 
 Available cards:
 

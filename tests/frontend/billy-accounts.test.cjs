@@ -150,6 +150,86 @@ test('Dynamic accounts start empty: no bank balance is invented', (t) => {
   assert.ok(!ctx.element.shadowRoot.querySelector('[data-add-transfer]'))
 })
 
+test('Account overview shows balances and transfers but moves account creation to Settings', async t => {
+  const ctx = mount('it')
+  t.after(() => ctx.dom.window.close())
+  await createAccount(ctx, 'Current')
+  await createAccount(ctx, 'Savings', 'savings')
+  ctx.element.setAttribute('mode', 'overview')
+  assert.equal(ctx.element.shadowRoot.querySelector('[data-add-account]'), null)
+  assert.equal(ctx.element.shadowRoot.querySelector('[data-edit-account]'), null)
+  assert.equal(ctx.element.shadowRoot.querySelector('[data-delete-account]'), null)
+  assert.ok(ctx.element.shadowRoot.querySelector('[data-add-transfer].primary'))
+  assert.equal(ctx.element.shadowRoot.querySelectorAll('[data-filter-outgoing]').length, 2)
+
+  let navigation
+  ctx.element.addEventListener('billy-navigate', event => { navigation = event.detail })
+  ctx.element.shadowRoot.querySelector('[data-manage-accounts]').click()
+  assert.deepEqual(JSON.parse(JSON.stringify(navigation)),
+    { view: 'settings', section: 'accounts' })
+})
+
+test('Account settings manage accounts without duplicating the transfers interface', async t => {
+  const ctx = mount()
+  t.after(() => ctx.dom.window.close())
+  await createAccount(ctx, 'Current')
+  await createAccount(ctx, 'Savings', 'savings')
+  ctx.element.setAttribute('mode', 'settings')
+  assert.ok(ctx.element.shadowRoot.querySelector('[data-add-account].primary'))
+  assert.equal(ctx.element.shadowRoot.querySelectorAll('[data-edit-account]').length, 2)
+  assert.equal(ctx.element.shadowRoot.querySelector('[data-add-transfer]'), null)
+  assert.equal(ctx.element.shadowRoot.querySelector('.history'), null)
+  assert.equal(ctx.element.shadowRoot.querySelector('[data-filter-outgoing]'), null)
+})
+
+test('Transfer history filters by source, destination, or both without mutating records', async t => {
+  const ctx = mount()
+  t.after(() => ctx.dom.window.close())
+  const a = await createAccount(ctx, 'Joint')
+  const b = await createAccount(ctx, 'Savings', 'savings')
+  const c = await createAccount(ctx, 'Cash', 'cash')
+  const records = [
+    { id: 't1', from_account: a.id, to_account: b.id, amount: 50, transfer_date: '2026-10-01' },
+    { id: 't2', from_account: b.id, to_account: a.id, amount: 25, transfer_date: '2026-10-02' },
+    { id: 't3', from_account: a.id, to_account: c.id, amount: 10, transfer_date: '2026-10-03' },
+  ]
+  ctx.data.internal_transfers = records
+  ctx.element.data = ctx.data
+  ctx.element.setAttribute('mode', 'overview')
+  const count = () => ctx.element.shadowRoot.querySelectorAll('.transfer-row').length
+  assert.equal(count(), 3)
+  assert.equal(ctx.element.shadowRoot.getElementById('transfer-direction').disabled, true)
+
+  const accountCard = ctx.element.shadowRoot.querySelector('[data-filter-outgoing]')
+  accountCard.dispatchEvent(new ctx.dom.window.KeyboardEvent('keydown', {
+    key: 'Enter', bubbles: true, cancelable: true,
+  }))
+  assert.equal(ctx.element.shadowRoot.getElementById('transfer-account').value, a.id)
+  assert.equal(ctx.element.shadowRoot.getElementById('transfer-direction').value, 'outgoing')
+  assert.equal(count(), 2)
+
+  const select = (id, value) => {
+    const control = ctx.element.shadowRoot.getElementById(id)
+    control.value = value
+    control.dispatchEvent(new ctx.dom.window.Event('change', { bubbles: true }))
+  }
+  select('transfer-direction', 'incoming')
+  assert.equal(count(), 1)
+  assert.match(ctx.element.shadowRoot.querySelector('.transfer-row').textContent, /Savings → Joint/)
+  select('transfer-direction', 'all')
+  assert.equal(count(), 3)
+  select('transfer-account', c.id)
+  assert.equal(count(), 1)
+  select('transfer-direction', 'outgoing')
+  assert.equal(count(), 0)
+  assert.match(ctx.element.shadowRoot.querySelector('.history').textContent, /No transfers match/)
+  select('transfer-account', 'all')
+  assert.equal(count(), 3)
+  assert.equal(ctx.element.shadowRoot.getElementById('transfer-direction').value, 'all')
+  assert.equal(ctx.element.shadowRoot.getElementById('transfer-direction').disabled, true)
+  assert.deepEqual(ctx.data.internal_transfers, records)
+})
+
 test('Any number of named accounts and custom types are available in the UI', async (t) => {
   const ctx = mount()
   t.after(() => ctx.dom.window.close())
