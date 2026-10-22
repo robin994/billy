@@ -33,6 +33,7 @@ methods = {
     "async_delete_recurring_payment", "_migrate_recurring_payments",
     "async_update_recurring", "async_delete_recurring", "_recurring_occurrence",
     "_next_recurring_due", "_recurring_occurrences_between", "_add_months_date",
+    "_recurring_due_amount",
     "_recurring_progress", "_next_renewal_date", "_public_recurring_expense",
     "recurring_history_items", "cashflow_monthly_totals", "_month_range",
     "_next_month", "_add_months", "_recurring_tracking_start",
@@ -48,6 +49,7 @@ fake_class = ast.ClassDef(
 module = ast.Module(body=[fake_class], type_ignores=[])
 ast.fix_missing_locations(module)
 ns = {
+    "_UNSET_TOTAL": object(),
     "Any": object,
     "date": date, "datetime": datetime, "timedelta": timedelta,
     "uuid4": uuid4, "monthrange": monthrange, "defaultdict": defaultdict,

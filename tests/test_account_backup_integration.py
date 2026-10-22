@@ -34,7 +34,7 @@ extracted = ast.Module(body=METHODS, type_ignores=[])
 ast.fix_missing_locations(extracted)
 ns = {
     "json": json, "datetime": datetime, "deepcopy": deepcopy,
-    "STORAGE_SCHEMA_VERSION": 20,
+    "STORAGE_SCHEMA_VERSION": 21,
     "DEFAULT_CATEGORIES": [],
     "billy_error": lambda message, **kwargs: ValueError(message),
     "Any": object,

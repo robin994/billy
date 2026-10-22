@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import date
 from math import isfinite
 from pathlib import Path
+from test_accounts import MODULE as _accounts_module
 
 ROOT = Path(__file__).resolve().parents[1]
 MANAGER = ROOT / "custom_components" / "bill_tracker" / "manager.py"
@@ -26,6 +27,7 @@ def _recurring_helper_class():
         "_normalize_recurring_payload",
         "_add_months_date",
         "_recurring_occurrence",
+        "_recurring_due_amount",
         "_next_recurring_due",
         "_recurring_occurrences_between",
         "recurring_month_items",
@@ -65,6 +67,8 @@ def _recurring_helper_class():
         "RECURRING_KINDS": ("subscription", "mortgage", "installment", "recurring"),
         "RECURRING_INTERVALS": (1, 2, 3, 4, 6, 12),
         "FALLBACK_COLORS": ("#5B8FF9", "#5AD8A6", "#5D7092", "#F6BD16"),
+        "_cents": _accounts_module._cents,
+        "_value": _accounts_module._value,
     }
     exec(compile(module, str(MANAGER), "exec"), ns)
     # Some extracted static helpers reference the real class by name.
@@ -340,6 +344,7 @@ def _recurring_split_harness_class():
         "_normalize_recurring_payload",
         "_add_months_date",
         "_recurring_occurrence",
+        "_recurring_due_amount",
         "_next_recurring_due",
         "_recurring_occurrences_between",
         "_recurring_tracking_start",
@@ -369,6 +374,8 @@ def _recurring_split_harness_class():
         "RECURRING_KINDS": ("subscription", "mortgage", "installment", "recurring"),
         "RECURRING_INTERVALS": (1, 2, 3, 4, 6, 12),
         "FALLBACK_COLORS": ("#5B8FF9", "#5AD8A6", "#5D7092", "#F6BD16"),
+        "_cents": _accounts_module._cents,
+        "_value": _accounts_module._value,
     }
     exec(compile(module, str(MANAGER), "exec"), ns)
     return ns["RecurringSplitHarness"]

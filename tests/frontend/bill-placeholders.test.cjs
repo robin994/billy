@@ -58,7 +58,7 @@ test('type settings toggle shows schedule fields and posts all supported modes',
   form.elements.placeholder_start_month.value = '2026-11'
   await panel._saveCategory({ preventDefault() {}, currentTarget: form }, 'power')
   const posted = f.calls.find(row => row.type === 'bill_tracker/category/update')
-  assert.deepEqual(JSON.parse(JSON.stringify(posted.placeholder)), { enabled: true, day: 31, amount_mode: 'fixed', fixed_amount: 25.5, due_day: 20, start_month: '2026-11' })
+  assert.deepEqual(JSON.parse(JSON.stringify(posted.placeholder)), { enabled: true, day: 31, amount_mode: 'fixed', fixed_amount: 25.5, due_day: 20, start_month: '2026-11', provider: '', contract: '' })
 })
 
 test('new types remain opt in and allow an absent due day', async t => {
@@ -73,6 +73,33 @@ test('new types remain opt in and allow an absent due day', async t => {
   const posted = f.calls.find(row => row.type === 'bill_tracker/category/add')
   assert.equal(posted.placeholder.enabled, false)
   assert.equal(posted.placeholder.due_day, null)
+})
+
+test('v0.17.1: bill types configure independent automatic bills for two houses', async t => {
+  const f = fixture(t)
+  f.data.houses = [{ id: 'home-a', name: 'Main house' }, { id: 'home-b', name: 'Holiday house' }]
+  f.data.default_house_id = 'home-a'
+  f.category.placeholder.house_id = 'home-a'
+  const settings = f.element('billy-settings')
+  settings._openCategory('power')
+  const form = settings.shadowRoot.getElementById('category-form')
+  const second = form.querySelector('[data-house-schedule="home-b"]')
+  assert.ok(second, 'second house should have its own automatic bill fields')
+  const enabled = second.querySelector('[name="house_enabled"]')
+  enabled.checked = true
+  enabled.dispatchEvent(new f.dom.window.Event('change', { bubbles: true }))
+  assert.equal(second.querySelector('.house-schedule-settings').style.display, 'grid')
+  second.querySelector('[name="house_start_month"]').value = '2026-11'
+  second.querySelector('[name="house_amount_mode"]').value = 'fixed'
+  second.querySelector('[name="house_fixed_amount"]').value = '90'
+  second.querySelector('[name="house_provider"]').value = 'Holiday power provider'
+  await settings._saveCategory({ preventDefault() {}, currentTarget: form }, 'power', 'home-a')
+  const sent = f.calls.find(item => item.type === 'bill_tracker/category/update')
+  assert.ok(sent.house_placeholders)
+  assert.equal(sent.house_placeholders['home-a'].enabled, true)
+  assert.equal(sent.house_placeholders['home-b'].enabled, true)
+  assert.equal(sent.house_placeholders['home-b'].fixed_amount, 90)
+  assert.equal(sent.house_placeholders['home-b'].provider, 'Holiday power provider')
 })
 
 test('checking a provisional bill opens amount confirmation before paying it', async t => {

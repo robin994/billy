@@ -53,6 +53,9 @@ from .exporter import (
 )
 
 
+_UNSET_TOTAL = object()
+
+
 class BillTrackerManager(IncomeMixin, AccountMixin):
     """Persistent bill store, categories, payers, settlements and aggregation logic."""
 
@@ -223,6 +226,20 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             if isinstance(line, dict)
         ):
             raise ValueError("Undo reimbursements linked to this house before deleting it")
+        if any(
+            (category.get("house_placeholders", {}).get(house_id) or {}).get("enabled")
+            or ("house_placeholders" not in category
+                and (category.get("placeholder") or {}).get("enabled")
+                and (category.get("placeholder") or {}).get("house_id") == house_id)
+            for category in self.categories
+        ):
+            raise ValueError("Remove this house's bill-type schedules before deleting it")
+        for category in self.categories:
+            category.get("house_placeholders", {}).pop(house_id, None)
+            legacy = category.get("placeholder") or {}
+            if legacy.get("house_id") == house_id:
+                legacy["house_id"] = self.default_house_id
+                legacy["enabled"] = False
         self.houses = [row for row in self.houses if row["id"] != house_id]
         await self._save_and_notify()
         return True
@@ -394,6 +411,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         default_provider: str = "",
         default_contract: str = "",
         placeholder: dict[str, Any] | None = None,
+        house_placeholders: dict[str, dict[str, Any]] | None = None,
         document_archive: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         name = name.strip()
@@ -415,6 +433,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "document_archive": normalize_archive_config(document_archive),
         }
         item["placeholder"] = self._normalize_placeholder_config(item, placeholder)
+        if house_placeholders is not None:
+            item["house_placeholders"] = self._normalize_house_placeholders(item, house_placeholders)
         self.categories.append(item)
         self._sync_bill_placeholders()
         await self._save_and_notify()
@@ -434,6 +454,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         default_provider: str = "",
         default_contract: str = "",
         placeholder: dict[str, Any] | None = None,
+        house_placeholders: dict[str, dict[str, Any]] | None = None,
         document_archive: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         name = name.strip()
@@ -448,6 +469,12 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         placeholder_config = self._normalize_placeholder_config(
             item, placeholder if placeholder is not None else item.get("placeholder"),
             interval_months=int(interval_months),
+        )
+        per_house = (
+            self._normalize_house_placeholders(
+                item, house_placeholders, interval_months=int(interval_months)
+            )
+            if house_placeholders is not None else item.get("house_placeholders")
         )
         item.update(
             {
@@ -470,6 +497,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 ),
             }
         )
+        if per_house is not None:
+            item["house_placeholders"] = per_house
         self._sync_bill_placeholders()
         await self._save_and_notify()
         return dict(item)
@@ -806,7 +835,9 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         if enabled and not start_month:
             today = dt_util.now().date()
             current = (today.year, today.month)
-            history = self._placeholder_history(category)
+            history = self._placeholder_history(
+                category, str(raw.get("house_id") or self.default_house_id)
+            )
             history = [x for x in history if (int(x["paid_year"]), int(x["paid_month"])) <= current]
             interval = interval_months or int(category.get("interval_months", 1))
             first = self._add_months(
@@ -821,13 +852,49 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "fixed_amount": round(fixed_amount, 2), "due_day": due_day,
             "start_month": start_month,
             "last_generated_month": str(previous.get("last_generated_month") or raw.get("last_generated_month") or ""),
+            "house_id": self._resolve_house_id(raw.get("house_id") or previous.get("house_id")),
+            "provider": self._normalize_optional_text(raw.get("provider", ""), 100),
+            "contract": self._normalize_optional_text(raw.get("contract", ""), 100),
         }
 
-    def _placeholder_history(self, category: dict[str, Any]) -> list[dict[str, Any]]:
+    def _normalize_house_placeholders(
+        self,
+        category: dict[str, Any],
+        raw: dict[str, dict[str, Any]],
+        *,
+        interval_months: int | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        if not isinstance(raw, dict) or len(raw) > 50:
+            raise ValueError("Invalid house-specific bill schedules")
+        previous = category.get("house_placeholders") or {}
+        if "house_placeholders" not in category:
+            legacy = category.get("placeholder") or {}
+            if legacy.get("house_id"):
+                previous = {legacy["house_id"]: legacy}
+        result = {}
+        for house_id, config in raw.items():
+            selected = self._resolve_house_id(str(house_id))
+            if not isinstance(config, dict):
+                raise ValueError("Invalid house-specific bill schedule")
+            local_category = {
+                **category,
+                "placeholder": previous.get(selected) or {},
+            }
+            result[selected] = self._normalize_placeholder_config(
+                local_category, {**config, "house_id": selected},
+                interval_months=interval_months,
+            )
+        return result
+
+    def _placeholder_history(
+        self, category: dict[str, Any], house_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Actual invoices provide estimates even for forecast-excluded bill types."""
         history = []
         for item in self.expenses:
             if item.get("category_id") != category["id"] or item.get("is_placeholder", False):
+                continue
+            if house_id is not None and item.get("house_id") != house_id:
                 continue
             try:
                 year = int(item.get("paid_year", item.get("year", 0)))
@@ -844,57 +911,68 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         key = f"{today.year:04d}-{today.month:02d}"
         changed = False
         for category in self.categories:
-            config = category.get("placeholder") or {}
-            if not category.get("enabled", True) or not config.get("enabled"):
+            if not category.get("enabled", True):
                 continue
-            start = date.fromisoformat(f"{config['start_month']}-01")
-            offset = (today.year - start.year) * 12 + today.month - start.month
-            if offset < 0 or offset % int(category["interval_months"]):
-                continue
-            creation_day = min(int(config["day"]), monthrange(today.year, today.month)[1])
-            if today.day < creation_day or config.get("last_generated_month") == key:
-                continue
-            if any(x.get("category_id") == category["id"]
-                   and (int(x["paid_year"]), int(x["paid_month"])) == (today.year, today.month)
-                   for x in self.expenses):
-                continue
-            history = [x for x in self._placeholder_history(category)
-                       if (int(x["paid_year"]), int(x["paid_month"])) <= (today.year, today.month)]
-            if config["amount_mode"] == "fixed":
-                amount = config["fixed_amount"]
-            elif config["amount_mode"] == "forecast":
-                amount = self._estimate_category_amount(
-                    [x for x in history if not x.get("exclude_from_estimates", False)]
-                )
-            else:
-                amount = history[-1]["amount"] if history else 0.0
-            payer_id = self._resolve_expense_payer(category, None)
-            default_split = self.default_split()
-            if payer_id and not default_split:
-                default_split = [{"payer_id": payer_id, "percentage": 100.0}]
-            split = self._resolve_expense_split(default_split or None, payer_id)
-            sy, sm = self._add_months(today.year, today.month, -(int(category["interval_months"]) - 1))
-            due_day = config.get("due_day")
-            self.expenses.append({
-                "id": uuid4().hex, "category_id": category["id"],
-                "house_id": self.default_house_id,
-                "paid_year": today.year, "paid_month": today.month,
-                "amount": round(float(amount), 2), "is_placeholder": True,
-                "period_start_year": sy, "period_start_month": sm,
-                "period_end_year": today.year, "period_end_month": today.month,
-                "period_start_date": None, "period_end_date": None,
-                "payer_id": payer_id, "split": split,
-                "paid": False, "payment_date": None,
-                "due_date": date(today.year, today.month, min(int(due_day), monthrange(today.year, today.month)[1])).isoformat() if due_day else None,
-                "exclude_from_estimates": False,
-                "reimbursement_manual_done": False, "reimbursement_manual_at": None,
-                "provider": category.get("default_provider", ""),
-                "contract": category.get("default_contract", ""),
-                "consumption": None, "consumption_unit": category.get("consumption_unit", ""),
-                "note": "", "created_at": dt_util.now().isoformat(timespec="seconds"),
-            })
-            config["last_generated_month"] = key
-            changed = True
+            # Legacy category settings still work until the user explicitly
+            # configures per-house schedules in the bill-type editor.
+            rules = category.get("house_placeholders")
+            if rules is None:
+                legacy = category.get("placeholder") or {}
+                rules = {legacy.get("house_id") or self.default_house_id: legacy}
+            for house_id, config in rules.items():
+                if not config.get("enabled"):
+                    continue
+                start = date.fromisoformat(f"{config['start_month']}-01")
+                offset = (today.year - start.year) * 12 + today.month - start.month
+                if offset < 0 or offset % int(category["interval_months"]):
+                    continue
+                creation_day = min(int(config["day"]), monthrange(today.year, today.month)[1])
+                if today.day < creation_day or config.get("last_generated_month") == key:
+                    continue
+                if any(x.get("category_id") == category["id"]
+                       and (x.get("house_id") or self.default_house_id) == house_id
+                       and (int(x["paid_year"]), int(x["paid_month"])) == (today.year, today.month)
+                       for x in self.expenses):
+                    continue
+                history = [
+                    x for x in self._placeholder_history(category, house_id)
+                    if (int(x["paid_year"]), int(x["paid_month"])) <= (today.year, today.month)
+                ]
+                if config["amount_mode"] == "fixed":
+                    amount = config["fixed_amount"]
+                elif config["amount_mode"] == "forecast":
+                    amount = self._estimate_category_amount(
+                        [x for x in history if not x.get("exclude_from_estimates", False)]
+                    )
+                else:
+                    amount = history[-1]["amount"] if history else 0.0
+                payer_id = self._resolve_expense_payer(category, None)
+                default_split = self.default_split()
+                if payer_id and not default_split:
+                    default_split = [{"payer_id": payer_id, "percentage": 100.0}]
+                split = self._resolve_expense_split(default_split or None, payer_id)
+                sy, sm = self._add_months(today.year, today.month, -(int(category["interval_months"]) - 1))
+                due_day = config.get("due_day")
+                self.expenses.append({
+                    "id": uuid4().hex, "category_id": category["id"],
+                    "house_id": house_id,
+                    "paid_year": today.year, "paid_month": today.month,
+                    "amount": round(float(amount), 2), "is_placeholder": True,
+                    "period_start_year": sy, "period_start_month": sm,
+                    "period_end_year": today.year, "period_end_month": today.month,
+                    "period_start_date": None, "period_end_date": None,
+                    "payer_id": payer_id, "split": split,
+                    "paid": False, "payment_date": None,
+                    "due_date": date(today.year, today.month, min(int(due_day), monthrange(today.year, today.month)[1])).isoformat() if due_day else None,
+                    "exclude_from_estimates": False,
+                    "reimbursement_manual_done": False, "reimbursement_manual_at": None,
+                    "provider": config.get("provider") or category.get("default_provider", ""),
+                    "contract": config.get("contract") or category.get("default_contract", ""),
+                    "consumption": None, "consumption_unit": category.get("consumption_unit", ""),
+                    "note": "", "created_at": dt_util.now().isoformat(timespec="seconds"),
+                })
+                config["last_generated_month"] = key
+                changed = True
         if changed:
             self._sort()
         return changed
@@ -959,6 +1037,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         auto_renew: bool = False,
         renewal_interval_months: int = 12,
         installment_count: int | None = None,
+        total_amount: float | None = None,
         payer_id: str | None = None,
         split: list[dict[str, Any]] | None = None,
         provider: str = "",
@@ -978,6 +1057,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             auto_renew=auto_renew,
             renewal_interval_months=renewal_interval_months,
             installment_count=installment_count,
+            total_amount=total_amount,
             payer_id=payer_id,
             split=split,
             provider=provider,
@@ -1013,6 +1093,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         auto_renew: bool = False,
         renewal_interval_months: int = 12,
         installment_count: int | None = None,
+        total_amount: float | None | object = _UNSET_TOTAL,
         payer_id: str | None = None,
         split: list[dict[str, Any]] | None = None,
         provider: str = "",
@@ -1036,6 +1117,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             auto_renew=auto_renew,
             renewal_interval_months=renewal_interval_months,
             installment_count=installment_count,
+            total_amount=(
+                current.get("total_amount") if total_amount is _UNSET_TOTAL
+                and kind in ("installment", "mortgage") else total_amount
+                if total_amount is not _UNSET_TOTAL else None
+            ),
             payer_id=payer_id,
             split=split,
             provider=provider,
@@ -2163,7 +2249,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         "name": str(recurring.get("name", "")),
                         "kind": str(recurring.get("kind", "recurring")),
                         "color": self._normalize_color(recurring.get("color"), 0),
-                        "amount": round(float(recurring.get("amount", 0.0) or 0.0), 2),
+                        "amount": self._recurring_due_amount(recurring, due),
                         "due_date": due.isoformat(),
                     }
                 )
@@ -2200,7 +2286,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         "name": str(recurring.get("name", "")),
                         "kind": str(recurring.get("kind", "recurring")),
                         "color": self._normalize_color(recurring.get("color"), 0),
-                        "amount": round(float(recurring.get("amount", 0.0) or 0.0), 2),
+                        "amount": self._recurring_due_amount(recurring, due),
                         "due_date": due.isoformat(),
                         "paid": payment is not None,
                         "payment_date": payment.get("payment_date") if payment else None,
@@ -2357,7 +2443,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 recurring, window_start, window_end
             ):
                 key = (occurrence.year, occurrence.month)
-                amount = round(float(recurring.get("amount", 0.0) or 0.0), 2)
+                amount = self._recurring_due_amount(recurring, occurrence)
                 kind = str(recurring.get("kind", "recurring"))
                 recurring_buckets[key][kind] += amount
                 recurring_items[key].append(
@@ -2425,10 +2511,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 if end_text and not bool(item.get("auto_renew", False)):
                     if date.fromisoformat(end_text) < first_day:
                         continue
-                if self._next_recurring_due(item, first_day) is None:
+                next_due = self._next_recurring_due(item, first_day)
+                if next_due is None:
                     continue
                 recurring_by_kind[str(item.get("kind", "recurring"))] += (
-                    float(item.get("amount", 0.0) or 0.0)
+                    self._recurring_due_amount(item, next_due)
                     / max(1, int(item.get("interval_months", 1) or 1))
                 )
             by_category = self._named_category_values(recurring_bills)
@@ -2491,7 +2578,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         "key": f"{occurrence.year:04d}-{occurrence.month:02d}",
                         "category_id": None,
                         "category": str(recurring.get("name", "")),
-                        "amount": round(float(recurring.get("amount", 0.0) or 0.0), 2),
+                        "amount": self._recurring_due_amount(recurring, occurrence),
                         "source": "recurring",
                         "recurring_id": str(recurring.get("id", "")),
                         "recurring_kind": str(recurring.get("kind", "recurring")),
@@ -2670,6 +2757,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         auto_renew: bool,
         renewal_interval_months: int,
         installment_count: int | None,
+        total_amount: float | None = None,
         payer_id: str | None = None,
         split: list[dict[str, Any]] | None = None,
         provider: str = "",
@@ -2708,7 +2796,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             normalized_installments = int(installment_count)
             if normalized_installments < 1 or normalized_installments > 1200:
                 raise billy_error("recurring_invalid_installments")
-        if normalized_kind != "installment":
+        if normalized_kind not in ("installment", "mortgage"):
             normalized_installments = None
         if normalized_kind == "installment":
             auto_renew = False
@@ -2716,6 +2804,18 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 end = self._add_months_date(
                     start, (normalized_installments - 1) * normalized_interval
                 )
+                normalized_end = end.isoformat()
+        total_cents: int | None = None
+        if total_amount not in (None, ""):
+            if normalized_kind not in ("installment", "mortgage") or not normalized_installments:
+                raise ValueError("A total repayable amount requires an installment or mortgage plan with a number of payments")
+            total_cents = _cents(total_amount)
+            regular_cents = _cents(amount)
+            if total_cents <= regular_cents * (normalized_installments - 1):
+                raise ValueError("Total repayable must exceed the sum of all installments before the last one")
+            if normalized_kind == "mortgage":
+                auto_renew = False
+                end = self._add_months_date(start, (normalized_installments - 1) * normalized_interval)
                 normalized_end = end.isoformat()
 
         resolved_payer = self._validate_optional_payer(payer_id)
@@ -2735,6 +2835,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "auto_renew": bool(auto_renew),
             "renewal_interval_months": renewal_interval,
             "installment_count": normalized_installments,
+            "total_amount": _value(total_cents) if total_cents is not None else None,
             "payer_id": resolved_payer,
             "split": normalized_split,
             "provider": self._normalize_optional_text(provider, 120),
@@ -2767,6 +2868,19 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             if occurrence > date.fromisoformat(end_text):
                 return None
         return occurrence
+
+    def _recurring_due_amount(self, item: dict[str, Any], due: date) -> float:
+        """A fixed-term loan may have a different last installment."""
+        count = item.get("installment_count")
+        total = item.get("total_amount")
+        if count and total is not None:
+            last = self._add_months_date(
+                date.fromisoformat(str(item["start_date"])),
+                (int(count) - 1) * int(item.get("interval_months", 1) or 1),
+            )
+            if due == last:
+                return _value(_cents(total) - (int(count) - 1) * _cents(item["amount"]))
+        return round(float(item.get("amount", 0.0) or 0.0), 2)
 
     def _next_recurring_due(
         self, item: dict[str, Any], on_or_after: date
@@ -2884,7 +2998,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         "name": str(recurring.get("name", "")),
                         "kind": str(recurring.get("kind", "recurring")),
                         "color": self._normalize_color(recurring.get("color"), 0),
-                        "amount": round(float(recurring.get("amount", 0.0) or 0.0), 2),
+                        "amount": self._recurring_due_amount(recurring, due),
                         "payer_id": recurring.get("payer_id"),
                         "split": [dict(x) for x in recurring.get("split", [])],
                         "reimbursement_manual_done": False,
@@ -2914,7 +3028,9 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 "name": str(recurring.get("name", "")),
                 "kind": str(recurring.get("kind", "recurring")),
                 "color": self._normalize_color(recurring.get("color"), 0),
-                "amount": round(float(recurring.get("amount", 0.0) or 0.0), 2),
+                "amount": self._recurring_due_amount(
+                    recurring, date.fromisoformat(str(occurrence["due_date"]))
+                ),
                 "payer_id": recurring.get("payer_id"),
                 "split": [dict(x) for x in recurring.get("split", [])],
             }
@@ -3019,10 +3135,17 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             status = "inactive"
         elif next_due is None:
             status = "ended"
+        payments = [
+            payment for payment in getattr(self, "recurring_payments", [])
+            if payment.get("recurring_id") == item.get("id")
+        ]
+        paid_cents = sum(_cents(payment["amount"]) for payment in payments)
+        total_amount = item.get("total_amount")
         remaining_amount = (
-            round(float(item.get("amount", 0.0) or 0.0) * remaining, 2)
-            if remaining is not None
-            else None
+            _value(max(0, _cents(total_amount) - paid_cents))
+            if total_amount is not None
+            else round(float(item.get("amount", 0.0) or 0.0) * remaining, 2)
+            if remaining is not None else None
         )
         payer = self.payer(str(item.get("payer_id", ""))) if item.get("payer_id") else None
         split = []
@@ -3067,6 +3190,9 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "installments_elapsed": elapsed if remaining is not None else None,
             "remaining_installments": remaining,
             "remaining_amount": remaining_amount,
+            "paid_amount": _value(paid_cents),
+            "paid_installments": len(payments),
+            "balance_from_payments": total_amount is not None,
             "reimbursement_status": reimbursement_status,
             "reimbursement_pending_count": len(pending),
             "reimbursement_done_count": len(completed_reimbursements),
@@ -3568,6 +3694,10 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 item["placeholder"] = self._normalize_placeholder_config(item, raw.get("placeholder"))
             except ValueError:
                 item["placeholder"] = self._normalize_placeholder_config(item, None)
+            if "house_placeholders" in raw:
+                item["house_placeholders"] = self._normalize_house_placeholders(
+                    raw, raw["house_placeholders"], interval_months=interval
+                )
             if item != raw:
                 changed = True
             normalized.append(item)
@@ -3783,6 +3913,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         if raw.get("installment_count") not in (None, "")
                         else None
                     ),
+                    total_amount=raw.get("total_amount"),
                     payer_id=str(raw.get("payer_id") or "") or None,
                     split=[dict(x) for x in raw.get("split", [])] or None,
                     provider=str(raw.get("provider", "")),

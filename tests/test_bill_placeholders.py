@@ -53,9 +53,11 @@ def manager():
     imports = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))
                and not (isinstance(n, ast.ImportFrom) and (n.level or (n.module or "").startswith("homeassistant")))]
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
-    namespace = {"Store": Store, "HomeAssistant": object}
+    namespace = {"Store": Store, "HomeAssistant": object, "_UNSET_TOTAL": object()}
     for module in modules.values():
         namespace.update({k: v for k, v in vars(module).items() if not k.startswith("_")})
+    namespace["_cents"] = modules["accounts"]._cents
+    namespace["_value"] = modules["accounts"]._value
     archive_tree = ast.parse((COMPONENT / "document_archive.py").read_text())
     archive_validator = next(
         node for node in archive_tree.body

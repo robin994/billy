@@ -213,6 +213,73 @@ test('issue #17: future installments have no confirm-payment action', async t =>
   assert.equal(modal.querySelectorAll('[data-payment-date]').length, 4)
 })
 
+test('v0.17.1: rejected recurring save leaves form open, preserves input and displays reason', async t => {
+  const { dom, recurring } = await fixture(t)
+  recurring._hass.callWS = async request => {
+    if (request.type === 'bill_tracker/recurring/add') {
+      throw new Error('Total repayable must exceed preceding installments')
+    }
+    return {}
+  }
+  recurring._openRecurring()
+  const form = recurring.shadowRoot.getElementById('recurring-form')
+  form.elements.namedItem('name').value = 'Family loan'
+  form.elements.namedItem('kind').value = 'installment'
+  form.elements.namedItem('kind').dispatchEvent(new dom.window.Event('input'))
+  form.elements.namedItem('amount').value = '500'
+  form.elements.namedItem('installment_count').value = '21'
+  form.elements.namedItem('total_amount').value = '9999.99'
+  form.dispatchEvent(new dom.window.Event('submit', { cancelable: true, bubbles: true }))
+  await settled()
+  assert.equal(recurring.shadowRoot.getElementById('recurring-modal').hidden, false)
+  assert.equal(recurring.shadowRoot.getElementById('recurring-form'), form)
+  assert.equal(form.elements.namedItem('total_amount').value, '9999.99')
+  assert.match(form.querySelector('[data-recurring-save-error]').textContent, /Total repayable/)
+  assert.equal(form.querySelector('[type="submit"]').disabled, false)
+})
+
+test('v0.17.1: fixed-term preview calculates the final different installment', async t => {
+  const { dom, recurring, calls } = await fixture(t)
+  recurring._openRecurring()
+  const form = recurring.shadowRoot.getElementById('recurring-form')
+  const input = (name, value) => {
+    const field = form.elements.namedItem(name)
+    field.value = value
+    field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+  }
+  input('kind', 'installment')
+  input('name', 'Example loan')
+  input('amount', '500')
+  input('installment_count', '21')
+  input('total_amount', '10520.09')
+  input('start_date', '2026-02-01')
+  assert.match(form.querySelector('#recurring-plan-preview').textContent, /520/)
+  assert.equal(form.querySelector('[name="renewal_interval_months"]').closest('[data-renewable]').hidden, true)
+  assert.equal(form.querySelector('[name="end_date"]').disabled, true)
+  form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  await settled()
+  const request = calls.find(call => call.type === 'bill_tracker/recurring/add')
+  assert.ok(request)
+  assert.equal(request.amount, 500)
+  assert.equal(request.total_amount, 10520.09)
+  assert.equal(request.installment_count, 21)
+  assert.equal(request.auto_renew, false)
+})
+
+test('v0.17.1: incomplete payer share does not close the recurring editor', async t => {
+  const { dom, recurring } = await fixture(t)
+  recurring._openRecurring()
+  const form = recurring.shadowRoot.getElementById('recurring-form')
+  form.elements.namedItem('name').value = 'New subscription'
+  const share = form.querySelector('.recurring-split-input')
+  assert.ok(share)
+  share.value = '40'
+  form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  assert.equal(recurring.shadowRoot.getElementById('recurring-modal').hidden, false)
+  assert.equal(form.elements.namedItem('name').value, 'New subscription')
+  assert.match(form.querySelector('[data-recurring-save-error]').textContent, /100|percent|shares|split/i)
+})
+
 test('issue #17: actual dashboard spending counts payment date and skips unconfirmed or linked bills', async t => {
   const { dom } = await fixture(t)
   const dashboard = dom.window.document.createElement('billy-dashboard')

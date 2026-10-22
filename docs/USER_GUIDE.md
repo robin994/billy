@@ -32,7 +32,11 @@ bills, recurring charges, historical spending and forecasts. The common
 bank accounts, income, parsers and Home Assistant user accounts are *not*
 split into separate houses or duplicated. House views exclude global income
 from their scoped KPIs rather than misrepresenting it as belonging to a house.
-Automatic invoice placeholders default to the configured default house.
+In **Settings → Bill types**, each type can create independent automatic
+unpaid-bill reminders for each House. Enable the schedule for a house and
+choose its own creation day, due day, amount mode (last/forecast/fixed),
+optional provider and contract. Existing single-house rules keep their
+original association. No extra bill types or Home Assistant users are needed.
 
 This is **one shared Billy workspace**, not financial data segregation by
 legal entity or per-user authorization. Houses do not enforce privacy,
@@ -64,7 +68,23 @@ for details and accounting rules.
 
 The **Ricorrenti / Recurring → Expenses / Spese** section tracks predictable costs that normally do not arrive as a monthly invoice email: subscriptions, mortgages, installment plans and other fixed recurring charges. Each rule can define an amount, cadence (monthly, every 2/3/4/6 months or yearly), activation date, optional expiration/renewal date, automatic renewal, provider/contract metadata and notes.
 
-Installment plans can also define a total installment count. Billy calculates the final due date, how many installments remain and the remaining committed amount. Recurring rules can be paused, resumed, edited or deleted without creating fake provider invoices in bill history.
+For **Installment plan** or a **fixed-term mortgage**, enter the *regular
+installment amount* under **Amount**, the total number of installments, and
+optionally the **Total to repay**. Billy calculates the last due date and,
+when the total is provided, a different final installment to make the sum
+exact in cents. For example, a total of EUR 10,520.09 with 21 monthly
+installments of EUR 500.00 starting on February 1, 2026 yields 20
+installments of EUR 500.00 followed by EUR 520.09 on October 1, 2027.
+Renewal controls are not applicable to fixed-term plans.
+
+For a fixed-term plan with a total, **Still to pay** is the total less
+**confirmed** installment payments, even if those payments were late or
+retroactive. A mortgage's outstanding *principal*, as distinct from
+scheduled principal plus interest and other charges, is **not** calculated.
+Existing recurring plans with no total retain their legacy calendar-based
+estimated number and value of installments remaining. Recurring rules can
+be paused, resumed, edited or deleted without creating fake provider invoices
+in bill history.
 
 Recurring charges are included in the regular **forecast** on their exact due months. The normalized forecast also includes their monthly-equivalent cost, so an annual subscription contributes `amount / 12` to the normalized monthly planning view. Overview now shows recurring monthly equivalent, charges due next month, active recurring count and remaining installment commitment.
 

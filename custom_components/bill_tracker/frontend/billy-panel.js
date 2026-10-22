@@ -1,12 +1,12 @@
-import './billy-parser-manager.js?v=0.17.0-r1'
-import './billy-accounts.js?v=0.17.0-r1'
+import './billy-parser-manager.js?v=0.17.1-r1'
+import './billy-accounts.js?v=0.17.1-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.17.0-r1'
+} from './billy-extra-i18n.js?v=0.17.1-r1'
 
-const BILLY_PANEL_VERSION = '0.17.0'
+const BILLY_PANEL_VERSION = '0.17.1'
 
 const TEXT = {
   en: {
@@ -241,6 +241,17 @@ const TEXT = {
     automaticRenewal: 'Automatic renewal',
     renewalEvery: 'Renewal every',
     installmentCount: 'Total installments',
+    recurringTotalAmount: 'Total to repay (optional)',
+    recurringRegularAmount: 'Regular installment amount',
+    recurringPlanPreview: 'Installment preview',
+    recurringPlanPreviewHint: 'Enter the total and number of installments to calculate the final payment.',
+    recurringLastPayment: 'Final installment',
+    recurringPlanInvalid: 'The total must exceed the sum of the preceding installments.',
+    recurringPaidBalance: 'Still to pay (confirmed payments)',
+    recurringScheduledBalance: 'Scheduled installments remaining',
+    recurringFixedTermHelp: 'Installment plans stop after the specified number of payments. Renewal settings apply only to subscriptions and other renewable costs. Mortgages without a total-to-repay do not calculate the remaining principal.',
+    houseBillSchedules: 'Automatic bills per house',
+    houseBillScheduleHelp: 'Configure independent unpaid bill reminders for each house using the same bill type.',
     installmentCountHint:
       'For installment plans, the last due date is calculated from the number of installments.',
     nextCharge: 'Next charge',
@@ -629,6 +640,17 @@ const TEXT = {
     automaticRenewal: 'Rinnovo automatico',
     renewalEvery: 'Rinnovo ogni',
     installmentCount: 'Numero totale rate',
+    recurringTotalAmount: 'Totale da rimborsare (facoltativo)',
+    recurringRegularAmount: 'Importo della rata ordinaria',
+    recurringPlanPreview: 'Anteprima piano rateale',
+    recurringPlanPreviewHint: 'Inserisci totale e numero rate per calcolare la rata finale.',
+    recurringLastPayment: 'Ultima rata',
+    recurringPlanInvalid: 'Il totale deve superare la somma delle rate precedenti.',
+    recurringPaidBalance: 'Ancora da pagare (pagamenti confermati)',
+    recurringScheduledBalance: 'Rate programmate residue',
+    recurringFixedTermHelp: 'Le rateizzazioni terminano dopo il numero di rate previsto. Il rinnovo riguarda solo abbonamenti e spese rinnovabili. Senza totale da rimborsare, Billy non calcola il capitale residuo del mutuo.',
+    houseBillSchedules: 'Bollette automatiche per Casa',
+    houseBillScheduleHelp: 'Configura promemoria indipendenti per ogni Casa senza duplicare le tipologie.',
     installmentCountHint:
       'Per le rateizzazioni Billy calcola l’ultima scadenza dal numero totale di rate.',
     nextCharge: 'Prossimo addebito',
@@ -3742,7 +3764,7 @@ class BillyRecurring extends HTMLElement {
         <div class="kind-icon" style="color:${safeColor(row.color)};background:color-mix(in srgb,${safeColor(row.color)} 12%,transparent)"><ha-icon icon="${this._kindIcon(row.kind)}"></ha-icon></div>
         <div class="recurring-main"><strong>${escapeHtml(row.name)}</strong><span>${escapeHtml(this._kindLabel(row.kind))} · ${escapeHtml(this._frequency(row.interval_months))}</span><small>${escapeHtml(details || renewal || '—')}</small><small>${escapeHtml([row.payer, splitText].filter(Boolean).join(' · ') || this._t('recurringNoReimbursement'))}</small>${progress ? `<small>${escapeHtml(progress)}</small>` : ''}</div>
         <div class="recurring-due"><span>${escapeHtml(this._t('nextCharge'))}</span><strong>${escapeHtml(this._date(row.next_due_date))}</strong>${renewal && details ? `<small>${escapeHtml(renewal)}</small>` : ''}</div>
-        <div class="recurring-value"><strong>${escapeHtml(this._money(row.amount))}</strong><small>${escapeHtml(`${this._t('monthlyEquivalent')}: ${this._money(row.monthly_equivalent)}`)}</small>${row.remaining_amount != null ? `<small>${escapeHtml(`${this._t('remainingCommitment')}: ${this._money(row.remaining_amount)}`)}</small>` : ''}</div>
+        <div class="recurring-value"><strong>${escapeHtml(this._money(row.amount))}</strong><small>${escapeHtml(`${this._t('monthlyEquivalent')}: ${this._money(row.monthly_equivalent)}`)}</small>${row.remaining_amount != null ? `<small>${escapeHtml(`${this._t(row.balance_from_payments ? 'recurringPaidBalance' : 'recurringScheduledBalance')}: ${this._money(row.remaining_amount)}`)}</small>` : ''}</div>
         <div class="status-stack"><span class="status ${escapeHtml(row.status)}">${escapeHtml(this._statusLabel(row.status))}</span><span class="status reimbursement ${escapeHtml(row.reimbursement_status || 'none')}">${escapeHtml(reimbursementLabel)}</span></div>
         <div class="actions"><button type="button" data-recurring-payments="${escapeHtml(row.id)}">${escapeHtml(this._t('recurringPayments'))}</button>${(row.reimbursement_occurrences || []).length ? `<button type="button" data-recurring-reimbursements="${escapeHtml(row.id)}">${escapeHtml(this._t('manageRecurringReimbursements'))}</button>` : ''}<button type="button" data-edit-recurring="${escapeHtml(row.id)}">${escapeHtml(this._t('edit'))}</button>${row.status !== 'ended' ? `<button type="button" data-toggle-recurring="${escapeHtml(row.id)}" data-active="${row.active ? '1' : '0'}">${escapeHtml(row.active ? this._t('pause') : this._t('resume'))}</button>` : ''}<button type="button" class="danger" data-delete-recurring="${escapeHtml(row.id)}">${escapeHtml(this._t('delete'))}</button></div>
       </article>`
@@ -3898,20 +3920,22 @@ class BillyRecurring extends HTMLElement {
         <label><span>${escapeHtml(this._t('billType'))}</span><select name="kind"><option value="subscription" ${row?.kind === 'subscription' || !row ? 'selected' : ''}>${escapeHtml(this._t('subscription'))}</option><option value="mortgage" ${row?.kind === 'mortgage' ? 'selected' : ''}>${escapeHtml(this._t('mortgage'))}</option><option value="installment" ${row?.kind === 'installment' ? 'selected' : ''}>${escapeHtml(this._t('installment'))}</option><option value="recurring" ${row?.kind === 'recurring' ? 'selected' : ''}>${escapeHtml(this._t('recurringGeneric'))}</option></select></label>
         <label><span>${escapeHtml(this._t('house'))}</span><select name="house_id" required>${(this._data?.houses || []).map(home => `<option value="${escapeHtml(home.id)}" ${home.id === (row?.house_id || (this._house !== 'all' ? this._house : this._data?.default_house_id)) ? 'selected' : ''}>${escapeHtml(home.name)}</option>`).join('')}</select></label>
         <label><span>${escapeHtml(this._t('name'))}</span><input name="name" required maxlength="120" value="${escapeHtml(row?.name || '')}"></label>
-        <label><span>${escapeHtml(this._t('amount'))}</span><input name="amount" type="number" min="0.01" step="0.01" required value="${escapeHtml(row?.amount ?? '')}"></label>
+        <label><span id="recurring-amount-label">${escapeHtml(row?.kind === 'installment' || row?.kind === 'mortgage' ? this._t('recurringRegularAmount') : this._t('amount'))}</span><input name="amount" type="number" min="0.01" step="0.01" required value="${escapeHtml(row?.amount ?? '')}"></label>
         <label><span>${escapeHtml(this._t('interval'))}</span><select name="interval_months">${intervals.map((value) => `<option value="${value}" ${Number(row?.interval_months || 1) === value ? 'selected' : ''}>${escapeHtml(this._frequency(value))}</option>`).join('')}</select></label>
         <label><span>${escapeHtml(this._t('payer'))}</span><select name="payer_id"><option value="">${escapeHtml(this._t('none'))}</option>${payers.map((payer) => `<option value="${escapeHtml(payer.id)}" ${payer.id === payerId ? 'selected' : ''}>${escapeHtml(payer.name)}</option>`).join('')}</select></label>
         <div class="hint">${escapeHtml(this._t('recurringSplitHelp'))}</div>
         <label><span>${escapeHtml(this._t('activationDate'))}</span><input name="start_date" type="date" required value="${escapeHtml(row?.start_date || this._today())}"></label>
-        <label><span>${escapeHtml(this._t('expirationDate'))}</span><input name="end_date" type="date" value="${escapeHtml(row?.end_date || '')}"></label>
-        <label><span>${escapeHtml(this._t('installmentCount'))}</span><input name="installment_count" type="number" min="1" max="1200" step="1" value="${escapeHtml(row?.installment_count ?? '')}"></label>
-        <label><span>${escapeHtml(this._t('renewalEvery'))}</span><select name="renewal_interval_months">${[1, 3, 6, 12, 24].map((value) => `<option value="${value}" ${Number(row?.renewal_interval_months || 12) === value ? 'selected' : ''}>${value} ${escapeHtml(this._t('months'))}</option>`).join('')}</select></label>
+        <label data-expiration><span>${escapeHtml(this._t('expirationDate'))}</span><input name="end_date" type="date" value="${escapeHtml(row?.end_date || '')}"></label>
+        <label data-fixed-term><span>${escapeHtml(this._t('installmentCount'))}</span><input name="installment_count" type="number" min="1" max="1200" step="1" value="${escapeHtml(row?.installment_count ?? '')}"></label>
+        <label data-fixed-term><span>${escapeHtml(this._t('recurringTotalAmount'))}</span><input name="total_amount" type="number" min="0.01" step="0.01" value="${escapeHtml(row?.total_amount ?? '')}"></label>
+        <label data-renewable><span>${escapeHtml(this._t('renewalEvery'))}</span><select name="renewal_interval_months">${[1, 3, 6, 12, 24].map((value) => `<option value="${value}" ${Number(row?.renewal_interval_months || 12) === value ? 'selected' : ''}>${value} ${escapeHtml(this._t('months'))}</option>`).join('')}</select></label>
         <label><span>${escapeHtml(this._t('provider'))}</span><input name="provider" maxlength="120" value="${escapeHtml(row?.provider || '')}"></label>
         <label><span>${escapeHtml(this._t('contract'))}</span><input name="contract" maxlength="120" value="${escapeHtml(row?.contract || '')}"></label>
         <label><span>${escapeHtml(this._t('color'))}</span><input name="color" type="color" value="${safeColor(row?.color || '#7b8794')}"></label>
-        <label class="check"><input name="auto_renew" type="checkbox" ${row?.auto_renew ? 'checked' : ''}><span>${escapeHtml(this._t('automaticRenewal'))}</span></label>
+        <label class="check" data-renewable><input name="auto_renew" type="checkbox" ${row?.auto_renew ? 'checked' : ''}><span>${escapeHtml(this._t('automaticRenewal'))}</span></label>
         <label class="check"><input name="active" type="checkbox" ${row?.active !== false ? 'checked' : ''}><span>${escapeHtml(this._t('enabled'))}</span></label>
-        <div class="span2 hint">${escapeHtml(this._t('installmentCountHint'))}</div>
+        <div class="span2 hint" data-fixed-term>${escapeHtml(this._t('recurringFixedTermHelp'))}</div>
+        <div class="span2 notice" id="recurring-plan-preview" hidden></div>
         ${payers.length ? `<div class="span2 split-box"><div class="split-title"><strong>${escapeHtml(this._t('split'))}</strong><small>${escapeHtml(this._t('recurringSplitHelp'))}</small></div><div class="split-grid">${payers.map((payer) => `<label><span>${escapeHtml(payer.name)}</span><input class="recurring-split-input" data-payer="${escapeHtml(payer.id)}" type="number" min="0" max="100" step="0.01" value="${escapeHtml(splitMap.get(String(payer.id)) ?? 0)}"></label>`).join('')}</div><div id="recurring-split-total" class="split-total"></div></div>` : ''}
         <label class="span2"><span>${escapeHtml(this._t('note'))}</span><textarea name="note" rows="3">${escapeHtml(row?.note || '')}</textarea></label>
       </div>
@@ -3934,6 +3958,34 @@ class BillyRecurring extends HTMLElement {
       input.addEventListener('input', () =>
         this._updateRecurringSplitTotal(card),
       )
+    const updateType = () => {
+      const kind = card.querySelector('[name="kind"]').value
+      const fixed = kind === 'installment' || kind === 'mortgage'
+      for (const element of card.querySelectorAll('[data-fixed-term]'))
+        element.hidden = !fixed
+      for (const element of card.querySelectorAll('[data-renewable]'))
+        element.hidden = fixed
+      card.querySelector('#recurring-amount-label').textContent =
+        fixed ? this._t('recurringRegularAmount') : this._t('amount')
+      const preview = card.querySelector('#recurring-plan-preview')
+      const count = Number(card.querySelector('[name="installment_count"]').value)
+      const expiration = card.querySelector('[data-expiration]')
+      expiration.hidden = fixed && count > 0
+      expiration.querySelector('input').disabled = expiration.hidden
+      const regular = Number(card.querySelector('[name="amount"]').value)
+      const totalField = card.querySelector('[name="total_amount"]')
+      const total = Number(totalField.value)
+      preview.hidden = !fixed || !totalField.value || !count || !regular
+      if (!preview.hidden) {
+        const cents = Math.round(total * 100) - (count - 1) * Math.round(regular * 100)
+        preview.textContent = cents <= 0
+          ? this._t('recurringPlanInvalid')
+          : `${this._t('recurringPlanPreview')}: ${count - 1} x ${this._money(regular)} + ${this._t('recurringLastPayment')} ${this._money(cents / 100)} = ${this._money(total)}`
+      }
+    }
+    for (const field of ['kind', 'installment_count', 'amount', 'total_amount'])
+      card.querySelector('[name="' + field + '"]')?.addEventListener('input', updateType)
+    updateType()
     this._updateRecurringSplitTotal(card)
   }
 
@@ -3950,7 +4002,20 @@ class BillyRecurring extends HTMLElement {
 
   async _saveRecurring(event, id, close) {
     event.preventDefault()
-    const values = new FormData(event.currentTarget)
+    const form = event.currentTarget
+    if (form.dataset.saving === '1') return
+    const values = new FormData(form)
+    const showError = (message) => {
+      let notice = form.querySelector('[data-recurring-save-error]')
+      if (!notice) {
+        notice = document.createElement('div')
+        notice.className = 'notice error'
+        notice.setAttribute('role', 'alert')
+        notice.setAttribute('data-recurring-save-error', '')
+        form.querySelector('.modal-actions').before(notice)
+      }
+      notice.textContent = message
+    }
     const installmentText = String(values.get('installment_count') || '').trim()
     const split = [
       ...event.currentTarget.querySelectorAll('.recurring-split-input'),
@@ -3965,9 +4030,7 @@ class BillyRecurring extends HTMLElement {
       Math.abs(split.reduce((sum, part) => sum + part.percentage, 0) - 100) >
         0.05
     ) {
-      this._error = this._t('splitHelp')
-      close()
-      this._render()
+      showError(this._t('splitHelp'))
       return
     }
     const payload = {
@@ -3993,15 +4056,24 @@ class BillyRecurring extends HTMLElement {
     const payerId = String(values.get('payer_id') || '')
     if (payerId) payload.payer_id = payerId
     if (split.length) payload.split = split
-    if (installmentText) payload.installment_count = Number(installmentText)
+    if (payload.kind === 'installment' || payload.kind === 'mortgage') {
+      if (installmentText) payload.installment_count = Number(installmentText)
+      const totalText = String(values.get('total_amount') || '').trim()
+      payload.total_amount = totalText ? Number(totalText) : null
+      payload.auto_renew = false
+    }
+    form.dataset.saving = '1'
+    const saveButton = form.querySelector('[type="submit"]')
+    if (saveButton) saveButton.disabled = true
     try {
       await this._hass.callWS(payload)
       close()
       await this._load(false)
     } catch (error) {
-      this._error = errorText(this._hass, error)
-      close()
-      this._render()
+      showError(errorText(this._hass, error))
+    } finally {
+      form.dataset.saving = '0'
+      if (saveButton) saveButton.disabled = false
     }
   }
 
@@ -4342,6 +4414,7 @@ class BillyRecurring extends HTMLElement {
       .payment-pages button:disabled{opacity:.4;cursor:default}
       .payment-recorded-check{display:flex!important;flex-direction:row!important;align-items:center;gap:10px}
       .payment-recorded-check input{width:18px!important;min-height:18px!important;flex:none;accent-color:var(--primary-color)}
+      [data-fixed-term][hidden],[data-renewable][hidden],#recurring-plan-preview[hidden]{display:none!important}
       .hero-actions{display:flex;gap:9px;flex-wrap:wrap}.hero-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px}.export-help{margin:0 0 16px;color:var(--secondary-text-color);font-size:13px;line-height:1.45}
       .recurring-page{container-type:inline-size}
       .toolbar{grid-template-columns:minmax(155px,1fr) minmax(210px,1.4fr) repeat(3,minmax(140px,1fr))}
@@ -5020,6 +5093,11 @@ class BillySettings extends HTMLElement {
       ? (this._data?.categories || []).find((item) => item.id === id)
       : null
     const payers = this._data?.payers || []
+    const houses = this._data?.houses || []
+    const primaryHouseId = row?.placeholder?.house_id || this._data?.default_house_id || houses[0]?.id
+    const houseRules = row?.house_placeholders || {}
+    const mainRule = houseRules[primaryHouseId] || row?.placeholder || {}
+    const extraHouses = houses.filter(home => home.id !== primaryHouseId)
     const modal = this.shadowRoot.getElementById('modal')
     const card = this.shadowRoot.getElementById('modal-card')
     if (!modal || !card) return
@@ -5037,14 +5115,32 @@ class BillySettings extends HTMLElement {
         <label><span>${escapeHtml(this._t('archiveFolder'))}</span><input name="archive_subpath" value="${escapeHtml(row?.document_archive?.subpath || 'billy/documents')}" placeholder="billy/documents"></label>
         <label><span>${escapeHtml(this._t('archiveSourceHost'))}</span><input name="archive_source_host" placeholder="paperless.local:8000" value="${escapeHtml(row?.document_archive?.source_host || '')}"></label>
         <label class="check span2"><input name="enabled" type="checkbox" ${row?.enabled !== false ? 'checked' : ''}><span>${escapeHtml(this._t('enabled'))}</span></label>
-        <label class="check span2"><input name="placeholder_enabled" type="checkbox" ${row?.placeholder?.enabled ? 'checked' : ''}><span><strong>${escapeHtml(this._t('autoPlaceholder'))}</strong><small>${escapeHtml(this._t('placeholderHelp'))}</small></span></label>
-        <div id="placeholder-settings" class="form-grid span2" style="display:${row?.placeholder?.enabled ? 'grid' : 'none'}">
-          <label><span>${escapeHtml(this._t('placeholderDay'))}</span><input name="placeholder_day" type="number" min="1" max="31" required value="${Number(row?.placeholder?.day || 1)}"></label>
-          <label><span>${escapeHtml(this._t('placeholderAmount'))}</span><select name="placeholder_amount_mode">${['last', 'forecast', 'fixed'].map((mode) => `<option value="${mode}" ${(row?.placeholder?.amount_mode || 'last') === mode ? 'selected' : ''}>${escapeHtml(this._t(mode === 'last' ? 'placeholderLast' : mode === 'forecast' ? 'placeholderForecast' : 'placeholderFixed'))}</option>`).join('')}</select></label>
-          <label><span>${escapeHtml(this._t('placeholderFixed'))}</span><input name="placeholder_fixed_amount" type="number" min="0" step="0.01" value="${Number(row?.placeholder?.fixed_amount || 0)}"></label>
-          <label><span>${escapeHtml(this._t('placeholderDueDay'))}</span><input name="placeholder_due_day" type="number" min="1" max="31" value="${escapeHtml(row?.placeholder?.due_day ?? '')}"></label>
-          <label class="span2"><span>${escapeHtml(this._t('placeholderStartMonth'))}</span><input name="placeholder_start_month" type="month" value="${escapeHtml(row?.placeholder?.start_month || '')}"><small>${escapeHtml(this._t('placeholderStartHelp'))}</small></label>
+        <div class="span2 hint"><strong>${escapeHtml(this._t('houseBillSchedules'))}</strong> – ${escapeHtml(this._t('houseBillScheduleHelp'))}</div>
+        <label class="check span2"><input name="placeholder_enabled" type="checkbox" ${mainRule.enabled ? 'checked' : ''}><span><strong>${escapeHtml(this._t('autoPlaceholder'))} – ${escapeHtml(houses.find(home => home.id === primaryHouseId)?.name || this._t('house'))}</strong><small>${escapeHtml(this._t('placeholderHelp'))}</small></span></label>
+        <div id="placeholder-settings" class="form-grid span2" style="display:${mainRule.enabled ? 'grid' : 'none'}">
+          <label><span>${escapeHtml(this._t('placeholderDay'))}</span><input name="placeholder_day" type="number" min="1" max="31" value="${Number(mainRule.day || 1)}"></label>
+          <label><span>${escapeHtml(this._t('placeholderAmount'))}</span><select name="placeholder_amount_mode">${['last', 'forecast', 'fixed'].map((mode) => `<option value="${mode}" ${(mainRule.amount_mode || 'last') === mode ? 'selected' : ''}>${escapeHtml(this._t(mode === 'last' ? 'placeholderLast' : mode === 'forecast' ? 'placeholderForecast' : 'placeholderFixed'))}</option>`).join('')}</select></label>
+          <label><span>${escapeHtml(this._t('placeholderFixed'))}</span><input name="placeholder_fixed_amount" type="number" min="0" step="0.01" value="${Number(mainRule.fixed_amount || 0)}"></label>
+          <label><span>${escapeHtml(this._t('placeholderDueDay'))}</span><input name="placeholder_due_day" type="number" min="1" max="31" value="${escapeHtml(mainRule.due_day ?? '')}"></label>
+          <label class="span2"><span>${escapeHtml(this._t('placeholderStartMonth'))}</span><input name="placeholder_start_month" type="month" value="${escapeHtml(mainRule.start_month || '')}"><small>${escapeHtml(this._t('placeholderStartHelp'))}</small></label>
+          <label><span>${escapeHtml(this._t('defaultProvider'))}</span><input name="placeholder_provider" value="${escapeHtml(mainRule.provider || '')}"></label>
+          <label><span>${escapeHtml(this._t('defaultContract'))}</span><input name="placeholder_contract" value="${escapeHtml(mainRule.contract || '')}"></label>
         </div>
+        ${extraHouses.map(home => {
+          const schedule = houseRules[home.id] || {}
+          return `<div class="span2 house-schedule" data-house-schedule="${escapeHtml(home.id)}">
+            <label class="check"><input type="checkbox" name="house_enabled" ${schedule.enabled ? 'checked' : ''}><span><strong>${escapeHtml(this._t('autoPlaceholder'))} – ${escapeHtml(home.name)}</strong></span></label>
+            <div class="form-grid house-schedule-settings" ${schedule.enabled ? '' : 'hidden'}>
+              <label><span>${escapeHtml(this._t('placeholderDay'))}</span><input name="house_day" type="number" min="1" max="31" value="${Number(schedule.day || 1)}"></label>
+              <label><span>${escapeHtml(this._t('placeholderAmount'))}</span><select name="house_amount_mode">${['last','forecast','fixed'].map(mode => `<option value="${mode}" ${(schedule.amount_mode || 'last') === mode ? 'selected' : ''}>${escapeHtml(this._t(mode === 'last' ? 'placeholderLast' : mode === 'forecast' ? 'placeholderForecast' : 'placeholderFixed'))}</option>`).join('')}</select></label>
+              <label><span>${escapeHtml(this._t('placeholderFixed'))}</span><input name="house_fixed_amount" type="number" min="0" step="0.01" value="${Number(schedule.fixed_amount || 0)}"></label>
+              <label><span>${escapeHtml(this._t('placeholderDueDay'))}</span><input name="house_due_day" type="number" min="1" max="31" value="${escapeHtml(schedule.due_day ?? '')}"></label>
+              <label><span>${escapeHtml(this._t('placeholderStartMonth'))}</span><input name="house_start_month" type="month" value="${escapeHtml(schedule.start_month || '')}"></label>
+              <label><span>${escapeHtml(this._t('defaultProvider'))}</span><input name="house_provider" value="${escapeHtml(schedule.provider || '')}"></label>
+              <label><span>${escapeHtml(this._t('defaultContract'))}</span><input name="house_contract" value="${escapeHtml(schedule.contract || '')}"></label>
+            </div>
+          </div>`
+        }).join('')}
         <label class="check span2"><input name="exclude_from_estimates" type="checkbox" ${row?.exclude_from_estimates ? 'checked' : ''}><span><strong>${escapeHtml(this._t('excludeFromEstimates'))}</strong><small>${escapeHtml(this._t('excludeFromEstimatesHelp'))}</small></span></label>
       </div>
       <div class="modal-actions"><button type="button" class="secondary" id="modal-cancel">${escapeHtml(this._t('cancel'))}</button><button type="submit" class="primary">${escapeHtml(this._t('save'))}</button></div>
@@ -5066,14 +5162,21 @@ class BillySettings extends HTMLElement {
     placeholderToggle.addEventListener('change', updatePlaceholderFields)
     card.querySelector('[name="placeholder_amount_mode"]').addEventListener('change', updatePlaceholderFields)
     updatePlaceholderFields()
+    for (const rule of card.querySelectorAll('[data-house-schedule]')) {
+      const toggle = rule.querySelector('[name="house_enabled"]')
+      const settings = rule.querySelector('.house-schedule-settings')
+      const update = () => { settings.style.display = toggle.checked ? 'grid' : 'none' }
+      toggle.addEventListener('change', update)
+      update()
+    }
     card
       .querySelector('#category-form')
       ?.addEventListener('submit', (event) =>
-        this._saveCategory(event, row?.id || null),
+        this._saveCategory(event, row?.id || null, primaryHouseId),
       )
   }
 
-  async _saveCategory(event, id) {
+  async _saveCategory(event, id, primaryHouseId = null) {
     event.preventDefault()
     const form = event.currentTarget
     const values = new FormData(form)
@@ -5101,7 +5204,28 @@ class BillySettings extends HTMLElement {
         fixed_amount: Number(values.get('placeholder_fixed_amount') || 0),
         due_day: values.get('placeholder_due_day') ? Number(values.get('placeholder_due_day')) : null,
         start_month: String(values.get('placeholder_start_month') || ''),
+        provider: String(values.get('placeholder_provider') || '').trim(),
+        contract: String(values.get('placeholder_contract') || '').trim(),
       },
+    }
+    if (primaryHouseId) {
+      const houses = {
+        [primaryHouseId]: { ...payload.placeholder },
+      }
+      for (const row of form.querySelectorAll('[data-house-schedule]')) {
+        const control = (name) => row.querySelector('[name="' + name + '"]')
+        houses[row.dataset.houseSchedule] = {
+          enabled: control('house_enabled').checked,
+          day: Number(control('house_day').value || 1),
+          amount_mode: control('house_amount_mode').value,
+          fixed_amount: Number(control('house_fixed_amount').value || 0),
+          due_day: control('house_due_day').value ? Number(control('house_due_day').value) : null,
+          start_month: control('house_start_month').value,
+          provider: control('house_provider').value.trim(),
+          contract: control('house_contract').value.trim(),
+        }
+      }
+      payload.house_placeholders = houses
     }
     try {
       await this._hass.callWS(payload)
@@ -5469,7 +5593,7 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.17.0-r1').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.17.1-r1').catch((error) => {
         this._incomePromise = null
         for (const id of ['income-panel', 'recurring-income-panel']) {
           const section = this.shadowRoot?.getElementById(id)
@@ -5489,7 +5613,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.17.0-r1'
+        './billy-reimbursement-history.js?v=0.17.1-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(

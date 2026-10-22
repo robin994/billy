@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.17.1
+
+Released: 2026-10-23.
+
+- Fixed the recurring-expense editor closing when the backend rejects a save
+  (or payer-split validation fails). The modal remains open, preserving values
+  and showing the error inline so the entry can be corrected.
+- Added optional **total repayable** for fixed-term installments and mortgages.
+  Billy keeps the normal payment amount, computes a different final payment
+  when necessary, and uses exactly rounded cents across forecasts, upcoming
+  charges, recurring history and unconfirmed reimbursement snapshots.
+- For plans with a total repayable, the displayed remaining amount subtracts
+  **confirmed payments**, not elapsed calendar months. It is a cash repayment
+  balance, not an interest-bearing mortgage's outstanding principal.
+  Existing recurring plans without totals retain their previous behavior.
+- Clarified recurring form fields, added a live installment preview, and hid
+  renewal controls that do not apply to fixed-term plans.
+- Bill types can configure **independent automatic bill reminders per house**,
+  including billing day, due date, amount mode, supplier and contract.
+  Existing single-house reminders migrate without duplicating invoices.
+- Added backend/frontend regression tests for variable final installments,
+  rejected saves, backups and per-house bill schedules.
+- Updated frontend resource cache to \`0.17.1-r1\`.
+
 ## 0.17.0
 
 Released: 2026-10-22.

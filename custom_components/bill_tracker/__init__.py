@@ -961,6 +961,7 @@ _RECURRING_COMMON = {
     vol.Optional("installment_count"): vol.All(
         vol.Coerce(int), vol.Range(min=1, max=1200)
     ),
+    vol.Optional("total_amount"): vol.Any(None, vol.Coerce(float)),
     vol.Optional("payer_id"): str,
     vol.Optional("split"): [_SPLIT_ITEM_SCHEMA],
     vol.Optional("provider", default=""): str,
@@ -982,6 +983,7 @@ def _recurring_kwargs(msg):
         "auto_renew": msg.get("auto_renew", False),
         "renewal_interval_months": msg.get("renewal_interval_months", 12),
         "installment_count": msg.get("installment_count"),
+        **({"total_amount": msg["total_amount"]} if "total_amount" in msg else {}),
         "payer_id": msg.get("payer_id"),
         "split": msg.get("split"),
         "provider": msg.get("provider", ""),
@@ -1160,6 +1162,18 @@ _CATEGORY_COMMON = {
         vol.Optional("due_day"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=31))),
         vol.Optional("start_month", default=""): str,
     },
+    vol.Optional("house_placeholders"): {
+        str: {
+            vol.Optional("enabled", default=False): bool,
+            vol.Optional("day", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=31)),
+            vol.Optional("amount_mode", default="last"): vol.In(("last", "forecast", "fixed")),
+            vol.Optional("fixed_amount", default=0): vol.Coerce(float),
+            vol.Optional("due_day"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=31))),
+            vol.Optional("start_month", default=""): str,
+            vol.Optional("provider", default=""): str,
+            vol.Optional("contract", default=""): str,
+        },
+    },
 }
 
 
@@ -1183,6 +1197,7 @@ async def ws_category_add(hass, connection, msg):
             default_provider=msg.get("default_provider", ""),
             default_contract=msg.get("default_contract", ""),
             placeholder=msg.get("placeholder"),
+            house_placeholders=msg.get("house_placeholders"),
             document_archive=msg.get("document_archive"),
         )
     except (ValueError, RuntimeError) as err:
@@ -1216,6 +1231,7 @@ async def ws_category_update(hass, connection, msg):
             default_provider=msg.get("default_provider", ""),
             default_contract=msg.get("default_contract", ""),
             placeholder=msg.get("placeholder"),
+            house_placeholders=msg.get("house_placeholders"),
             document_archive=msg.get("document_archive"),
         )
     except (ValueError, RuntimeError) as err:
