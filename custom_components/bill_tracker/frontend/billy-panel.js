@@ -1,12 +1,12 @@
-import './billy-parser-manager.js?v=0.16.0-r1'
-import './billy-accounts.js?v=0.16.0-r1'
+import './billy-parser-manager.js?v=0.17.0-r1'
+import './billy-accounts.js?v=0.17.0-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.16.0-r1'
+} from './billy-extra-i18n.js?v=0.17.0-r1'
 
-const BILLY_PANEL_VERSION = '0.16.0'
+const BILLY_PANEL_VERSION = '0.17.0'
 
 const TEXT = {
   en: {
@@ -15,8 +15,40 @@ const TEXT = {
     recurring: 'Recurring',
     income: 'Income',
     accounts: 'Accounts',
+    houses: 'Houses',
+    house: 'House',
+    allHouses: 'All houses',
+    addHouse: 'Add house',
+    editHouse: 'Edit house',
+    houseName: 'House name',
+    defaultHouse: 'Default house',
+    setDefaultHouse: 'Make default',
+    houseHelp: 'Group bills and recurring costs by property. Accounts, income and Home Assistant users are shared.',
+    houseDeleteConfirm: 'Delete this empty house?',
     recurringExpenses: 'Recurring expenses',
     recurringIncome: 'Recurring income',
+    recurringPayments: 'Payments',
+    recurringPaymentsTitle: 'Installment payment history',
+    recurringPaymentsHelp: 'Only confirmed payments affect actual spending and account balances. Historical due dates are not automatically treated as paid.',
+    recurringRecordPayment: 'Record payment',
+    recurringEditPayment: 'Edit payment',
+    recurringUndoPayment: 'Undo payment',
+    recurringPaymentUndoConfirm: 'Remove this confirmed payment and reverse its account entry?',
+    recurringPaidInstallment: 'Paid',
+    recurringUnpaidInstallment: 'Not confirmed',
+    recurringFutureInstallment: 'Upcoming',
+    recurringPaymentDate: 'Actual payment date',
+    recurringPaymentAmount: 'Amount paid',
+    recurringAccount: 'Debited account',
+    recurringNoAccount: 'No account configured',
+    recurringPaymentNote: 'Payment note',
+    recurringAlreadyRecorded: 'Already recorded as a paid Bill in Billy (avoid double counting)',
+    recurringAlreadyRecordedHelp: 'Use this only if the same payment already exists as a paid Bill. Existing internal transfers are not payments and must be reconciled separately.',
+    recurringPaymentOn: 'Paid on {date}',
+    recurringNoPaymentsDue: 'No installments due yet.',
+    recurringPageInfo: '{from}–{to} of {total} installments',
+    recurringPrevious: 'Previous',
+    recurringNext: 'Next',
     documentUrl: 'PDF document URL (optional)',
     cashAccount: 'Account for this payment',
     archiveAuto: 'Automatically archive invoice PDFs',
@@ -371,8 +403,40 @@ const TEXT = {
     recurring: 'Ricorrenti',
     income: 'Entrate',
     accounts: 'Conti',
+    houses: 'Case',
+    house: 'Casa',
+    allHouses: 'Tutte le case',
+    addHouse: 'Aggiungi casa',
+    editHouse: 'Modifica casa',
+    houseName: 'Nome della casa',
+    defaultHouse: 'Casa predefinita',
+    setDefaultHouse: 'Imposta predefinita',
+    houseHelp: 'Raggruppa bollette e spese ricorrenti per abitazione. Conti, entrate e utenti Home Assistant restano condivisi.',
+    houseDeleteConfirm: 'Eliminare questa casa vuota?',
     recurringExpenses: 'Spese ricorrenti',
     recurringIncome: 'Entrate ricorrenti',
+    recurringPayments: 'Pagamenti',
+    recurringPaymentsTitle: 'Storico pagamenti rate',
+    recurringPaymentsHelp: 'Solo i pagamenti confermati influiscono sulle spese effettive e sui saldi. Le scadenze passate non vengono considerate automaticamente pagate.',
+    recurringRecordPayment: 'Registra pagamento',
+    recurringEditPayment: 'Modifica pagamento',
+    recurringUndoPayment: 'Annulla pagamento',
+    recurringPaymentUndoConfirm: 'Annullare il pagamento confermato e ripristinare il saldo del conto?',
+    recurringPaidInstallment: 'Pagata',
+    recurringUnpaidInstallment: 'Da confermare',
+    recurringFutureInstallment: 'In arrivo',
+    recurringPaymentDate: 'Data effettiva di pagamento',
+    recurringPaymentAmount: 'Importo pagato',
+    recurringAccount: 'Conto di addebito',
+    recurringNoAccount: 'Nessun conto configurato',
+    recurringPaymentNote: 'Nota sul pagamento',
+    recurringAlreadyRecorded: 'Gia registrata come bolletta pagata in Billy (evita il doppio conteggio)',
+    recurringAlreadyRecordedHelp: 'Usa questa opzione solo se il pagamento esiste gia come bolletta pagata. I giroconti non sono pagamenti e vanno riconciliati separatamente.',
+    recurringPaymentOn: 'Pagata il {date}',
+    recurringNoPaymentsDue: 'Nessuna rata ancora in scadenza.',
+    recurringPageInfo: 'Rate {from}–{to} di {total}',
+    recurringPrevious: 'Precedente',
+    recurringNext: 'Successiva',
     documentUrl: 'URL del documento PDF (facoltativo)',
     cashAccount: 'Conto per questo pagamento',
     archiveAuto: 'Archivia automaticamente i PDF delle bollette',
@@ -973,6 +1037,8 @@ class BillyDashboard extends HTMLElement {
     this._chartView = 'stacked'
     this._showIncomeLine = false
     this._chartPreferencesLoadedFor = null
+    this._house = 'all'
+    this._houseReloadPending = false
   }
 
   set hass(value) {
@@ -1030,25 +1096,46 @@ class BillyDashboard extends HTMLElement {
   }
 
   async _load() {
-    if (!this._hass || this._loading) return
+    if (!this._hass) return
+    if (this._loading) {
+      this._houseReloadPending = true
+      return
+    }
+    const requestedHouse = this._house
     this._loading = true
     this._render()
     try {
       const [data, parserData] = await Promise.all([
-        this._hass.callWS({ type: 'bill_tracker/list', forecast_months: 12 }),
+        this._hass.callWS({
+          type: 'bill_tracker/list', forecast_months: 12,
+          ...(requestedHouse !== 'all' ? { house_id: requestedHouse } : {}),
+        }),
         this._hass
           .callWS({ type: 'bill_tracker/parser/list' })
           .catch(() => null),
       ])
-      this._data = data
-      this._parserData = parserData
-      this._sanitizeChartPreferences()
-      this._error = null
+      if (requestedHouse === this._house) {
+        this._data = data
+        this._parserData = parserData
+        this._sanitizeChartPreferences()
+        this._error = null
+      } else this._houseReloadPending = true
     } catch (error) {
-      this._error = errorText(this._hass, error)
+      if (requestedHouse !== 'all' &&
+          (error?.code === 'invalid_house' || String(error?.message || '').includes('House not found'))) {
+        this._house = 'all'
+        this._houseReloadPending = true
+        this._error = null
+      } else {
+        this._error = errorText(this._hass, error)
+      }
     } finally {
       this._loading = false
       this._render()
+      if (this._houseReloadPending) {
+        this._houseReloadPending = false
+        this._load()
+      }
     }
   }
 
@@ -1154,7 +1241,8 @@ class BillyDashboard extends HTMLElement {
       }
     }
     for (const row of this._data?.recurring_history || []) {
-      const match = /^(\d{4})-\d{2}-\d{2}$/.exec(String(row.due_date || ''))
+      if (!row.paid || row.already_recorded) continue
+      const match = /^(\d{4})-\d{2}-\d{2}$/.exec(String(row.payment_date || ''))
       if (match) years.add(Number(match[1]))
     }
     return [...years].sort((a, b) => b - a)
@@ -1279,8 +1367,9 @@ class BillyDashboard extends HTMLElement {
     }
 
     for (const row of this._data?.recurring_history || []) {
-      const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(row.due_date || ''))
-      if (!match || Number(row.amount || 0) <= 0) continue
+      if (!row.paid || row.already_recorded) continue
+      const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(row.payment_date || ''))
+      if (!match || Number(row.actual_amount || 0) <= 0) continue
       if (!actualKeys.has(`${match[1]}-${match[2]}`)) continue
       const id = String(row.id || row.recurring_id || '')
       if (id) available.add(`recurring:${id}`)
@@ -1385,8 +1474,9 @@ class BillyDashboard extends HTMLElement {
     )
     const recurringByKey = new Map()
     for (const occurrence of this._data?.recurring_history || []) {
+      if (!occurrence.paid || occurrence.already_recorded) continue
       const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(
-        String(occurrence.due_date || ''),
+        String(occurrence.payment_date || ''),
       )
       if (!match) continue
       const key = `${match[1]}-${match[2]}`
@@ -1395,7 +1485,7 @@ class BillyDashboard extends HTMLElement {
         kinds: {},
         items: [],
       }
-      const amount = Math.max(0, Number(occurrence.amount || 0))
+      const amount = Math.max(0, Number(occurrence.actual_amount || 0))
       const kind = String(occurrence.kind || 'recurring')
       bucket.total += amount
       bucket.kinds[kind] = Number(bucket.kinds[kind] || 0) + amount
@@ -2038,6 +2128,7 @@ class BillyDashboard extends HTMLElement {
       ],
       [this._t('parserUpdates'), String(parserStats.updates), 'mdi:update'],
     ]
+    if (this._house !== 'all') cards.splice(4, 2)
     if ((this._data?.incomes || []).length) {
       cards.push(
         [this._t('incomeMonth'), this._money(this._data.income_summary?.month_received), 'mdi:cash-plus'],
@@ -2055,6 +2146,10 @@ class BillyDashboard extends HTMLElement {
             <p>${escapeHtml(this._t('subtitle'))}</p>
           </div>
           <div class="hero-actions">
+            <label class="house-switch"><span>${escapeHtml(this._t('house'))}</span><select id="dashboard-house">
+              <option value="all" ${this._house === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allHouses'))}</option>
+              ${(this._data.houses || []).map(row => `<option value="${escapeHtml(row.id)}" ${this._house === row.id ? 'selected' : ''}>${escapeHtml(row.name)}</option>`).join('')}
+            </select></label>
             <button class="secondary" data-nav="parsers">${escapeHtml(this._t('viewParsers'))}</button>
             <button class="primary" data-nav="bills">${escapeHtml(this._t('viewBills'))}</button>
           </div>
@@ -2122,6 +2217,12 @@ class BillyDashboard extends HTMLElement {
         )
       })
     }
+    this.shadowRoot.getElementById('dashboard-house')?.addEventListener('change', event => {
+      this._house = event.currentTarget.value
+      this._chartDisabled.clear()
+      this._chartPreferencesLoadedFor = null
+      this._load()
+    })
     for (const button of this.shadowRoot.querySelectorAll('[data-reimburse]')) {
       button.addEventListener('click', () => this._confirmReimbursement(button))
     }
@@ -2206,6 +2307,10 @@ class BillyDashboard extends HTMLElement {
     return `
       :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}.dashboard{display:flex;flex-direction:column;gap:20px}.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding:4px 2px 2px}.hero h1{font-size:30px;line-height:1.1;margin:0 0 6px}.hero p{margin:0;color:var(--secondary-text-color);font-size:14px}.hero-actions{display:flex;gap:10px}.primary,.secondary,.error-card button{appearance:none;border-radius:10px;padding:10px 15px;font:inherit;font-weight:650;cursor:pointer}.primary{border:1px solid var(--primary-color);background:var(--primary-color);color:var(--text-primary-color,#fff)}.secondary,.error-card button{border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.kpi{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:16px;display:flex;gap:12px;align-items:center;min-width:0}.kpi ha-icon{color:var(--primary-color);--mdc-icon-size:24px}.kpi div{display:flex;flex-direction:column;gap:4px;min-width:0}.kpi span{font-size:12px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpi strong{font-size:20px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.panel{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:16px;padding:18px;min-width:0}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.panel-head h2{font-size:18px;margin:0}.panel-head p{font-size:12px;color:var(--secondary-text-color);margin:4px 0 0}.grid-main{display:grid;grid-template-columns:minmax(0,2.1fr) minmax(300px,.9fr);gap:16px}.grid-bottom{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(380px,1.5fr) minmax(260px,.7fr);gap:16px}.chart-filter-combobox{position:relative;width:min(360px,100%);margin-bottom:11px}.chart-filter-combobox summary{list-style:none;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;min-height:48px;padding:8px 11px;border:1px solid var(--divider-color);border-radius:11px;background:var(--secondary-background-color);cursor:pointer;user-select:none}.chart-filter-combobox summary::-webkit-details-marker{display:none}.chart-filter-combobox[open] summary{border-color:color-mix(in srgb,var(--primary-color) 45%,var(--divider-color));box-shadow:0 0 0 2px color-mix(in srgb,var(--primary-color) 10%,transparent)}.chart-filter-summary-main{display:flex;align-items:center;gap:9px;min-width:0}.chart-filter-summary-main>ha-icon{color:var(--primary-color);--mdc-icon-size:20px}.chart-filter-summary-main>span{display:flex;flex-direction:column;gap:1px;min-width:0}.chart-filter-summary-main small{font-size:10px;color:var(--secondary-text-color)}.chart-filter-summary-main strong{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.chart-filter-count{font-size:11px;font-weight:700;padding:3px 7px;border-radius:999px;background:var(--card-background-color);color:var(--secondary-text-color)}.chart-filter-chevron{--mdc-icon-size:20px;color:var(--secondary-text-color);transition:transform .15s ease}.chart-filter-combobox[open] .chart-filter-chevron{transform:rotate(180deg)}.chart-filter-dropdown{position:absolute;z-index:20;top:calc(100% + 6px);left:0;width:min(440px,calc(100vw - 48px));max-height:360px;overflow:auto;padding:11px;border:1px solid var(--divider-color);border-radius:12px;background:var(--card-background-color);box-shadow:0 12px 30px rgba(0,0,0,.18)}.chart-filter-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:9px;margin-bottom:9px;border-bottom:1px solid var(--divider-color);font-size:11px}.chart-filter-head>strong{font-size:12px}.chart-filter-head>div{display:flex;gap:9px}.text-button{appearance:none;border:0;background:transparent;color:var(--primary-color);padding:2px 0;font:inherit;font-size:11px;font-weight:650;cursor:pointer}.chart-filter-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.chart-filter-groups fieldset{border:0;padding:0;margin:0;min-width:0}.chart-filter-groups legend{font-size:10px;font-weight:700;color:var(--secondary-text-color);margin-bottom:6px}.chart-option-list{display:flex;flex-direction:column;gap:3px}.chart-option{position:relative;display:grid!important;grid-template-columns:20px 10px minmax(0,1fr);align-items:center;gap:8px!important;min-height:34px;padding:5px 7px;border-radius:8px;color:var(--primary-text-color)!important;font-size:12px!important;cursor:pointer;user-select:none}.chart-option:hover{background:var(--secondary-background-color)}.chart-option input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}.chart-option:has(input:focus-visible){outline:2px solid var(--primary-color);outline-offset:1px}.chart-option-box{display:grid;place-items:center;width:18px;height:18px;border:1px solid var(--divider-color);border-radius:5px;background:var(--card-background-color);color:transparent;font-size:11px;font-weight:800}.chart-option.active .chart-option-box{border-color:var(--option-color);background:var(--option-color);color:#fff}.chart-option i{width:9px;height:9px;border-radius:50%;background:var(--option-color)}.chart-controls{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:9px;margin-bottom:12px}.chart-controls label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--secondary-text-color)}.chart-controls select{height:38px;border:1px solid var(--divider-color);border-radius:9px;padding:0 9px;background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit}.chart-controls select:disabled{opacity:.5}.chart-scroll{overflow:auto hidden}.chart-scroll svg{display:block;width:100%;min-width:720px;height:auto}.grid{stroke:var(--divider-color);stroke-width:1}.axis,.month{fill:var(--secondary-text-color);font-size:11px}.forecast-label{font-style:italic}.forecast-segment,.forecast-separated{opacity:.4;stroke:currentColor;stroke-width:1;stroke-dasharray:4 3}.recurring-segment{stroke:var(--card-background-color);stroke-width:.6}.separate-bar{stroke:var(--card-background-color);stroke-width:.6}.legend{display:flex;gap:10px;color:var(--secondary-text-color);font-size:11px;flex-wrap:wrap;margin-bottom:8px}.legend span{display:flex;align-items:center;gap:5px}.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}.forecast-dot{background:color-mix(in srgb,var(--primary-color) 25%,transparent);border:1px dashed var(--primary-color)}.breakdown-list{display:flex;flex-direction:column;gap:14px}.breakdown-row{display:flex;flex-direction:column;gap:7px}.breakdown-head{display:flex;justify-content:space-between;gap:12px;font-size:13px}.breakdown-head>span{display:flex;align-items:center;gap:8px;min-width:0}.breakdown-head>span>span{display:flex;flex-direction:column;gap:1px;min-width:0}.breakdown-head small{font-size:10px;color:var(--secondary-text-color);font-weight:400}.breakdown-head i{width:10px;height:10px;border-radius:50%;flex:none}.breakdown-head strong{font-size:13px}.meter{height:7px;border-radius:99px;background:var(--secondary-background-color);overflow:hidden}.meter span{display:block;height:100%;border-radius:99px}.compact-list,.recent-list{display:flex;flex-direction:column}.compact-row,.recent-row{border-top:1px solid var(--divider-color);padding:12px 0}.compact-row:first-child,.recent-row:first-child{border-top:0;padding-top:2px}.compact-row{display:flex;justify-content:space-between;align-items:center;gap:16px}.compact-row div{display:flex;flex-direction:column;gap:3px}.compact-row small,.recent-row small{color:var(--secondary-text-color)}.recent-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:12px}.recent-row>i{width:10px;height:36px;border-radius:99px}.recent-main,.recent-value{display:flex;flex-direction:column;gap:3px}.recent-value{align-items:flex-end}.pill{font-size:10px;padding:2px 7px;border-radius:999px;background:var(--secondary-background-color);color:var(--secondary-text-color)}.pill.ok{color:var(--success-color,#2e7d32);background:color-mix(in srgb,var(--success-color,#2e7d32) 12%,transparent)}.pill.warn{color:var(--warning-color,#f9a825);background:color-mix(in srgb,var(--warning-color,#f9a825) 12%,transparent)}.parser-health{display:flex;flex-direction:column}.parser-stat{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--divider-color);font-size:13px}.parser-stat strong{font-size:18px}.attention{color:var(--warning-color,#f9a825)!important}.parser-message{font-size:12px;color:var(--secondary-text-color);padding:14px 0}.full{width:100%;margin-top:auto}.recurring-overview-panel{display:flex;flex-direction:column;gap:10px}.recurring-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.recurring-stats>div{padding:12px;border-radius:12px;background:var(--secondary-background-color);display:flex;flex-direction:column;gap:4px}.recurring-stats span{font-size:11px;color:var(--secondary-text-color)}.recurring-stats strong{font-size:17px}.recurring-overview-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.recurring-overview-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid var(--divider-color);border-radius:11px}.recurring-overview-row>div{display:flex;flex-direction:column;gap:3px;min-width:0}.recurring-overview-row small{color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.reimbursements-panel{display:flex;flex-direction:column;gap:4px}.reimbursement-list{display:flex;flex-direction:column}.reimbursement-row{display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:16px;align-items:center;padding:13px 0;border-top:1px solid var(--divider-color)}.reimbursement-row:first-child{border-top:0}.reimbursement-main{display:flex;flex-direction:column;gap:3px}.reimbursement-main small,.history-row small{color:var(--secondary-text-color)}.reimbursement-actions{display:flex;gap:8px;align-items:center}.small{padding:7px 10px;font-size:12px}.paypal{display:inline-flex;align-items:center;justify-content:center;border-radius:10px;padding:8px 11px;background:#0070ba;color:white;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap}.reimbursement-empty{padding:16px;border-radius:12px;background:color-mix(in srgb,var(--success-color,#2e7d32) 10%,transparent);color:var(--success-color,#2e7d32)}.reimbursement-history{margin-top:14px;padding-top:14px;border-top:1px solid var(--divider-color)}.reimbursement-history h3{font-size:13px;margin:0 0 8px;color:var(--secondary-text-color)}.history-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:8px 0}.history-row>div{display:flex;flex-direction:column;gap:2px}.empty{padding:28px 8px;text-align:center;color:var(--secondary-text-color);font-size:13px}.loading,.error-card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:24px}.loading{text-align:center;color:var(--secondary-text-color)}.error-card p{color:var(--secondary-text-color)}
       .modal[hidden]{display:none}.modal{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px}.modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}.modal-card{position:relative;z-index:1;width:min(760px,100%);max-height:min(90vh,900px);overflow:auto;background:var(--card-background-color);border-radius:16px;box-shadow:0 18px 60px rgba(0,0,0,.35);padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px}.modal-head h3{font-size:20px;margin:0}.hint,.reimbursement-detail-help{font-size:12px;color:var(--secondary-text-color)}.reimbursement-detail-help{margin:0 0 14px;line-height:1.45}.icon-close{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font-size:28px;cursor:pointer}.reimbursement-detail-list{display:flex;flex-direction:column;border-top:1px solid var(--divider-color)}.reimbursement-detail-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--divider-color);cursor:pointer}.reimbursement-detail-row input{width:18px;height:18px;accent-color:var(--primary-color)}.reimbursement-detail-row>div{display:flex;flex-direction:column;gap:3px;min-width:0}.reimbursement-detail-row small{color:var(--secondary-text-color)}.reimbursement-detail-total{display:flex;justify-content:space-between;align-items:center;padding:15px 0;font-size:14px}.reimbursement-detail-total strong{font-size:19px}.modal-actions{display:flex;justify-content:flex-end;gap:9px;flex-wrap:wrap;padding-top:4px}.modal-actions [disabled],.paypal[aria-disabled="true"]{opacity:.5;pointer-events:none}
+      .house-switch{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--secondary-text-color);min-width:150px}
+      .house-switch select{height:42px;border:1px solid var(--divider-color);border-radius:9px;background:var(--card-background-color);color:var(--primary-text-color);font:inherit;font-size:13px;padding:0 10px}
+      .hero-actions{flex-wrap:wrap;align-items:flex-end}
+      @media(max-width:720px){.house-switch{flex-basis:100%;min-width:0}.house-switch select{width:100%}}
       @media(max-width:1180px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-main{grid-template-columns:1fr}.grid-bottom{grid-template-columns:1fr 1fr}.parser-health{grid-column:1/-1}}
       @media(max-width:720px){.recurring-stats{grid-template-columns:1fr 1fr}.reimbursement-row,.history-row{grid-template-columns:1fr}.reimbursement-actions{flex-wrap:wrap}.hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%}.hero-actions button{flex:1}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-bottom{grid-template-columns:1fr}.parser-health{grid-column:auto}.panel{padding:14px}.chart-filter-groups{grid-template-columns:1fr}.chart-filter-head{align-items:flex-start;flex-direction:column}.chart-controls{grid-template-columns:1fr 1fr}.legend{display:none}.hero h1{font-size:25px}}
     `
@@ -2222,6 +2327,7 @@ class BillyBills extends HTMLElement {
     this._error = null
     this._search = ''
     this._category = 'all'
+    this._house = 'all'
     this._status = 'all'
     this._reimbursement = 'all'
     this._year = 'all'
@@ -2528,6 +2634,7 @@ class BillyBills extends HTMLElement {
     const query = this._search.trim().toLocaleLowerCase(localeOf(this._hass))
     return (this._data?.expenses || [])
       .filter((row) => {
+        if (this._house !== 'all' && row.house_id !== this._house) return false
         if (this._category !== 'all' && row.category_id !== this._category)
           return false
         if (this._status === 'paid' && !row.paid) return false
@@ -2604,7 +2711,8 @@ class BillyBills extends HTMLElement {
               `${part.name} ${Number(part.percentage || 0).toLocaleString(localeOf(this._hass), { maximumFractionDigits: 2 })}%`,
           )
           .join(' · ')
-        const details = [row.provider, row.contract].filter(Boolean).join(' · ')
+        const houseName = (this._data?.houses || []).find(home => home.id === row.house_id)?.name
+        const details = [row.provider, row.contract, houseName].filter(Boolean).join(' · ')
         return `<article class="bill-row">
         <label class="paid-toggle" title="${escapeHtml(this._t('paymentStatus'))}"><input type="checkbox" data-paid-id="${escapeHtml(row.id)}" ${row.paid ? 'checked' : ''}><span></span></label>
         <i class="category-color" style="background:${safeColor(category?.color || row.category_color)}"></i>
@@ -2870,6 +2978,7 @@ class BillyBills extends HTMLElement {
         ${this._pendingImportsHtml()}
         <div class="toolbar">
           <label class="search"><ha-icon icon="mdi:magnify"></ha-icon><input id="bill-search" type="search" value="${escapeHtml(this._search)}" placeholder="${escapeHtml(this._t('searchBills'))}"></label>
+          <select id="bill-house" aria-label="${escapeHtml(this._t('house'))}"><option value="all" ${this._house === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allHouses'))}</option>${(this._data.houses || []).map(home => `<option value="${escapeHtml(home.id)}" ${this._house === home.id ? 'selected' : ''}>${escapeHtml(home.name)}</option>`).join('')}</select>
           <select id="bill-category"><option value="all">${escapeHtml(this._t('allTypes'))}</option>${categories.map((row) => `<option value="${escapeHtml(row.id)}" ${this._category === row.id ? 'selected' : ''}>${escapeHtml(row.name)}</option>`).join('')}</select>
           <select id="bill-status"><option value="all" ${this._status === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allStatuses'))}</option><option value="unpaid" ${this._status === 'unpaid' ? 'selected' : ''}>${escapeHtml(this._t('providerUnpaid'))}</option><option value="paid" ${this._status === 'paid' ? 'selected' : ''}>${escapeHtml(this._t('providerPaid'))}</option></select>
           <select id="bill-reimbursement"><option value="all" ${this._reimbursement === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allReimbursementStatuses'))}</option><option value="pending" ${this._reimbursement === 'pending' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementPending'))}</option><option value="done" ${this._reimbursement === 'done' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementDone'))}</option><option value="none" ${this._reimbursement === 'none' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementNone'))}</option></select>
@@ -2949,6 +3058,11 @@ class BillyBills extends HTMLElement {
         this._page = 1
         this._renderListOnly()
       })
+    this.shadowRoot.getElementById('bill-house')?.addEventListener('change', event => {
+      this._house = event.currentTarget.value
+      this._page = 1
+      this._renderListOnly()
+    })
     this.shadowRoot
       .getElementById('bill-status')
       ?.addEventListener('change', (event) => {
@@ -3035,6 +3149,7 @@ class BillyBills extends HTMLElement {
       <div class="modal-head"><h3>${escapeHtml(existing ? this._t('editBill') : this._t('addBill'))}</h3><button type="button" class="icon-close" id="bill-modal-close">×</button></div>
       <div class="form-grid">
         <label><span>${escapeHtml(this._t('billType'))}</span><select name="category_id" id="form-category" required>${categories.map((category) => `<option value="${escapeHtml(category.id)}" ${category.id === selectedCategory.id ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label>
+        <label><span>${escapeHtml(this._t('house'))}</span><select name="house_id" required>${(this._data?.houses || []).map(home => `<option value="${escapeHtml(home.id)}" ${home.id === (row?.house_id || (this._house !== 'all' ? this._house : this._data?.default_house_id)) ? 'selected' : ''}>${escapeHtml(home.name)}</option>`).join('')}</select></label>
         ${row?.is_placeholder ? `<p class="span2">${escapeHtml(this._t('placeholderHelp'))}</p>` : ''}
         <label><span>${escapeHtml(this._t('billingMonth'))}</span><input name="paid_month" id="form-paid-month" type="month" required value="${escapeHtml(paidMonth)}"></label>
         <label><span>${escapeHtml(this._t('amount'))}</span><input name="amount" type="number" min="0" step="0.01" required value="${escapeHtml(row?.amount ?? '')}"></label>
@@ -3165,6 +3280,7 @@ class BillyBills extends HTMLElement {
       year: paid.year,
       month: paid.month,
       category_id: String(form.get('category_id') || ''),
+      house_id: String(form.get('house_id') || ''),
       amount,
       note: String(form.get('note') || '').trim(),
       period_start_year: start.year,
@@ -3359,7 +3475,7 @@ class BillyBills extends HTMLElement {
       @media(max-width:720px){.hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%}.hero-actions button{flex:1}.review-row{grid-template-columns:1fr}.review-actions{flex-wrap:wrap}.toolbar{grid-template-columns:1fr}.bill-row{grid-template-columns:32px 8px minmax(0,1fr) auto;padding:12px}.bill-month{grid-column:3}.bill-state{grid-column:3}.bill-amount{grid-column:3;text-align:left}.bill-actions{grid-column:4;grid-row:1 / span 4;flex-direction:column}.form-grid,.split-grid{grid-template-columns:1fr}.span2{grid-column:auto}.modal{padding:8px}.modal-card{padding:16px}}
       /* Columns have fixed slots: an optional PDF must not move the amount or action buttons. */
       .bills-page,.list-card{container-type:inline-size}
-      .toolbar{grid-template-columns:minmax(210px,1.5fr) repeat(5,minmax(110px,1fr))}
+      .toolbar{grid-template-columns:minmax(190px,1.6fr) repeat(6,minmax(110px,1fr))}
       .toolbar select{min-width:0;width:100%;text-overflow:ellipsis}
       .bill-row{
         grid-template-columns:32px 8px minmax(210px,1fr) minmax(146px,180px) minmax(128px,155px) 108px 230px;
@@ -3372,7 +3488,8 @@ class BillyBills extends HTMLElement {
       .bill-row>.bill-month{grid-area:month}
       .bill-row>.bill-state{grid-area:state;min-width:0}
       .bill-row>.bill-amount{grid-area:amount;font-variant-numeric:tabular-nums}
-      .bill-row>.bill-actions{grid-area:actions;display:grid;grid-template-columns:minmax(0,1fr) 43px 57px;align-items:center;gap:5px;min-width:0;width:100%}
+      .bill-row>.bill-actions{grid-area:actions;display:grid;grid-template-columns:minmax(0,1fr) minmax(73px,auto) minmax(70px,auto);align-items:center;gap:5px;min-width:0;width:100%}
+      .bill-actions button{white-space:nowrap;text-align:center;min-width:0}
       .bill-actions .document-action{display:inline-flex;align-items:center;justify-content:center;gap:3px;min-width:0;overflow:hidden;white-space:nowrap;padding:6px 5px;border:1px solid var(--divider-color);border-radius:10px;color:var(--primary-text-color);font:inherit;font-size:11px;text-decoration:none}
       .bill-actions .document-action ha-icon{--mdc-icon-size:15px;flex:none}
       .bill-actions .bill-document-placeholder{display:block}
@@ -3417,9 +3534,11 @@ class BillyRecurring extends HTMLElement {
     this._search = ''
     this._kind = 'all'
     this._status = 'all'
+    this._house = 'all'
     this._reimbursement = 'all'
     this._editing = null
     this._unsubscribe = null
+    this._paymentBusy = false
   }
 
   set hass(value) {
@@ -3540,6 +3659,7 @@ class BillyRecurring extends HTMLElement {
     const query = this._search.trim().toLocaleLowerCase(localeOf(this._hass))
     return (this._data?.recurring_expenses || [])
       .filter((row) => {
+        if (this._house !== 'all' && row.house_id !== this._house) return false
         if (this._kind !== 'all' && row.kind !== this._kind) return false
         if (this._status !== 'all' && row.status !== this._status) return false
         if (
@@ -3624,7 +3744,7 @@ class BillyRecurring extends HTMLElement {
         <div class="recurring-due"><span>${escapeHtml(this._t('nextCharge'))}</span><strong>${escapeHtml(this._date(row.next_due_date))}</strong>${renewal && details ? `<small>${escapeHtml(renewal)}</small>` : ''}</div>
         <div class="recurring-value"><strong>${escapeHtml(this._money(row.amount))}</strong><small>${escapeHtml(`${this._t('monthlyEquivalent')}: ${this._money(row.monthly_equivalent)}`)}</small>${row.remaining_amount != null ? `<small>${escapeHtml(`${this._t('remainingCommitment')}: ${this._money(row.remaining_amount)}`)}</small>` : ''}</div>
         <div class="status-stack"><span class="status ${escapeHtml(row.status)}">${escapeHtml(this._statusLabel(row.status))}</span><span class="status reimbursement ${escapeHtml(row.reimbursement_status || 'none')}">${escapeHtml(reimbursementLabel)}</span></div>
-        <div class="actions">${(row.reimbursement_occurrences || []).length ? `<button type="button" data-recurring-reimbursements="${escapeHtml(row.id)}">${escapeHtml(this._t('manageRecurringReimbursements'))}</button>` : ''}<button type="button" data-edit-recurring="${escapeHtml(row.id)}">${escapeHtml(this._t('edit'))}</button>${row.status !== 'ended' ? `<button type="button" data-toggle-recurring="${escapeHtml(row.id)}" data-active="${row.active ? '1' : '0'}">${escapeHtml(row.active ? this._t('pause') : this._t('resume'))}</button>` : ''}<button type="button" class="danger" data-delete-recurring="${escapeHtml(row.id)}">${escapeHtml(this._t('delete'))}</button></div>
+        <div class="actions"><button type="button" data-recurring-payments="${escapeHtml(row.id)}">${escapeHtml(this._t('recurringPayments'))}</button>${(row.reimbursement_occurrences || []).length ? `<button type="button" data-recurring-reimbursements="${escapeHtml(row.id)}">${escapeHtml(this._t('manageRecurringReimbursements'))}</button>` : ''}<button type="button" data-edit-recurring="${escapeHtml(row.id)}">${escapeHtml(this._t('edit'))}</button>${row.status !== 'ended' ? `<button type="button" data-toggle-recurring="${escapeHtml(row.id)}" data-active="${row.active ? '1' : '0'}">${escapeHtml(row.active ? this._t('pause') : this._t('resume'))}</button>` : ''}<button type="button" class="danger" data-delete-recurring="${escapeHtml(row.id)}">${escapeHtml(this._t('delete'))}</button></div>
       </article>`
       })
       .join('')
@@ -3637,6 +3757,11 @@ class BillyRecurring extends HTMLElement {
   }
 
   _wireRows() {
+    for (const button of this.shadowRoot.querySelectorAll('[data-recurring-payments]')) {
+      button.addEventListener('click', () =>
+        this._openRecurringPayments(button.dataset.recurringPayments),
+      )
+    }
     for (const button of this.shadowRoot.querySelectorAll(
       '[data-recurring-reimbursements]',
     )) {
@@ -3692,6 +3817,7 @@ class BillyRecurring extends HTMLElement {
         <div class="info"><ha-icon icon="mdi:information-outline"></ha-icon><span>${escapeHtml(this._t('recurringForecastHelp'))}</span></div>
         ${this._error ? `<div class="notice error">${escapeHtml(this._error)}</div>` : ''}
         <div class="toolbar">
+          <select id="recurring-house" aria-label="${escapeHtml(this._t('house'))}"><option value="all" ${this._house === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allHouses'))}</option>${(this._data.houses || []).map(home => `<option value="${escapeHtml(home.id)}" ${this._house === home.id ? 'selected' : ''}>${escapeHtml(home.name)}</option>`).join('')}</select>
           <label class="search"><ha-icon icon="mdi:magnify"></ha-icon><input id="recurring-search" type="search" value="${escapeHtml(this._search)}" placeholder="${escapeHtml(this._t('searchRecurring'))}"></label>
           <select id="recurring-kind"><option value="all">${escapeHtml(this._t('allRecurringKinds'))}</option><option value="subscription" ${this._kind === 'subscription' ? 'selected' : ''}>${escapeHtml(this._t('subscription'))}</option><option value="mortgage" ${this._kind === 'mortgage' ? 'selected' : ''}>${escapeHtml(this._t('mortgage'))}</option><option value="installment" ${this._kind === 'installment' ? 'selected' : ''}>${escapeHtml(this._t('installment'))}</option><option value="recurring" ${this._kind === 'recurring' ? 'selected' : ''}>${escapeHtml(this._t('recurringGeneric'))}</option></select>
           <select id="recurring-status"><option value="all">${escapeHtml(this._t('allRecurringStatuses'))}</option><option value="active" ${this._status === 'active' ? 'selected' : ''}>${escapeHtml(this._t('recurringActive'))}</option><option value="inactive" ${this._status === 'inactive' ? 'selected' : ''}>${escapeHtml(this._t('recurringInactive'))}</option><option value="ended" ${this._status === 'ended' ? 'selected' : ''}>${escapeHtml(this._t('recurringEnded'))}</option></select>
@@ -3719,6 +3845,10 @@ class BillyRecurring extends HTMLElement {
         this._kind = event.currentTarget.value
         this._renderListOnly()
       })
+    this.shadowRoot.getElementById('recurring-house')?.addEventListener('change', event => {
+      this._house = event.currentTarget.value
+      this._renderListOnly()
+    })
     this.shadowRoot
       .getElementById('recurring-status')
       ?.addEventListener('change', (event) => {
@@ -3766,6 +3896,7 @@ class BillyRecurring extends HTMLElement {
       <div class="modal-head"><h3>${escapeHtml(row ? this._t('edit') : this._t('addRecurring'))}</h3><button type="button" class="icon-close" id="recurring-close">×</button></div>
       <div class="form-grid">
         <label><span>${escapeHtml(this._t('billType'))}</span><select name="kind"><option value="subscription" ${row?.kind === 'subscription' || !row ? 'selected' : ''}>${escapeHtml(this._t('subscription'))}</option><option value="mortgage" ${row?.kind === 'mortgage' ? 'selected' : ''}>${escapeHtml(this._t('mortgage'))}</option><option value="installment" ${row?.kind === 'installment' ? 'selected' : ''}>${escapeHtml(this._t('installment'))}</option><option value="recurring" ${row?.kind === 'recurring' ? 'selected' : ''}>${escapeHtml(this._t('recurringGeneric'))}</option></select></label>
+        <label><span>${escapeHtml(this._t('house'))}</span><select name="house_id" required>${(this._data?.houses || []).map(home => `<option value="${escapeHtml(home.id)}" ${home.id === (row?.house_id || (this._house !== 'all' ? this._house : this._data?.default_house_id)) ? 'selected' : ''}>${escapeHtml(home.name)}</option>`).join('')}</select></label>
         <label><span>${escapeHtml(this._t('name'))}</span><input name="name" required maxlength="120" value="${escapeHtml(row?.name || '')}"></label>
         <label><span>${escapeHtml(this._t('amount'))}</span><input name="amount" type="number" min="0.01" step="0.01" required value="${escapeHtml(row?.amount ?? '')}"></label>
         <label><span>${escapeHtml(this._t('interval'))}</span><select name="interval_months">${intervals.map((value) => `<option value="${value}" ${Number(row?.interval_months || 1) === value ? 'selected' : ''}>${escapeHtml(this._frequency(value))}</option>`).join('')}</select></label>
@@ -3844,6 +3975,7 @@ class BillyRecurring extends HTMLElement {
       ...(id ? { recurring_id: id } : {}),
       name: String(values.get('name') || '').trim(),
       kind: String(values.get('kind') || 'recurring'),
+      house_id: String(values.get('house_id') || ''),
       amount: Number(values.get('amount') || 0),
       interval_months: Number(values.get('interval_months') || 1),
       start_date: String(values.get('start_date') || ''),
@@ -3871,6 +4003,175 @@ class BillyRecurring extends HTMLElement {
       close()
       this._render()
     }
+  }
+
+  _openRecurringPayments(id, page = 0) {
+    const rule = (this._data?.recurring_expenses || []).find(row => row.id === id)
+    const modal = this.shadowRoot.getElementById('recurring-modal')
+    const card = this.shadowRoot.getElementById('recurring-modal-card')
+    if (!rule || !modal || !card) return
+    const history = (this._data?.recurring_history || [])
+      .filter(item => item.id === id)
+      .sort((a, b) => String(b.due_date).localeCompare(String(a.due_date)))
+    const pageSize = 12
+    const currentPage = Math.max(0, Math.min(page, Math.max(0, Math.ceil(history.length / pageSize) - 1)))
+    const pageRows = history.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
+    const now = this._today()
+    this._paymentPage = currentPage
+    card.innerHTML = `
+      <div class="modal-head"><div><h3>${escapeHtml(this._t('recurringPaymentsTitle'))}</h3>
+        <div class="hint">${escapeHtml(rule.name)}</div></div>
+        <button type="button" class="icon-close" id="recurring-close">×</button></div>
+      <div class="info"><ha-icon icon="mdi:information-outline"></ha-icon>
+        <span>${escapeHtml(this._t('recurringPaymentsHelp'))}</span></div>
+      <div class="payment-history">
+        ${pageRows.length ? pageRows.map(item => {
+          const future = String(item.due_date) > now
+          const paid = Boolean(item.paid)
+          const label = paid ? this._t('recurringPaidInstallment')
+            : future ? this._t('recurringFutureInstallment')
+              : this._t('recurringUnpaidInstallment')
+          const actual = paid && item.actual_amount != null ? item.actual_amount : item.amount
+          return `<div class="payment-row">
+            <div class="payment-row-main"><strong>${escapeHtml(this._date(item.due_date))}</strong>
+              <small>${escapeHtml(paid ? this._t('recurringPaymentOn', { date: this._date(item.payment_date) }) : label)}</small>
+              ${item.already_recorded ? `<small>${escapeHtml(this._t('recurringAlreadyRecorded'))}</small>` : ''}
+            </div>
+            <strong>${escapeHtml(this._money(actual))}</strong>
+            <span class="status ${paid ? 'active' : future ? 'ended' : 'inactive'}">${escapeHtml(label)}</span>
+            ${future ? '' : `<button type="button" class="secondary" data-payment-date="${escapeHtml(item.due_date)}">${escapeHtml(this._t(paid ? 'recurringEditPayment' : 'recurringRecordPayment'))}</button>`}
+          </div>`
+        }).join('') : `<div class="empty">${escapeHtml(this._t('recurringNoPaymentsDue'))}</div>`}
+      </div>
+      ${history.length > pageSize ? `<div class="payment-pages">
+        <button type="button" class="secondary" id="payment-prev" ${currentPage === 0 ? 'disabled' : ''}>${escapeHtml(this._t('recurringPrevious'))}</button>
+        <span>${escapeHtml(this._t('recurringPageInfo', { from: currentPage * pageSize + 1, to: Math.min((currentPage + 1) * pageSize, history.length), total: history.length }))}</span>
+        <button type="button" class="secondary" id="payment-next" ${(currentPage + 1) * pageSize >= history.length ? 'disabled' : ''}>${escapeHtml(this._t('recurringNext'))}</button>
+      </div>` : ''}
+      <div class="modal-actions"><button type="button" class="secondary" id="recurring-cancel">${escapeHtml(this._t('close'))}</button></div>`
+    modal.hidden = false
+    const close = () => { modal.hidden = true }
+    card.querySelector('#recurring-close')?.addEventListener('click', close)
+    card.querySelector('#recurring-cancel')?.addEventListener('click', close)
+    modal.querySelector('.modal-backdrop').onclick = close
+    card.querySelector('#payment-prev')?.addEventListener('click', () =>
+      this._openRecurringPayments(id, currentPage - 1))
+    card.querySelector('#payment-next')?.addEventListener('click', () =>
+      this._openRecurringPayments(id, currentPage + 1))
+    for (const button of card.querySelectorAll('[data-payment-date]')) {
+      button.addEventListener('click', () =>
+        this._openRecurringPaymentEditor(id, button.dataset.paymentDate, currentPage))
+    }
+  }
+
+  _openRecurringPaymentEditor(recurringId, dueDate, page = 0) {
+    const installment = (this._data?.recurring_history || [])
+      .find(row => row.id === recurringId && row.due_date === dueDate)
+    const modal = this.shadowRoot.getElementById('recurring-modal')
+    const card = this.shadowRoot.getElementById('recurring-modal-card')
+    if (!installment || !modal || !card || dueDate > this._today()) return
+    const accounts = this._data?.accounts || []
+    const payment = (this._data?.recurring_payments || [])
+      .find(row => row.recurring_id === recurringId && row.due_date === dueDate)
+    const accountId = payment?.account_id || this._data?.default_account_id || ''
+    card.innerHTML = `<form id="recurring-payment-form">
+      <div class="modal-head"><div><h3>${escapeHtml(this._t(payment ? 'recurringEditPayment' : 'recurringRecordPayment'))}</h3>
+        <div class="hint">${escapeHtml(this._date(dueDate))}</div></div>
+        <button type="button" class="icon-close" id="recurring-close">×</button></div>
+      <div class="form-grid">
+        <label><span>${escapeHtml(this._t('recurringPaymentDate'))}</span>
+          <input type="date" name="payment_date" required max="${this._today()}" value="${escapeHtml(payment?.payment_date || dueDate)}"></label>
+        <label><span>${escapeHtml(this._t('recurringPaymentAmount'))}</span>
+          <input type="number" name="amount" required min="0.01" step="0.01" value="${escapeHtml(payment?.amount ?? installment.amount)}"></label>
+        <label class="span2"><span>${escapeHtml(this._t('recurringAccount'))}</span>
+          <select name="account_id" id="recurring-payment-account" ${accounts.length ? 'required' : ''}>
+            ${!accounts.length ? `<option value="">${escapeHtml(this._t('recurringNoAccount'))}</option>` : ''}
+            ${accounts.map(row => `<option value="${escapeHtml(row.id)}" ${row.id === accountId ? 'selected' : ''}>${escapeHtml(row.name)}</option>`).join('')}
+          </select></label>
+        <label class="span2"><span>${escapeHtml(this._t('recurringPaymentNote'))}</span>
+          <textarea name="note" rows="2" maxlength="500">${escapeHtml(payment?.note || '')}</textarea></label>
+        <label class="span2 payment-recorded-check"><input type="checkbox" name="already_recorded" id="payment-already-recorded" ${payment?.already_recorded ? 'checked' : ''}>
+          <span>${escapeHtml(this._t('recurringAlreadyRecorded'))}</span></label>
+        <p class="span2 hint">${escapeHtml(this._t('recurringAlreadyRecordedHelp'))}</p>
+      </div>
+      <div class="modal-actions">
+        ${payment ? `<button type="button" class="secondary" id="payment-undo">${escapeHtml(this._t('recurringUndoPayment'))}</button>` : ''}
+        <button type="button" class="secondary" id="recurring-cancel">${escapeHtml(this._t('cancel'))}</button>
+        <button type="submit" class="primary">${escapeHtml(this._t('save'))}</button>
+      </div>
+    </form>`
+    modal.hidden = false
+    const back = () => this._openRecurringPayments(recurringId, page)
+    card.querySelector('#recurring-close')?.addEventListener('click', back)
+    card.querySelector('#recurring-cancel')?.addEventListener('click', back)
+    modal.querySelector('.modal-backdrop').onclick = back
+    const alreadyRecorded = card.querySelector('#payment-already-recorded')
+    const accountSelect = card.querySelector('#recurring-payment-account')
+    const updateAccount = () => {
+      accountSelect.disabled = alreadyRecorded.checked
+      accountSelect.required = !alreadyRecorded.checked && accounts.length > 0
+    }
+    alreadyRecorded.addEventListener('change', updateAccount)
+    updateAccount()
+    const form = card.querySelector('#recurring-payment-form')
+    form.addEventListener('submit', async event => {
+      event.preventDefault()
+      if (this._paymentBusy) return
+      this._paymentBusy = true
+      const saveButton = form.querySelector('button[type="submit"]')
+      saveButton.disabled = true
+      const values = new FormData(form)
+      try {
+        await this._hass.callWS({
+          type: 'bill_tracker/recurring/payment/set',
+          recurring_id: recurringId,
+          due_date: dueDate,
+          payment_date: String(values.get('payment_date') || ''),
+          amount: Number(values.get('amount') || 0),
+          account_id: alreadyRecorded.checked ? '' : String(values.get('account_id') || ''),
+          note: String(values.get('note') || ''),
+          already_recorded: alreadyRecorded.checked,
+        })
+        await this._load(false)
+        this._openRecurringPayments(recurringId, page)
+      } catch (error) {
+        this._error = errorText(this._hass, error)
+        const previous = form.querySelector('.payment-save-error')
+        if (previous) previous.remove()
+        const message = document.createElement('div')
+        message.className = 'notice error payment-save-error'
+        message.setAttribute('role', 'alert')
+        message.textContent = this._error
+        form.querySelector('.modal-actions').before(message)
+      } finally {
+        this._paymentBusy = false
+        saveButton.disabled = false
+      }
+    })
+    card.querySelector('#payment-undo')?.addEventListener('click', async () => {
+      if (this._paymentBusy || !window.confirm(this._t('recurringPaymentUndoConfirm'))) return
+      this._paymentBusy = true
+      try {
+        await this._hass.callWS({
+          type: 'bill_tracker/recurring/payment/delete',
+          recurring_id: recurringId,
+          due_date: dueDate,
+        })
+        await this._load(false)
+        this._openRecurringPayments(recurringId, page)
+      } catch (error) {
+        this._error = errorText(this._hass, error)
+        const previous = card.querySelector('.payment-save-error')
+        if (previous) previous.remove()
+        const message = document.createElement('div')
+        message.className = 'notice error payment-save-error'
+        message.setAttribute('role', 'alert')
+        message.textContent = this._error
+        card.querySelector('.modal-actions').before(message)
+      } finally {
+        this._paymentBusy = false
+      }
+    })
   }
 
   _openRecurringReimbursements(id) {
@@ -4033,9 +4334,23 @@ class BillyRecurring extends HTMLElement {
   _styles() {
     return `
       :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}.recurring-page{display:flex;flex-direction:column;gap:18px}.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px}.hero h1{font-size:30px;margin:0 0 6px}.hero p{margin:0;color:var(--secondary-text-color);font-size:14px}.primary,.secondary,.actions button,.error-card button{appearance:none;border-radius:10px;padding:9px 13px;font:inherit;font-weight:650;cursor:pointer}.primary{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--primary-color);background:var(--primary-color);color:var(--text-primary-color,#fff)}.secondary,.actions button,.error-card button{border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}.info{display:flex;align-items:flex-start;gap:9px;padding:12px 14px;border-radius:12px;background:color-mix(in srgb,var(--primary-color) 8%,var(--card-background-color));border:1px solid color-mix(in srgb,var(--primary-color) 24%,var(--divider-color));color:var(--secondary-text-color);font-size:12px}.info ha-icon{color:var(--primary-color);--mdc-icon-size:18px;flex:none}.toolbar{display:grid;grid-template-columns:minmax(260px,1fr) repeat(3,minmax(160px,auto));gap:10px}.toolbar select,.search{height:44px;border:1px solid var(--divider-color);border-radius:11px;background:var(--card-background-color);color:var(--primary-text-color)}.toolbar select{padding:0 10px;font:inherit}.search{display:flex;align-items:center;gap:8px;padding:0 12px}.search ha-icon{color:var(--secondary-text-color);--mdc-icon-size:19px}.search input{flex:1;border:0;outline:0;background:transparent;color:inherit;font:inherit;min-width:0}.list-card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:16px;overflow:hidden}.recurring-row{display:grid;grid-template-columns:46px minmax(240px,1.4fr) minmax(160px,.7fr) minmax(170px,.75fr) auto auto;gap:14px;align-items:center;padding:15px 16px;border-top:1px solid var(--divider-color)}.recurring-row:first-child{border-top:0}.kind-icon{width:42px;height:42px;border-radius:12px;background:color-mix(in srgb,var(--primary-color) 11%,transparent);color:var(--primary-color);display:grid;place-items:center}.recurring-main,.recurring-due,.recurring-value{display:flex;flex-direction:column;gap:3px;min-width:0}.recurring-main span,.recurring-main small,.recurring-due span,.recurring-due small,.recurring-value small{font-size:11px;color:var(--secondary-text-color)}.recurring-main strong,.recurring-main small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status{font-size:11px;padding:5px 8px;border-radius:999px;white-space:nowrap}.status.active{color:var(--success-color,#2e7d32);background:color-mix(in srgb,var(--success-color,#2e7d32) 11%,transparent)}.status.inactive{color:var(--warning-color,#f9a825);background:color-mix(in srgb,var(--warning-color,#f9a825) 12%,transparent)}.status.ended{color:var(--secondary-text-color);background:var(--secondary-background-color)}.status-stack{display:flex;flex-direction:column;align-items:flex-start;gap:5px}.status.reimbursement.done{color:var(--success-color,#2e7d32);background:color-mix(in srgb,var(--success-color,#2e7d32) 11%,transparent)}.status.reimbursement.pending{color:var(--warning-color,#f9a825);background:color-mix(in srgb,var(--warning-color,#f9a825) 12%,transparent)}.status.reimbursement.partial{color:var(--primary-color);background:color-mix(in srgb,var(--primary-color) 11%,transparent)}.status.reimbursement.none{color:var(--secondary-text-color);background:var(--secondary-background-color)}.actions{display:flex;gap:6px;flex-wrap:wrap}.actions button{padding:6px 9px;font-size:11px}.actions .danger{color:var(--error-color,#d32f2f)}.empty{padding:50px 16px;text-align:center;color:var(--secondary-text-color)}.notice{padding:11px 14px;border-radius:10px}.notice.error{background:color-mix(in srgb,var(--error-color,#d32f2f) 10%,var(--card-background-color));color:var(--error-color,#d32f2f);border:1px solid color-mix(in srgb,var(--error-color,#d32f2f) 28%,transparent)}.loading,.error-card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:24px}.modal[hidden]{display:none}.modal{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px}.modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}.modal-card{position:relative;z-index:1;width:min(820px,100%);max-height:min(90vh,900px);overflow:auto;background:var(--card-background-color);border-radius:16px;box-shadow:0 18px 60px rgba(0,0,0,.35);padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.modal-head h3{font-size:20px;margin:0}.icon-close{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font-size:28px;cursor:pointer}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.form-grid label{display:flex;flex-direction:column;gap:6px}.form-grid label>span,.hint{font-size:12px;color:var(--secondary-text-color)}.form-grid input,.form-grid select,.form-grid textarea{width:100%;min-height:42px;border:1px solid var(--divider-color);border-radius:9px;background:var(--secondary-background-color);color:var(--primary-text-color);padding:8px 11px;font:inherit;outline:none}.form-grid textarea{resize:vertical}.form-grid .check{flex-direction:row;align-items:center;padding-top:20px}.form-grid .check input{width:18px;min-height:18px;accent-color:var(--primary-color)}.span2{grid-column:1/-1}.split-box{border:1px solid var(--divider-color);border-radius:12px;padding:14px}.split-title{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}.split-title small{font-size:12px;color:var(--secondary-text-color)}.split-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.split-total{text-align:right;margin-top:8px;font-size:12px;color:var(--success-color,#2e7d32)}.split-total.bad{color:var(--error-color,#d32f2f)}.occurrence-list{display:flex;flex-direction:column}.occurrence-row{display:grid;grid-template-columns:minmax(220px,1fr) auto minmax(210px,auto);gap:14px;align-items:center;padding:12px 0;border-top:1px solid var(--divider-color)}.occurrence-row:first-child{border-top:0}.occurrence-row>div:first-child{display:flex;flex-direction:column;gap:3px}.occurrence-row small{font-size:11px;color:var(--secondary-text-color)}.occurrence-state{display:flex;align-items:center;gap:7px}.reimbursement-toggle{position:relative;width:22px;height:22px;display:grid;place-items:center;cursor:pointer}.reimbursement-toggle input{position:absolute;opacity:0}.reimbursement-toggle span{width:18px;height:18px;border:2px solid var(--divider-color);border-radius:5px;display:grid;place-items:center}.reimbursement-toggle input:checked+span{border-color:var(--success-color,#2e7d32);background:var(--success-color,#2e7d32)}.reimbursement-toggle input:checked+span:after{content:'✓';color:white;font-size:11px;font-weight:800}.reimbursement-toggle input:disabled+span{opacity:.55;cursor:not-allowed}.modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:20px;padding-top:16px;border-top:1px solid var(--divider-color)}
+      .payment-history{margin-top:16px;display:flex;flex-direction:column;gap:0}
+      .payment-row{display:grid;grid-template-columns:minmax(160px,1fr) auto auto auto;align-items:center;gap:16px;padding:13px 0;border-bottom:1px solid var(--divider-color)}
+      .payment-row-main{display:flex;flex-direction:column;gap:3px;min-width:0}.payment-row-main small{font-size:11px;color:var(--secondary-text-color)}
+      .payment-row>strong{white-space:nowrap}.payment-row .status{text-align:center}
+      .payment-pages{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px;font-size:12px;color:var(--secondary-text-color)}
+      .payment-pages button:disabled{opacity:.4;cursor:default}
+      .payment-recorded-check{display:flex!important;flex-direction:row!important;align-items:center;gap:10px}
+      .payment-recorded-check input{width:18px!important;min-height:18px!important;flex:none;accent-color:var(--primary-color)}
       .hero-actions{display:flex;gap:9px;flex-wrap:wrap}.hero-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px}.export-help{margin:0 0 16px;color:var(--secondary-text-color);font-size:13px;line-height:1.45}
+      .recurring-page{container-type:inline-size}
+      .toolbar{grid-template-columns:minmax(155px,1fr) minmax(210px,1.4fr) repeat(3,minmax(140px,1fr))}
+      .toolbar select,.toolbar .search{width:100%;min-width:0}
+      @container (max-width:1100px){.toolbar{grid-template-columns:repeat(3,minmax(0,1fr))}.toolbar .search{grid-column:span 2}}
+      @container (max-width:700px){.toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.toolbar .search{grid-column:span 2}}
+      @container (max-width:460px){.toolbar{grid-template-columns:minmax(0,1fr)}.toolbar .search{grid-column:auto}}
       @media(max-width:1050px){.recurring-row{grid-template-columns:46px minmax(200px,1fr) auto auto}.recurring-due{grid-column:2}.recurring-value{grid-column:3;grid-row:1 / span 2}.status-stack{grid-column:4;grid-row:1}.actions{grid-column:4;grid-row:2}}
-      @media(max-width:720px){.hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%}.hero-actions button{flex:1}.toolbar{grid-template-columns:1fr}.recurring-row{grid-template-columns:42px minmax(0,1fr);padding:12px}.recurring-due,.recurring-value,.status-stack,.actions{grid-column:2;grid-row:auto}.actions{flex-wrap:wrap}.form-grid,.split-grid{grid-template-columns:1fr}.span2{grid-column:auto}.occurrence-row{grid-template-columns:1fr}.modal{padding:8px}.modal-card{padding:16px}}
+      @media(max-width:720px){.hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%}.hero-actions button{flex:1}.toolbar{grid-template-columns:1fr}.recurring-row{grid-template-columns:42px minmax(0,1fr);padding:12px}.recurring-due,.recurring-value,.status-stack,.actions{grid-column:2;grid-row:auto}.actions{flex-wrap:wrap}.form-grid,.split-grid{grid-template-columns:1fr}.span2{grid-column:auto}.occurrence-row{grid-template-columns:1fr}.payment-row{grid-template-columns:1fr auto;gap:8px}.payment-row-main{grid-column:1}.payment-row .status{grid-column:1}.payment-row button{grid-column:2;grid-row:2 / span 2}.modal{padding:8px}.modal-card{padding:16px}}
     `
   }
 }
@@ -4059,7 +4374,7 @@ class BillySettings extends HTMLElement {
     this._backupFileName = ''
   }
   set section(value) {
-    if (!['categories', 'payers', 'accounts', 'sources', 'rejectedImports', 'transfer', 'system', 'developer'].includes(value)) return
+    if (!['categories', 'payers', 'accounts', 'houses', 'sources', 'rejectedImports', 'transfer', 'system', 'developer'].includes(value)) return
     if (this._section === value) return
     this._section = value
     if (this._data) this._render()
@@ -4154,6 +4469,78 @@ class BillySettings extends HTMLElement {
 
   _sectionButton(key, icon) {
     return `<button type="button" class="settings-nav-item ${this._section === key ? 'active' : ''}" data-section="${key}"><ha-icon icon="${icon}"></ha-icon><span>${escapeHtml(this._t(key === 'categories' ? 'billTypes' : key))}</span></button>`
+  }
+  _houses() {
+    const houses = this._data?.houses || []
+    return `<div class="section-head"><div><h2>${escapeHtml(this._t('houses'))}</h2><p>${escapeHtml(this._t('houseHelp'))}</p></div>
+      <button type="button" id="add-house" class="primary">${escapeHtml(this._t('addHouse'))}</button></div>
+      <div class="items">${houses.map(home => `<article class="item-row">
+        <div class="avatar"><ha-icon icon="mdi:home-outline"></ha-icon></div>
+        <div class="item-main"><strong>${escapeHtml(home.name)}</strong>
+          ${home.id === this._data.default_house_id ? `<small>${escapeHtml(this._t('defaultHouse'))}</small>` : ''}</div>
+        <div class="row-actions">
+          <button type="button" data-edit-house="${escapeHtml(home.id)}">${escapeHtml(this._t('edit'))}</button>
+          ${home.id !== this._data.default_house_id ? `<button type="button" data-default-house="${escapeHtml(home.id)}">${escapeHtml(this._t('setDefaultHouse'))}</button>` : ''}
+          ${home.id !== this._data.default_house_id ? `<button type="button" class="danger" data-delete-house="${escapeHtml(home.id)}">${escapeHtml(this._t('delete'))}</button>` : ''}
+        </div></article>`).join('')}</div>`
+  }
+
+  _openHouse(houseId = null) {
+    const home = (this._data?.houses || []).find(row => row.id === houseId)
+    const modal = this.shadowRoot.getElementById('modal')
+    const card = this.shadowRoot.getElementById('modal-card')
+    if (!modal || !card) return
+    card.innerHTML = `<form id="house-form">
+      <div class="modal-head"><h3>${escapeHtml(this._t(home ? 'editHouse' : 'addHouse'))}</h3>
+        <button type="button" class="icon-close" data-close-house>×</button></div>
+      <div class="form-grid"><label class="span2"><span>${escapeHtml(this._t('houseName'))}</span>
+        <input name="name" required minlength="1" maxlength="80" value="${escapeHtml(home?.name || '')}"></label></div>
+      <div class="modal-actions"><button type="button" class="secondary" data-close-house>${escapeHtml(this._t('cancel'))}</button>
+        <button class="primary" type="submit">${escapeHtml(this._t('save'))}</button></div>
+    </form>`
+    modal.hidden = false
+    const close = () => { modal.hidden = true }
+    card.querySelectorAll('[data-close-house]').forEach(button => button.addEventListener('click', close))
+    modal.querySelector('.modal-backdrop').onclick = close
+    card.querySelector('#house-form').addEventListener('submit', async event => {
+      event.preventDefault()
+      const form = event.currentTarget
+      const button = form.querySelector('[type="submit"]')
+      button.disabled = true
+      try {
+        await this._hass.callWS({
+          type: home ? 'bill_tracker/house/update' : 'bill_tracker/house/add',
+          ...(home ? { house_id: home.id } : {}),
+          name: form.elements.namedItem('name').value.trim(),
+        })
+        close()
+        await this._load(false)
+      } catch (error) {
+        let notice = form.querySelector('[role="alert"]')
+        if (!notice) {
+          notice = document.createElement('div')
+          notice.className = 'notice error'
+          notice.setAttribute('role', 'alert')
+          form.querySelector('.modal-actions').before(notice)
+        }
+        notice.textContent = errorText(this._hass, error)
+      } finally { button.disabled = false }
+    })
+  }
+
+  async _houseAction(type, houseId) {
+    if (type === 'delete' && !window.confirm(this._t('houseDeleteConfirm'))) return
+    try {
+      await this._hass.callWS({
+        type: type === 'delete' ? 'bill_tracker/house/delete' : 'bill_tracker/house/default',
+        house_id: houseId,
+      })
+      this._error = null
+      await this._load(false)
+    } catch (error) {
+      this._error = errorText(this._hass, error)
+      this._render()
+    }
   }
 
   _categories() {
@@ -4381,6 +4768,7 @@ class BillySettings extends HTMLElement {
     if (!this._data) return
 
     let content = this._categories()
+    if (this._section === 'houses') content = this._houses()
     if (this._section === 'payers') content = this._payers()
     if (this._section === 'accounts') content = '<billy-accounts id="settings-accounts" mode="settings"></billy-accounts>'
     if (this._section === 'sources') content = this._sources()
@@ -4396,7 +4784,7 @@ class BillySettings extends HTMLElement {
         ${this._notice ? `<div class="notice">${escapeHtml(this._notice)}</div>` : ''}
         ${this._error ? `<div class="notice error">${escapeHtml(this._error)}</div>` : ''}
         <div class="settings-layout">
-          <aside>${this._sectionButton('categories', 'mdi:shape-outline')}${this._sectionButton('payers', 'mdi:account-group-outline')}${this._sectionButton('accounts', 'mdi:wallet-outline')}${this._sectionButton('sources', 'mdi:email-outline')}${this._sectionButton('rejectedImports', 'mdi:receipt-text-remove-outline')}${this._sectionButton('transfer', 'mdi:swap-vertical-bold')}${this._sectionButton('system', 'mdi:cog-outline')}${this._sectionButton('developer', 'mdi:account-heart-outline')}</aside>
+          <aside>${this._sectionButton('categories', 'mdi:shape-outline')}${this._sectionButton('payers', 'mdi:account-group-outline')}${this._sectionButton('houses', 'mdi:home-outline')}${this._sectionButton('accounts', 'mdi:wallet-outline')}${this._sectionButton('sources', 'mdi:email-outline')}${this._sectionButton('rejectedImports', 'mdi:receipt-text-remove-outline')}${this._sectionButton('transfer', 'mdi:swap-vertical-bold')}${this._sectionButton('system', 'mdi:cog-outline')}${this._sectionButton('developer', 'mdi:account-heart-outline')}</aside>
           <section class="settings-content">${content}</section>
         </div>
       </div>
@@ -4415,6 +4803,16 @@ class BillySettings extends HTMLElement {
     }
     const accounts = this.shadowRoot.getElementById('settings-accounts')
     if (accounts) accounts.hass = this._hass
+    this.shadowRoot.getElementById('add-house')?.addEventListener('click', () => this._openHouse())
+    for (const button of this.shadowRoot.querySelectorAll('[data-edit-house]')) {
+      button.addEventListener('click', () => this._openHouse(button.dataset.editHouse))
+    }
+    for (const button of this.shadowRoot.querySelectorAll('[data-default-house]')) {
+      button.addEventListener('click', () => this._houseAction('default', button.dataset.defaultHouse))
+    }
+    for (const button of this.shadowRoot.querySelectorAll('[data-delete-house]')) {
+      button.addEventListener('click', () => this._houseAction('delete', button.dataset.deleteHouse))
+    }
     this.shadowRoot
       .getElementById('add-category')
       ?.addEventListener('click', () => this._openCategory())
@@ -5071,7 +5469,7 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.16.0-r1').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.17.0-r1').catch((error) => {
         this._incomePromise = null
         for (const id of ['income-panel', 'recurring-income-panel']) {
           const section = this.shadowRoot?.getElementById(id)
@@ -5091,7 +5489,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.16.0-r1'
+        './billy-reimbursement-history.js?v=0.17.0-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(

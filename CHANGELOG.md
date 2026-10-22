@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.17.0
+
+Released: 2026-10-22.
+
+- Added a **Houses / Case** model within the existing Billy integration:
+  create, rename and choose a default house in Settings. Bills and recurring
+  expenses can be assigned to a house, and filtered by house in their lists.
+- Dashboard supports **All houses** and individual house views with scoped
+  totals, history and forecasts. The global view remains unchanged. Bank
+  accounts, income, parsers, HA user accounts and updates remain shared;
+  grouping by house is not legal, authorization or privacy segregation.
+- Previous bills and recurring expenses are automatically assigned to a
+  generated default house. The backup includes house definitions and links;
+  deleting a house with linked financial records is prohibited.
+- Added backend and frontend regression tests for house migration, API
+  grouping, filtering, recurring expenses and backup round trips.
+- Fixed narrow action-button columns on Bills and the oversized, wrapped
+  house-filter layout on Recurring expenses at desktop and tablet widths.
+- Reimbursement history now filters by House, including completed,
+  outstanding and manual reimbursements. Mixed-house transfers show only
+  itemized amounts attributable to the selected House, without changing
+  the original settlement; historic transfers without itemized amounts
+  display an unknown amount instead of an incorrect sum. Mixed transfers
+  can only be undone from the All houses view.
+- New settlement items retain their House identity even when the source
+  bill is subsequently moved, and houses with recorded reimbursements
+  cannot be deleted until those records are undone.
+
+- Added explicit payments for recurring expenses, including historical
+  mortgage installments. Each payment records an actual date, amount,
+  debited account and optional note, and can be corrected or undone.
+- Separated *scheduled* expenses from *paid* cash outflows in account
+  balances, historical spending charts and the Spending Lovelace widget.
+- Added an explicit reconciliation option for payments already represented
+  as paid Bills in Billy, preventing double posting. Existing negative
+  opening balances and internal transfers are not automatically rewritten.
+- Added WebSocket payment CRUD actions, backup storage/validation, account
+  reference guards and protection against orphaned installments when editing
+  recurring schedules. Storage schema is now version 20, including houses.
+- Added a paginated installment-payment interface and regression tests.
+  Frontend resource cache is `0.17.0-r1` and the integration version is
+  `0.17.0`.
+
 ## 0.16.0
 
 Released: 2026-10-21.

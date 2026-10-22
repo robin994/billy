@@ -77,6 +77,7 @@ def manager():
     events = []
     hass = SimpleNamespace(config=SimpleNamespace(currency="EUR"), bus=SimpleNamespace(async_fire=events.append))
     instance = namespace["BillTrackerManager"](hass)
+    instance._migrate_houses()
     instance.clock = clock
     instance.events = events
     instance.exporter = modules["exporter"]

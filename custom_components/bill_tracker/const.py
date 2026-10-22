@@ -5,11 +5,11 @@ PROJECT_URL = "https://github.com/robin994/billy"
 PARSER_PROJECT_URL = "https://github.com/robin994/billy-parser"
 SUPPORT_URL = "https://paypal.me/rtortora94"
 STORAGE_VERSION = 1
-STORAGE_SCHEMA_VERSION = 18
+STORAGE_SCHEMA_VERSION = 20
 STORAGE_KEY = "bill_tracker.expenses"
 EVENT_UPDATED = "bill_tracker_updated"
-FRONTEND_VERSION = "0.16.0"
-FRONTEND_CACHE_VERSION = "0.16.0-r1"
+FRONTEND_VERSION = "0.17.0"
+FRONTEND_CACHE_VERSION = "0.17.0-r1"
 
 SUPPORTED_INTERVALS = (1, 2, 3, 4, 6, 12)
 

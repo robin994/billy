@@ -1,6 +1,6 @@
-import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.16.0-r1'
+import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.17.0-r1'
 
-const BILLY_WIDGETS_VERSION = '0.16.0'
+const BILLY_WIDGETS_VERSION = '0.17.0'
 
 const WIDGET_TEXT = {
   en: {
@@ -859,11 +859,12 @@ class BillySpendingCard extends BillyWidgetBase {
     const recurringByMonth = new Map()
     if (this._config.show_recurring !== false) {
       for (const item of this._data.recurring_history || []) {
-        const key = String(item.due_date || '').slice(0, 7)
+        if (!item.paid || item.already_recorded) continue
+        const key = String(item.payment_date || '').slice(0, 7)
         if (!key) continue
         recurringByMonth.set(
           key,
-          number(recurringByMonth.get(key)) + number(item.amount),
+          number(recurringByMonth.get(key)) + number(item.actual_amount),
         )
       }
     }

@@ -14,6 +14,31 @@ Detailed setup and usage for provider bills, recurring expenses, reimbursements,
 - Share a custom parser with the community as Experimental without uploading the original invoice, email or PDF.
 - Use Billy either as the full `/billy` sidebar application or through compact Lovelace dashboard widgets.
 
+## Manage several homes with Houses
+
+Go to **Settings / Impostazioni → Houses / Case** to add or rename houses,
+select a default house, and remove unused houses. Billy creates one default
+house for existing installations and assigns existing bills and recurring
+expenses to it without changing their amounts or payment status.
+
+In **Bills / Bollette**, choose a house in the toolbar to see just its bills
+or **All houses / Tutte le case**. In the bill editor, select the house
+associated with that invoice. **Recurring → Expenses** similarly supports
+house assignment for subscriptions, mortgages and other recurring costs.
+
+**Overview / Dashboard** also has a House selector: **All houses** uses
+the existing combined totals, while an individual house shows only its
+bills, recurring charges, historical spending and forecasts. The common
+bank accounts, income, parsers and Home Assistant user accounts are *not*
+split into separate houses or duplicated. House views exclude global income
+from their scoped KPIs rather than misrepresenting it as belonging to a house.
+Automatic invoice placeholders default to the configured default house.
+
+This is **one shared Billy workspace**, not financial data segregation by
+legal entity or per-user authorization. Houses do not enforce privacy,
+access permissions or legal compliance. For independent regulated records,
+use genuinely separated environments and appropriate access controls.
+
 ## Accounts, income and recurring plans
 
 The main **Accounts / Conti** tab shows balances and internal transfer history.
@@ -44,6 +69,45 @@ Installment plans can also define a total installment count. Billy calculates th
 Recurring charges are included in the regular **forecast** on their exact due months. The normalized forecast also includes their monthly-equivalent cost, so an annual subscription contributes `amount / 12` to the normalized monthly planning view. Overview now shows recurring monthly equivalent, charges due next month, active recurring count and remaining installment commitment.
 
 Provider bills and recurring rules remain separate concepts: a recurring rule predicts a cost; it does not mark a provider invoice as paid and it is not an email-parser result.
+
+### Record historical or current recurring payments
+
+Under **Recurring / Ricorrenti → Expenses / Spese**, choose **Payments** on
+any mortgage, installment plan, subscription or recurring expense. Billy shows
+the individual scheduled installments, including past due dates, with an
+independent **Paid / Not confirmed** status. A scheduled installment is *not*
+proof that money left an account.
+
+Choose **Record payment** on a due installment and enter its **actual payment
+date**, **actual amount**, **debited account** (if configured) and optional
+note. You can also **Edit payment** or **Undo payment** without changing the
+recurring rule or reimbursements between household members. Future due dates
+cannot be confirmed as paid before they arrive.
+
+Confirmed payments affect the account balance and historical spending **on
+the actual payment date**, even if the installment was due in an earlier
+month. Scheduled but unconfirmed installments remain forecasts. If the same
+payment is already registered as a **paid Bill in Billy**, use **Already
+recorded as a paid Bill** to mark the installment paid without adding the
+expense twice; check this against your financial records before selecting it.
+Accounts have dated opening balances: a historical payment cannot be posted
+to an account opened after that payment's date.
+
+For historical mortgage payments, verify the rule's **activation date** first:
+the first scheduled installment must be correct. Editing the recurrence in a
+way that would orphan existing confirmed payments is blocked. The loan's
+outstanding principal is **not** automatically amortized; Billy tracks
+installment payments and account cash outflows, not principal-versus-interest
+allocations. Do not use transfers between your own accounts as a substitute
+for mortgage payments: transfers do not create expenses.
+
+**Reconciliation:** if you previously recorded mortgage installments as
+ordinary paid Bills, use the already-recorded checkbox to avoid counting the
+same cash outflow again. If you previously used a negative-opening-balance
+account and internal transfers as a workaround, make a backup, verify actual
+balances against statements, then manually reconcile/remove the fictitious
+transfers and correct opening snapshots as appropriate. Billy will **not**
+delete or reinterpret those earlier records automatically.
 
 For provider invoices that need a paid/unpaid monthly checklist, enable **Create an unpaid bill each period** in **Settings → Bill types**. See [Monthly bill checklist](docs/BILL_PLACEHOLDERS.md).
 
@@ -183,7 +247,7 @@ When a new parser version is published, its feedback starts from zero. Votes for
 
 Billy ships seven supported dashboard widgets alongside the `/billy` sidebar application. They share the Billy WebSocket backend rather than duplicating business logic.
 
-The widget pack is registered automatically via `/bill_tracker/billy-lovelace.js?v=0.16.0-r1`. No manual resource URLs are required for a storage-mode installation. Existing legacy cards remain compatible via the separately registered `/bill_tracker/bill-tracker-card.js?v=0.16.0-r1` host until Billy 1.0.0.
+The widget pack is registered automatically via `/bill_tracker/billy-lovelace.js?v=0.17.0-r1`. No manual resource URLs are required for a storage-mode installation. Existing legacy cards remain compatible via the separately registered `/bill_tracker/bill-tracker-card.js?v=0.17.0-r1` host until Billy 1.0.0.
 
 Available cards:
 

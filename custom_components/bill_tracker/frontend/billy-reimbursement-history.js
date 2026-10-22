@@ -7,6 +7,10 @@ const HISTORY_TEXT = {
     pending: 'Pending',
     allPayers: 'All payers',
     allYears: 'All years',
+    house: 'House',
+    allHouses: 'All houses',
+    mixedHouseNote: 'Older reimbursements spanning multiple houses without itemized amounts cannot be split precisely. Unknown amounts are excluded from the displayed totals.',
+    undoAllHouses: 'This reimbursement also contains items from other houses. Switch to All houses to undo the entire transaction.',
     completedCount: 'Completed reimbursements',
     completedTotal: 'Reimbursed total',
     pendingTotal: 'Still pending',
@@ -37,6 +41,10 @@ const HISTORY_TEXT = {
     pending: 'Da rimborsare',
     allPayers: 'Tutti i paganti',
     allYears: 'Tutti gli anni',
+    house: 'Casa',
+    allHouses: 'Tutte le case',
+    mixedHouseNote: 'I rimborsi storici che comprendono più Case senza importi per voce non possono essere suddivisi con precisione. Gli importi sconosciuti sono esclusi dai totali.',
+    undoAllHouses: 'Questo rimborso comprende anche voci di altre Case. Passa a Tutte le case per annullare l’intera registrazione.',
     completedCount: 'Rimborsi completati',
     completedTotal: 'Totale rimborsato',
     pendingTotal: 'Ancora da rimborsare',
@@ -98,6 +106,7 @@ class BillyReimbursementHistory extends HTMLElement {
     this._status = 'all'
     this._payer = 'all'
     this._year = 'all'
+    this._house = 'all'
     this._unsubscribe = null
   }
 
@@ -186,6 +195,10 @@ class BillyReimbursementHistory extends HTMLElement {
         type: 'bill_tracker/list',
         forecast_months: 1,
       })
+      if (this._house !== 'all' &&
+          !(this._data.houses || []).some(house => house.id === this._house)) {
+        this._house = 'all'
+      }
       this._error = null
     } catch (error) {
       this._error = String(error?.message || error)
@@ -222,6 +235,7 @@ class BillyReimbursementHistory extends HTMLElement {
           archive_source: 'manual-expense',
           archive_date: expense.reimbursement_manual_at || '',
           manual_id: expense.id,
+          house_id: expense.house_id,
           from_payer_id: debtor,
           from_name: part.name || payerNames.get(debtor) || debtor,
           to_payer_id: creditor,
@@ -233,6 +247,7 @@ class BillyReimbursementHistory extends HTMLElement {
             {
               kind: 'expense',
               id: expense.id,
+              house_id: expense.house_id,
               amount,
               label: expense.provider || expense.category || this._t('bill'),
               date: expense.due_date || expense.payment_date || '',
@@ -262,6 +277,7 @@ class BillyReimbursementHistory extends HTMLElement {
           archive_source: 'manual-recurring',
           archive_date: occurrence.reimbursement_manual_at || '',
           manual_id: occurrence.id,
+          house_id: recurring?.house_id,
           from_payer_id: debtor,
           from_name: part.name || payerNames.get(debtor) || debtor,
           to_payer_id: creditor,
@@ -272,6 +288,7 @@ class BillyReimbursementHistory extends HTMLElement {
             {
               kind: 'recurring',
               id: occurrence.id,
+              house_id: recurring?.house_id,
               amount,
               label: occurrence.name || recurring?.name || this._t('recurring'),
               date: occurrence.due_date || '',
@@ -308,8 +325,55 @@ class BillyReimbursementHistory extends HTMLElement {
     return [...pending, ...this._manualRows(), ...completed]
   }
 
+  _houseRows() {
+    const rows = this._allRows()
+    if (this._house === 'all') return rows
+
+    const housesByItem = new Map()
+    for (const expense of this._data?.expenses || []) {
+      housesByItem.set(`expense:${expense.id}`, String(expense.house_id || ''))
+    }
+    const recurringHouses = new Map(
+      (this._data?.recurring_expenses || []).map(row => [String(row.id), String(row.house_id || '')]),
+    )
+    for (const occurrence of this._data?.recurring_occurrences || []) {
+      housesByItem.set(
+        `recurring:${occurrence.id}`,
+        String(occurrence.house_id || recurringHouses.get(String(occurrence.recurring_id)) || ''),
+      )
+    }
+
+    const scoped = []
+    for (const row of rows) {
+      const sourceItems = row.archive_items || []
+      const items = sourceItems.filter(item =>
+        String(item.house_id || housesByItem.get(`${item.kind}:${item.id}`) || '') === this._house,
+      )
+      if (!items.length) continue
+      const partial = items.length !== sourceItems.length
+      const unknownAmount = partial && items.some(item =>
+        item.amount === null || item.amount === undefined || !Number.isFinite(Number(item.amount)),
+      )
+      const amount = partial
+        ? (unknownAmount ? null : Math.round(
+            items.reduce((sum, item) => sum + Number(item.amount), 0) * 100,
+          ) / 100)
+        : row.amount
+      scoped.push({
+        ...row,
+        amount,
+        full_amount: row.amount,
+        item_count: items.length,
+        archive_items: items,
+        scoped_partial: partial,
+        unknown_amount: unknownAmount,
+      })
+    }
+    return scoped
+  }
+
   _rows() {
-    return this._allRows()
+    return this._houseRows()
       .filter((row) => {
         if (this._status !== 'all' && row.archive_status !== this._status)
           return false
@@ -338,7 +402,7 @@ class BillyReimbursementHistory extends HTMLElement {
   _years() {
     return [
       ...new Set(
-        this._allRows()
+        this._houseRows()
           .filter((row) => row.archive_status === 'done')
           .map((row) => {
             const parsed = new Date(row.archive_date || '')
@@ -355,6 +419,8 @@ class BillyReimbursementHistory extends HTMLElement {
 
   _itemMeta(item) {
     const parts = [item.kind === 'recurring' ? this._t('recurring') : this._t('bill')]
+    const home = (this._data?.houses || []).find(row => row.id === item.house_id)
+    if (home) parts.push(home.name)
     if (item.category) parts.push(item.category)
     if (item.provider && item.provider !== item.label) parts.push(item.provider)
     if (item.contract) parts.push(item.contract)
@@ -377,10 +443,11 @@ class BillyReimbursementHistory extends HTMLElement {
     if (!this._data) return
 
     const rows = this._rows()
-    const completed = this._allRows().filter(
+    const scopedRows = this._houseRows()
+    const completed = scopedRows.filter(
       (row) => row.archive_status === 'done',
     )
-    const pending = this._data.debts || []
+    const pending = scopedRows.filter(row => row.archive_status === 'pending')
     const completedTotal = completed.reduce(
       (sum, row) => sum + Number(row.amount || 0),
       0,
@@ -390,6 +457,7 @@ class BillyReimbursementHistory extends HTMLElement {
       0,
     )
     const payers = this._data.payers || []
+    const hasUnknown = scopedRows.some(row => row.unknown_amount)
 
     this.shadowRoot.innerHTML = `
       <style>${this._styles()}</style>
@@ -401,7 +469,14 @@ class BillyReimbursementHistory extends HTMLElement {
           <article><span>${hEscape(this._t('completedTotal'))}</span><strong>${hEscape(this._money(completedTotal))}</strong></article>
           <article><span>${hEscape(this._t('pendingTotal'))}</span><strong>${hEscape(this._money(pendingTotal))}</strong></article>
         </div>
+        ${hasUnknown ? `<div class="notice warning">${hEscape(this._t('mixedHouseNote'))}</div>` : ''}
         <div class="toolbar">
+          <select id="history-house" aria-label="${hEscape(this._t('house'))}">
+            <option value="all" ${this._house === 'all' ? 'selected' : ''}>${hEscape(this._t('allHouses'))}</option>
+            ${(this._data.houses || []).map(house =>
+              `<option value="${hEscape(house.id)}" ${this._house === house.id ? 'selected' : ''}>${hEscape(house.name)}</option>`,
+            ).join('')}
+          </select>
           <select id="history-status">
             <option value="all" ${this._status === 'all' ? 'selected' : ''}>${hEscape(this._t('all'))}</option>
             <option value="done" ${this._status === 'done' ? 'selected' : ''}>${hEscape(this._t('completed'))}</option>
@@ -422,7 +497,7 @@ class BillyReimbursementHistory extends HTMLElement {
               <span class="state ${row.archive_status}">${hEscape(this._statusLabel(row.archive_status))}</span>
               <div class="history-main"><strong>${hEscape(`${row.from_name} → ${row.to_name}`)}</strong><small>${hEscape(row.archive_status === 'done' ? this._dateTime(row.archive_date) : this._t('notDone'))}</small></div>
               <div class="history-count"><span>${hEscape(this._t('items'))}</span><strong>${Number(row.item_count || row.archive_items.length || 0)}</strong></div>
-              <b class="history-amount">${hEscape(this._money(row.amount))}</b>
+              <b class="history-amount">${row.amount === null ? '—' : hEscape(this._money(row.amount))}</b>
               <button class="secondary small" data-history-details="${hEscape(row.archive_key)}">${hEscape(this._t('open'))}</button>
             </div>`).join('') : `<div class="empty">${hEscape(this._t('empty'))}</div>`}
         </div>
@@ -432,6 +507,10 @@ class BillyReimbursementHistory extends HTMLElement {
 
     this.shadowRoot.getElementById('history-status')?.addEventListener('change', (event) => {
       this._status = event.currentTarget.value
+      this._render()
+    })
+    this.shadowRoot.getElementById('history-house')?.addEventListener('change', event => {
+      this._house = event.currentTarget.value
       this._render()
     })
     this.shadowRoot.getElementById('history-payer')?.addEventListener('change', (event) => {
@@ -450,7 +529,7 @@ class BillyReimbursementHistory extends HTMLElement {
   }
 
   _openDetails(key) {
-    const row = this._allRows().find((item) => item.archive_key === key)
+    const row = this._rows().find((item) => item.archive_key === key)
     const modal = this.shadowRoot.getElementById('history-modal')
     const card = this.shadowRoot.getElementById('history-modal-card')
     if (!row || !modal || !card) return
@@ -464,9 +543,10 @@ class BillyReimbursementHistory extends HTMLElement {
       <div class="detail-summary">
         <div><span>${hEscape(this._t('status'))}</span><strong class="state ${row.archive_status}">${hEscape(this._statusLabel(row.archive_status))}</strong></div>
         <div><span>${hEscape(this._t('when'))}</span><strong>${hEscape(row.archive_status === 'done' ? this._dateTime(row.archive_date) : this._t('notDone'))}</strong></div>
-        <div><span>${hEscape(this._t('amount'))}</span><strong>${hEscape(this._money(row.amount))}</strong></div>
+        <div><span>${hEscape(this._t('amount'))}</span><strong>${row.amount === null ? '—' : hEscape(this._money(row.amount))}</strong></div>
       </div>
       ${hasLegacyAmounts ? `<div class="legacy-note">${hEscape(this._t('legacy'))}</div>` : ''}
+      ${row.scoped_partial ? `<div class="legacy-note">${hEscape(this._t('undoAllHouses'))}</div>` : ''}
       <div class="detail-list">
         ${items.length ? items.map((item) => `
           <div class="detail-row">
@@ -477,7 +557,7 @@ class BillyReimbursementHistory extends HTMLElement {
       ${row.note ? `<div class="history-note">${hEscape(row.note)}</div>` : ''}
       <div class="modal-actions">
         <button type="button" class="secondary" id="history-cancel">${hEscape(this._t('cancel'))}</button>
-        ${row.archive_status === 'done' ? `<button type="button" class="danger" id="history-undo">${hEscape(this._t('undo'))}</button>` : ''}
+        ${row.archive_status === 'done' && !row.scoped_partial ? `<button type="button" class="danger" id="history-undo">${hEscape(this._t('undo'))}</button>` : ''}
       </div>
     `
 
@@ -489,7 +569,7 @@ class BillyReimbursementHistory extends HTMLElement {
     card.querySelector('#history-cancel')?.addEventListener('click', close)
     modal.querySelector('.modal-backdrop')?.addEventListener('click', close)
     card.querySelector('#history-undo')?.addEventListener('click', async () => {
-      if (!window.confirm(`${this._t('undo')}: ${this._money(row.amount)}?`)) return
+      if (!window.confirm(`${this._t('undo')}: ${this._money(row.full_amount ?? row.amount)}?`)) return
       try {
         if (row.archive_source === 'manual-expense') {
           await this._hass.callWS({
@@ -522,6 +602,12 @@ class BillyReimbursementHistory extends HTMLElement {
   _styles() {
     return `
       :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}.history-page{display:flex;flex-direction:column;gap:18px}.hero h1{font-size:30px;line-height:1.1;margin:0 0 6px}.hero p{margin:0;max-width:900px;color:var(--secondary-text-color);font-size:14px;line-height:1.5}.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.stats article{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:5px}.stats span,.history-count span,.detail-summary span{font-size:11px;color:var(--secondary-text-color)}.stats strong{font-size:20px}.toolbar{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));gap:10px}.toolbar select{height:44px;border:1px solid var(--divider-color);border-radius:11px;padding:0 11px;background:var(--card-background-color);color:var(--primary-text-color);font:inherit}.history-card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:16px;overflow:hidden}.history-item{display:grid;grid-template-columns:auto minmax(220px,1fr) auto auto auto;gap:14px;align-items:center;padding:14px 16px;border-top:1px solid var(--divider-color)}.history-item:first-child{border-top:0}.history-main{display:flex;flex-direction:column;gap:4px;min-width:0}.history-main strong,.history-main small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.history-main small{color:var(--secondary-text-color)}.history-count{display:flex;flex-direction:column;align-items:center;gap:2px}.history-amount{font-size:15px;white-space:nowrap}.state{display:inline-flex;width:max-content;align-items:center;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:650;white-space:nowrap}.state.done{color:var(--success-color,#2e7d32);background:color-mix(in srgb,var(--success-color,#2e7d32) 12%,transparent)}.state.pending{color:var(--warning-color,#f9a825);background:color-mix(in srgb,var(--warning-color,#f9a825) 12%,transparent)}.secondary,.danger,.error-card button{appearance:none;border-radius:9px;padding:9px 13px;font:inherit;font-weight:600;cursor:pointer;border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}.small{padding:7px 10px;font-size:12px}.danger{color:var(--error-color,#d32f2f)}.empty{padding:48px 16px;text-align:center;color:var(--secondary-text-color)}.empty.compact{padding:24px 8px}.notice.error{padding:11px 14px;border-radius:10px;background:color-mix(in srgb,var(--error-color,#d32f2f) 10%,var(--card-background-color));color:var(--error-color,#d32f2f);border:1px solid color-mix(in srgb,var(--error-color,#d32f2f) 28%,transparent)}.loading,.error-card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:24px}.modal[hidden]{display:none}.modal{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px}.modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}.modal-card{position:relative;z-index:1;width:min(780px,100%);max-height:min(90vh,900px);overflow:auto;background:var(--card-background-color);border-radius:16px;box-shadow:0 18px 60px rgba(0,0,0,.35);padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}.modal-head h3{font-size:20px;margin:0}.hint{font-size:12px;color:var(--secondary-text-color);margin-top:4px}.icon-close{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font-size:28px;line-height:1;cursor:pointer}.detail-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px}.detail-summary>div{border:1px solid var(--divider-color);border-radius:11px;padding:12px;display:flex;flex-direction:column;gap:5px}.legacy-note{padding:11px 13px;margin-bottom:12px;border-radius:10px;background:color-mix(in srgb,var(--warning-color,#f9a825) 10%,transparent);color:var(--warning-color,#f9a825);font-size:12px;line-height:1.45}.detail-list{display:flex;flex-direction:column;border-top:1px solid var(--divider-color)}.detail-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;padding:13px 2px;border-bottom:1px solid var(--divider-color)}.detail-row>div{display:flex;flex-direction:column;gap:4px;min-width:0}.detail-row small{color:var(--secondary-text-color);line-height:1.4}.history-note{margin-top:13px;padding:12px;border-radius:10px;background:var(--secondary-background-color);color:var(--secondary-text-color);font-size:12px}.modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:18px;padding-top:16px;border-top:1px solid var(--divider-color)}@media(max-width:900px){.history-item{grid-template-columns:auto minmax(0,1fr) auto}.history-count{grid-column:2;align-items:flex-start}.history-amount{grid-column:3;grid-row:1}.history-item button{grid-column:3;grid-row:2}.toolbar{grid-template-columns:1fr 1fr}.toolbar select:last-child{grid-column:1/-1}}@media(max-width:650px){.stats{grid-template-columns:1fr}.toolbar{grid-template-columns:1fr}.toolbar select:last-child{grid-column:auto}.history-item{grid-template-columns:1fr}.state,.history-main,.history-count,.history-amount,.history-item button{grid-column:auto!important;grid-row:auto!important}.history-count{align-items:flex-start}.history-item button{width:100%}.detail-summary{grid-template-columns:1fr}.modal{padding:8px}.modal-card{padding:16px}.hero h1{font-size:25px}}
+      .history-page{container-type:inline-size}
+      .toolbar{grid-template-columns:repeat(4,minmax(0,1fr))}
+      .toolbar select{width:100%;min-width:0;text-overflow:ellipsis;grid-column:auto}
+      .notice.warning{padding:11px 14px;border-radius:10px;font-size:12px;line-height:1.45;color:var(--warning-color,#c07b00);background:color-mix(in srgb,var(--warning-color,#c07b00) 8%,var(--card-background-color));border:1px solid color-mix(in srgb,var(--warning-color,#c07b00) 25%,var(--divider-color))}
+      @container (max-width:850px){.toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.toolbar select:last-child{grid-column:auto}}
+      @container (max-width:440px){.toolbar{grid-template-columns:minmax(0,1fr)}}
     `
   }
 }

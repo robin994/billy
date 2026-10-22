@@ -168,6 +168,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         ws_account_update,
         ws_account_delete,
         ws_account_set_default,
+        ws_house_add,
+        ws_house_update,
+        ws_house_delete,
+        ws_house_set_default,
         ws_internal_transfer_add,
         ws_internal_transfer_update,
         ws_internal_transfer_delete,
@@ -175,6 +179,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         ws_recurring_update,
         ws_recurring_set_active,
         ws_recurring_set_reimbursement,
+        ws_recurring_payment_set,
+        ws_recurring_payment_delete,
         ws_recurring_delete,
         ws_category_add,
         ws_category_update,
@@ -300,18 +306,22 @@ def _ws_error(connection, msg, err, default_code):
         vol.Optional("forecast_months", default=12): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=24)
         ),
+        vol.Optional("house_id"): str,
     }
 )
 @websocket_api.async_response
 async def ws_list(hass, connection, msg):
     try:
-        result = _manager(hass).snapshot(msg["forecast_months"])
+        result = _manager(hass).snapshot(msg["forecast_months"], msg.get("house_id"))
         result["version"] = hass.data.get(DOMAIN, {}).get("version", FRONTEND_VERSION)
         parser_manager = hass.data.get(DOMAIN, {}).get("parser_manager")
         if parser_manager is not None:
             result.setdefault("summary", {})["automatic_import_pending"] = len(
                 parser_manager.imports_snapshot("pending", 500)
             )
+    except ValueError as err:
+        _ws_error(connection, msg, err, "invalid_house")
+        return
     except RuntimeError as err:
         _ws_error(connection, msg, err, "not_configured")
         return
@@ -349,6 +359,7 @@ _EXPENSE_SCHEMA = {
     vol.Optional("consumption"): vol.Coerce(float),
     vol.Optional("document_url"): str,
     vol.Optional("account_id"): str,
+    vol.Optional("house_id"): str,
 }
 
 
@@ -377,7 +388,65 @@ def _expense_kwargs(msg):
         "consumption": msg.get("consumption"),
         "document_url": msg.get("document_url"),
         "account_id": msg.get("account_id"),
+        "house_id": msg.get("house_id"),
     }
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/house/add",
+    vol.Required("name"): str,
+})
+@websocket_api.async_response
+async def ws_house_add(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_add_house(msg["name"])
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_house")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/house/update",
+    vol.Required("house_id"): str,
+    vol.Required("name"): str,
+})
+@websocket_api.async_response
+async def ws_house_update(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_update_house(msg["house_id"], msg["name"])
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_house")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/house/default",
+    vol.Required("house_id"): str,
+})
+@websocket_api.async_response
+async def ws_house_set_default(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_set_default_house(msg["house_id"])
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_house")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/house/delete",
+    vol.Required("house_id"): str,
+})
+@websocket_api.async_response
+async def ws_house_delete(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_delete_house(msg["house_id"])
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_house")
+        return
+    connection.send_result(msg["id"], {"deleted": result})
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bill_tracker/add", **_EXPENSE_SCHEMA})
@@ -619,6 +688,7 @@ _INCOME_RULE_ENTRY = {
     vol.Optional("end_date", default=""): str,
     vol.Optional("amount_mode", default="fixed"): vol.In(("fixed", "last", "average3", "average6", "average12")),
     vol.Optional("active", default=True): bool,
+    vol.Optional("house_id"): str,
     vol.Optional("note", default=""): str,
     vol.Optional("account_id"): str,
 }
@@ -919,6 +989,7 @@ def _recurring_kwargs(msg):
         "color": msg.get("color", ""),
         "note": msg.get("note", ""),
         "active": msg.get("active", True),
+        "house_id": msg.get("house_id"),
     }
 
 
@@ -999,6 +1070,55 @@ async def ws_recurring_set_reimbursement(hass, connection, msg):
         connection.send_error(msg["id"], "occurrence_not_found", "Recurring charge not found")
         return
     connection.send_result(msg["id"], item)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "bill_tracker/recurring/payment/set",
+        vol.Required("recurring_id"): str,
+        vol.Required("due_date"): str,
+        vol.Required("payment_date"): str,
+        vol.Required("amount"): vol.Coerce(float),
+        vol.Optional("account_id"): str,
+        vol.Optional("note", default=""): str,
+        vol.Optional("already_recorded", default=False): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_recurring_payment_set(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_record_recurring_payment(
+            recurring_id=msg["recurring_id"],
+            due_date=msg["due_date"],
+            payment_date=msg["payment_date"],
+            amount=msg["amount"],
+            account_id=msg.get("account_id"),
+            note=msg.get("note", ""),
+            already_recorded=msg.get("already_recorded", False),
+        )
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_recurring_payment")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "bill_tracker/recurring/payment/delete",
+        vol.Required("recurring_id"): str,
+        vol.Required("due_date"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_recurring_payment_delete(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_delete_recurring_payment(
+            recurring_id=msg["recurring_id"], due_date=msg["due_date"]
+        )
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_recurring_payment")
+        return
+    connection.send_result(msg["id"], {"deleted": result})
 
 
 @websocket_api.websocket_command(

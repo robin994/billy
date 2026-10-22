@@ -117,7 +117,7 @@ def test_recurring_without_payers_keeps_requested_active_state():
     assert item["payer_id"] is None
 
 
-def test_monthly_cashflow_includes_recurring_charges_in_their_due_month():
+def test_monthly_cashflow_includes_only_confirmed_recurring_payments_in_payment_month():
     manager = _recurring_helper_class()()
     manager.monthly_totals = lambda: [
         {
@@ -128,8 +128,9 @@ def test_monthly_cashflow_includes_recurring_charges_in_their_due_month():
             "categories": {"Electricity": 120.0},
         }
     ]
-    manager.recurring_history_items = lambda: [
-        {"name": "Internet", "amount": 30.0, "due_date": "2026-08-01"},
+    manager.recurring_payments = [
+        {"amount": 30.0, "due_date": "2026-07-01", "payment_date": "2026-08-01"},
+        {"amount": 55.0, "due_date": "2026-08-01", "payment_date": "2026-08-01", "already_recorded": True},
     ]
 
     august = next(row for row in manager.cashflow_monthly_totals() if row["key"] == "2026-08")
@@ -272,11 +273,15 @@ def test_recurring_websocket_crud_is_registered():
         '"bill_tracker/recurring/update"',
         '"bill_tracker/recurring/set_active"',
         '"bill_tracker/recurring/set_reimbursement"',
+        '"bill_tracker/recurring/payment/set"',
+        '"bill_tracker/recurring/payment/delete"',
         '"bill_tracker/recurring/delete"',
         'ws_recurring_add',
         'ws_recurring_update',
         'ws_recurring_set_active',
         'ws_recurring_set_reimbursement',
+        'ws_recurring_payment_set',
+        'ws_recurring_payment_delete',
         'ws_recurring_delete',
     ):
         assert token in source

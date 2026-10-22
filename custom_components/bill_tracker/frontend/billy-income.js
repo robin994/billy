@@ -1,5 +1,5 @@
 // Billy income management. Optional, independent from bills and banking.
-import './billy-accounts.js?v=0.16.0-r1'
+import './billy-accounts.js?v=0.17.0-r1'
 // The IDs and persisted English names stay stable across language changes.
 // Only built-in categories that still have their original name are translated.
 const DEFAULT_INCOME_CATEGORY_NAMES = {

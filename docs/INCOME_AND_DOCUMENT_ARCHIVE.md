@@ -136,10 +136,12 @@ EUR 3,420. Without the transfer, the combined balance would still be EUR 3,420.
 **Deliberate accuracy constraints:**
 
 - Planned income, unpaid bills and unpaid placeholder bills are not posted.
-- Existing recurring expense schedules in Billy do *not* have a confirmed
-  provider-payment state. Automatically subtracting their due dates would make
-  the actual account balance inaccurate. Such amounts are included only after
-  separately recording and confirming the corresponding bill as paid.
+- Recurring schedules do not by themselves count as paid cash movements.
+  Only confirmed recurring installment payments, entered with an actual date
+  and amount, are subtracted from the debited account. Already-recorded paid
+  Bills can be marked as reconciled without posting a duplicate expense.
+  Past installments can be confirmed, edited or undone from **Recurring →
+  Expenses → Payments**, independently of payer reimbursements.
 - Shared-expense reimbursements and payer positions are a different concept
   from account balances and are **not** counted as account income or
   transfers. Assign each actual bill or receipt to the account that handled it.

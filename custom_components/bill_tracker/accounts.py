@@ -285,6 +285,10 @@ class AccountMixin:
                     paid_on = self._bill_cash_date(item)
                     if paid_on and account["opening_date"] <= paid_on < changes["opening_date"]:
                         raise ValueError("New opening date would exclude paid bills")
+            for payment in getattr(self, "recurring_payments", []):
+                if (payment.get("account_id") == account_id
+                    and account["opening_date"] <= str(payment.get("payment_date") or "") < changes["opening_date"]):
+                    raise ValueError("New opening date would exclude recorded recurring payments")
         account.update(changes)
         if make_default:
             self.default_account_id = account_id
@@ -306,6 +310,8 @@ class AccountMixin:
             raise ValueError("Account has internal transfer history")
         if any(str(row.get("account_id") or "") == account_id for row in (*self.expenses, *self.incomes, *self.income_rules)):
             raise ValueError("Account has linked bills or income")
+        if any(row.get("account_id") == account_id for row in getattr(self, "recurring_payments", [])):
+            raise ValueError("Account has recorded recurring payments")
         self.accounts = [row for row in self.accounts if row["id"] != account_id]
         if self.default_account_id == account_id:
             self.default_account_id = self.accounts[0]["id"] if self.accounts else None
@@ -411,6 +417,15 @@ class AccountMixin:
                 and opening_dates[account_id] <= paid_on <= end
             ):
                 buckets[account_id]["expenses"] += _cents(row.get("amount", 0))
+        for payment in getattr(self, "recurring_payments", []):
+            if payment.get("already_recorded"):
+                continue
+            paid_on = str(payment.get("payment_date") or "")
+            account_id = payment.get("account_id")
+            if (
+                account_id in buckets and opening_dates[account_id] <= paid_on <= end
+            ):
+                buckets[account_id]["expenses"] += _cents(payment.get("amount", 0))
         for row in self.internal_transfers:
             if row["transfer_date"] > end:
                 continue

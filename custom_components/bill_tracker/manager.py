@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from calendar import monthrange
 from collections import defaultdict
-from copy import deepcopy
+from copy import copy, deepcopy
 from datetime import date, datetime, timedelta
 import json
 from math import isfinite
@@ -36,7 +36,7 @@ from .document_archive import (
     normalize_archive_config, read_pdf, validate_owned_pdf_path,
 )
 from .income import IncomeMixin
-from .accounts import AccountMixin
+from .accounts import AccountMixin, _cents, _value
 from .exporter import (
     csv_bytes,
     csv_template_bytes,
@@ -65,6 +65,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         self.settlements: list[dict[str, Any]] = []
         self.recurring_expenses: list[dict[str, Any]] = []
         self.recurring_occurrences: list[dict[str, Any]] = []
+        self.recurring_payments: list[dict[str, Any]] = []
         self.income_categories: list[dict[str, Any]] = []
         self.incomes: list[dict[str, Any]] = []
         self.income_rules: list[dict[str, Any]] = []
@@ -72,6 +73,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         self.default_account_id: str | None = None
         self.accounts_config: dict[str, Any] = {}
         self.internal_transfers: list[dict[str, Any]] = []
+        self.houses: list[dict[str, Any]] = []
+        self.default_house_id: str | None = None
         self._logger = logging.getLogger(__name__)
         self._document_uploads: dict[tuple[str, str], dict[str, Any]] = {}
 
@@ -84,6 +87,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         self.settlements = [dict(x) for x in data.get("settlements", [])]
         self.recurring_expenses = [dict(x) for x in data.get("recurring_expenses", [])]
         self.recurring_occurrences = [dict(x) for x in data.get("recurring_occurrences", [])]
+        self.recurring_payments = [dict(x) for x in data.get("recurring_payments", [])]
         self.income_categories = [dict(x) for x in data.get("income_categories", [])]
         self.incomes = [dict(x) for x in data.get("incomes", [])]
         self.income_rules = [dict(x) for x in data.get("income_rules", [])]
@@ -94,8 +98,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             dict(x) if isinstance(x, dict) else x
             for x in data.get("internal_transfers", [])
         ]
+        self.houses = [dict(x) for x in data.get("houses", [])]
+        self.default_house_id = str(data.get("default_house_id") or "") or None
 
         changed = False
+        changed |= self._migrate_houses()
         changed |= self._normalize_payers()
         if not self.categories:
             self.categories = deepcopy(DEFAULT_CATEGORIES)
@@ -107,6 +114,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         changed |= self._migrate_recurring_occurrences()
         changed |= self._migrate_income()
         changed |= self._migrate_accounts()
+        changed |= self._migrate_recurring_payments()
         changed |= self._sync_income_occurrences()
         changed |= self._sync_recurring_occurrences()
         changed |= self._sync_bill_placeholders()
@@ -122,6 +130,102 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         if len(value) == 3 and value.isalpha():
             return value
         return "EUR"
+
+    # ------------------------------------------------------------------
+    # Houses: grouping only, not user permissions or separate cash accounts
+    # ------------------------------------------------------------------
+    def house(self, house_id: str) -> dict[str, Any] | None:
+        return next((row for row in self.houses if row["id"] == house_id), None)
+
+    def _resolve_house_id(self, house_id: str | None = None) -> str:
+        selected = str(house_id or self.default_house_id or "")
+        if not self.house(selected):
+            raise ValueError("House not found")
+        return selected
+
+    def _migrate_houses(self) -> bool:
+        changed = False
+        if not self.houses:
+            self.houses = [{"id": uuid4().hex, "name": "Home"}]
+            changed = True
+        unique: set[str] = set()
+        names: set[str] = set()
+        for item in self.houses:
+            identifier = str(item.get("id") or "")
+            name = str(item.get("name") or "").strip()
+            if not identifier or not name or len(name) > 80:
+                raise ValueError("Invalid house in storage or backup")
+            if identifier in unique or name.casefold() in names:
+                raise ValueError("Duplicate house in storage or backup")
+            unique.add(identifier)
+            names.add(name.casefold())
+        if self.default_house_id not in unique:
+            self.default_house_id = self.houses[0]["id"]
+            changed = True
+        for records in (self.expenses, self.recurring_expenses):
+            for item in records:
+                if not item.get("house_id"):
+                    item["house_id"] = self.default_house_id
+                    changed = True
+                elif item["house_id"] not in unique:
+                    raise ValueError("Expense refers to a house that does not exist")
+        return changed
+
+    async def async_add_house(self, name: str) -> dict[str, Any]:
+        title = str(name or "").strip()
+        if not title or len(title) > 80:
+            raise ValueError("House name must contain 1–80 characters")
+        if any(row["name"].casefold() == title.casefold() for row in self.houses):
+            raise ValueError("A house with this name already exists")
+        if len(self.houses) >= 50:
+            raise ValueError("Maximum number of houses reached")
+        item = {"id": uuid4().hex, "name": title}
+        self.houses.append(item)
+        await self._save_and_notify()
+        return dict(item)
+
+    async def async_update_house(self, house_id: str, name: str) -> dict[str, Any]:
+        item = self.house(house_id)
+        if item is None:
+            raise ValueError("House not found")
+        title = str(name or "").strip()
+        if not title or len(title) > 80:
+            raise ValueError("House name must contain 1–80 characters")
+        if any(row["id"] != house_id and row["name"].casefold() == title.casefold()
+               for row in self.houses):
+            raise ValueError("A house with this name already exists")
+        if item["name"] != title:
+            item["name"] = title
+            await self._save_and_notify()
+        return dict(item)
+
+    async def async_set_default_house(self, house_id: str) -> dict[str, Any]:
+        item = self.house(house_id)
+        if item is None:
+            raise ValueError("House not found")
+        if self.default_house_id != house_id:
+            self.default_house_id = house_id
+            await self._save_and_notify()
+        return dict(item)
+
+    async def async_delete_house(self, house_id: str) -> bool:
+        if self.house(house_id) is None:
+            return False
+        if house_id == self.default_house_id or len(self.houses) <= 1:
+            raise ValueError("Choose another default house before deleting this one")
+        if any(row.get("house_id") == house_id
+               for row in (*self.expenses, *self.recurring_expenses)):
+            raise ValueError("Move the linked bills and recurring expenses before deleting this house")
+        if any(
+            line.get("house_id") == house_id
+            for settlement in self.settlements
+            for line in settlement.get("line_items", [])
+            if isinstance(line, dict)
+        ):
+            raise ValueError("Undo reimbursements linked to this house before deleting it")
+        self.houses = [row for row in self.houses if row["id"] != house_id]
+        await self._save_and_notify()
+        return True
 
     # ------------------------------------------------------------------
     # Payers
@@ -408,6 +512,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         consumption: float | None = None,
         document_url: str = "",
         account_id: str | None = None,
+        house_id: str | None = None,
     ) -> dict[str, Any]:
         category = self._resolve_category(category_id, category_name)
         self._validate_date(year, month)
@@ -462,6 +567,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "document_sha256": None,
             "document_error": None,
             "account_id": self._resolve_account_id(account_id),
+            "house_id": self._resolve_house_id(house_id),
             "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
         self._store_real_expense(item)
@@ -497,6 +603,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         consumption: float | None = None,
         document_url: str | None = None,
         account_id: str | None = None,
+        house_id: str | None = None,
     ) -> dict[str, Any] | None:
         category = self._resolve_category(category_id, category_name)
         self._validate_date(year, month)
@@ -595,6 +702,9 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                     "consumption": normalized_consumption,
                     "consumption_unit": str(category.get("consumption_unit", "")),
                     "note": note.strip(),
+                    "house_id": self._resolve_house_id(
+                        house_id if house_id is not None else item.get("house_id")
+                    ),
                     "is_placeholder": False,
                     "document_url": resolved_url,
                     "document_path": None if document_changed else item.get("document_path"),
@@ -767,6 +877,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             due_day = config.get("due_day")
             self.expenses.append({
                 "id": uuid4().hex, "category_id": category["id"],
+                "house_id": self.default_house_id,
                 "paid_year": today.year, "paid_month": today.month,
                 "amount": round(float(amount), 2), "is_placeholder": True,
                 "period_start_year": sy, "period_start_month": sm,
@@ -798,8 +909,10 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
     def _store_real_expense(self, item: dict[str, Any]) -> None:
         """Replace a matching provisional invoice in place, preserving its ID."""
         item["is_placeholder"] = False
+        item["house_id"] = self._resolve_house_id(item.get("house_id"))
         target = next((x for x in self.expenses if x.get("is_placeholder", False)
                        and x["category_id"] == item["category_id"]
+                       and x.get("house_id", self.default_house_id) == item.get("house_id", self.default_house_id)
                        and x["paid_year"] == item["paid_year"]
                        and x["paid_month"] == item["paid_month"]), None)
         item["account_id"] = self._resolve_account_id(
@@ -853,6 +966,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         color: str | None = None,
         note: str = "",
         active: bool = True,
+        house_id: str | None = None,
     ) -> dict[str, Any]:
         item = self._normalize_recurring_payload(
             name=name,
@@ -872,6 +986,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             note=note,
             active=active,
         )
+        item["house_id"] = self._resolve_house_id(house_id)
         item.update(
             {
                 "id": uuid4().hex,
@@ -905,6 +1020,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         color: str | None = None,
         note: str = "",
         active: bool = True,
+        house_id: str | None = None,
     ) -> dict[str, Any] | None:
         current = self.recurring_expense(recurring_id)
         if current is None:
@@ -928,10 +1044,21 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             note=note,
             active=active,
         )
+        normalized["house_id"] = self._resolve_house_id(
+            house_id if house_id is not None else current.get("house_id")
+        )
         schedule_changed = any(
             current.get(key) != normalized.get(key)
             for key in ("start_date", "end_date", "interval_months", "installment_count")
         )
+        for payment in self.recurring_payments:
+            if payment.get("recurring_id") == recurring_id and not self._recurring_payment_due(
+                normalized, str(payment["due_date"])
+            ):
+                raise ValueError(
+                    "Cannot change this schedule while recorded payments depend on its due dates. "
+                    "Undo or correct the affected payments first."
+                )
         current.update(normalized)
         if schedule_changed or (not was_active and bool(current.get("active", True))):
             current["reimbursement_tracking_start_date"] = self._recurring_tracking_start(
@@ -964,6 +1091,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         return self._public_recurring_expense(item)
 
     async def async_delete_recurring(self, recurring_id: str) -> bool:
+        if any(p.get("recurring_id") == recurring_id for p in self.recurring_payments):
+            raise ValueError("Undo recorded payments before deleting this recurring expense")
         linked_occurrence_ids = {
             str(x.get("id"))
             for x in self.recurring_occurrences
@@ -1010,6 +1139,119 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         )
         await self._save_and_notify()
         return self._public_recurring_occurrence(item)
+
+    def _recurring_payment_due(self, recurring: dict[str, Any], due_date: str) -> bool:
+        """A paid installment must match an actual date on the rule's schedule."""
+        try:
+            requested = date.fromisoformat(due_date)
+            enabled = {**recurring, "active": True}
+            return self._next_recurring_due(enabled, requested) == requested
+        except (ValueError, TypeError, OverflowError):
+            return False
+
+    def _normalize_recurring_payment(
+        self,
+        *,
+        recurring_id: str,
+        due_date: str,
+        payment_date: str,
+        amount: float,
+        account_id: str | None,
+        note: str = "",
+        already_recorded: bool = False,
+        allow_unassigned: bool = False,
+    ) -> dict[str, Any]:
+        recurring = self.recurring_expense(str(recurring_id or ""))
+        if recurring is None:
+            raise ValueError("Recurring expense not found")
+        due = self._normalize_optional_iso_date(due_date)
+        paid = self._normalize_optional_iso_date(payment_date)
+        if not due or not paid or not self._recurring_payment_due(recurring, due):
+            raise ValueError("Payment must reference a valid scheduled installment")
+        today = date.today().isoformat()
+        if due > today or paid > today:
+            raise ValueError("Future installments cannot be marked paid")
+        cents = _cents(amount)
+        if cents <= 0:
+            raise ValueError("Payment amount must be greater than zero")
+        # A bill already posted to Billy's cash ledger must not be posted twice.
+        if not isinstance(already_recorded, bool):
+            raise ValueError("Invalid recorded-payment reconciliation flag")
+        skip_posting = already_recorded
+        selected_account = str(account_id or "").strip() or None
+        if skip_posting:
+            selected_account = None
+        elif self.accounts:
+            selected_account = selected_account or (
+                None if allow_unassigned else self.default_account_id
+            )
+            account = self.account(selected_account) if selected_account else None
+            if account is None and not (allow_unassigned and selected_account is None):
+                raise ValueError("Select an existing account for the payment")
+            if account is not None and paid < account["opening_date"]:
+                raise ValueError("Payment predates the account's opening balance")
+        elif selected_account:
+            raise ValueError("Payment references a missing account")
+        return {
+            "id": f"{recurring_id}@{due}",
+            "recurring_id": str(recurring_id),
+            "due_date": due,
+            "payment_date": paid,
+            "amount": _value(cents),
+            "account_id": selected_account,
+            "already_recorded": skip_posting,
+            "note": self._normalize_optional_text(note, 500),
+        }
+
+    async def async_record_recurring_payment(
+        self,
+        *,
+        recurring_id: str,
+        due_date: str,
+        payment_date: str,
+        amount: float,
+        account_id: str | None = None,
+        note: str = "",
+        already_recorded: bool = False,
+    ) -> dict[str, Any]:
+        """Record or correct one actual payment; scheduled charges stay separate."""
+        record = self._normalize_recurring_payment(
+            recurring_id=recurring_id,
+            due_date=due_date,
+            payment_date=payment_date,
+            amount=amount,
+            account_id=account_id,
+            note=note,
+            already_recorded=already_recorded,
+        )
+        existing = next(
+            (item for item in self.recurring_payments if item["id"] == record["id"]), None
+        )
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        if existing:
+            if all(existing.get(key) == value for key, value in record.items()):
+                return dict(existing)
+            existing.update(record)
+            existing["updated_at"] = now
+            saved = existing
+        else:
+            saved = {**record, "created_at": now}
+            self.recurring_payments.append(saved)
+        self._sort()
+        await self._save_and_notify()
+        return dict(saved)
+
+    async def async_delete_recurring_payment(self, *, recurring_id: str, due_date: str) -> bool:
+        """Undo a provider payment, without touching payer reimbursements."""
+        payment_id = f"{recurring_id}@{due_date}"
+        previous_count = len(self.recurring_payments)
+        self.recurring_payments = [
+            item for item in self.recurring_payments if item.get("id") != payment_id
+        ]
+        if len(self.recurring_payments) == previous_count:
+            return False
+        await self._save_and_notify()
+        return True
 
     async def async_import_csv(
         self,
@@ -1336,9 +1578,12 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 "categories": deepcopy(self.categories),
                 "payers": deepcopy(self.payers),
                 "expenses": deepcopy(self.expenses),
+                "houses": deepcopy(self.houses),
+                "default_house_id": self.default_house_id,
                 "settlements": deepcopy(self.settlements),
                 "recurring_expenses": deepcopy(self.recurring_expenses),
                 "recurring_occurrences": deepcopy(self.recurring_occurrences),
+                "recurring_payments": deepcopy(self.recurring_payments),
                 "income_categories": deepcopy(self.income_categories),
                 "incomes": deepcopy(self.incomes),
                 "income_rules": deepcopy(self.income_rules),
@@ -1365,11 +1610,13 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
 
         keys = (
             "categories",
+            "houses",
             "payers",
             "expenses",
             "settlements",
             "recurring_expenses",
             "recurring_occurrences",
+            "recurring_payments",
             "income_categories",
             "incomes",
             "income_rules",
@@ -1383,18 +1630,23 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             raise billy_error("backup_too_many_bills")
         if len(data.get("recurring_expenses", [])) > 10_000:
             raise billy_error("backup_too_many_recurring")
+        if len(data.get("recurring_payments", [])) > 50_000:
+            raise ValueError("Backup contains too many recurring payments")
         if len(data.get("incomes", [])) > 50_000 or len(data.get("income_rules", [])) > 10_000:
             raise ValueError("Backup contains too many income records")
         if len(data.get("internal_transfers", [])) > 50_000:
             raise ValueError("Backup contains too many internal transfers")
         if len(data.get("accounts", [])) > 200:
             raise ValueError("Backup contains too many accounts")
+        if len(data.get("houses", [])) > 50:
+            raise ValueError("Backup contains too many houses")
         if not isinstance(data.get("accounts_config", {}), dict):
             raise ValueError("Backup contains an invalid accounts configuration")
 
         previous = {key: deepcopy(getattr(self, key)) for key in keys}
         previous_accounts_config = deepcopy(self.accounts_config)
         previous_default_account_id = self.default_account_id
+        previous_default_house_id = self.default_house_id
         try:
             for key in keys:
                 # Validate shape before installing imported objects. Malformed
@@ -1405,6 +1657,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 setattr(self, key, [dict(item) for item in values])
             self.accounts_config = dict(data.get("accounts_config") or {})
             self.default_account_id = str(data.get("default_account_id") or "") or None
+            self.default_house_id = str(data.get("default_house_id") or "") or None
+            self._migrate_houses()
             self._normalize_payers()
             if not self.categories:
                 self.categories = deepcopy(DEFAULT_CATEGORIES)
@@ -1415,6 +1669,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             self._migrate_recurring_occurrences()
             self._migrate_income()
             self._migrate_accounts()
+            self._migrate_recurring_payments()
             self._sync_income_occurrences()
             self._sync_recurring_occurrences()
             self._sync_bill_placeholders()
@@ -1425,6 +1680,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 setattr(self, key, value)
             self.accounts_config = previous_accounts_config
             self.default_account_id = previous_default_account_id
+            self.default_house_id = previous_default_house_id
             raise
 
         return {
@@ -1434,6 +1690,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "settlements": len(self.settlements),
             "recurring_expenses": len(self.recurring_expenses),
             "recurring_occurrences": len(self.recurring_occurrences),
+            "recurring_payments": len(self.recurring_payments),
+            "houses": len(self.houses),
             "income_categories": len(self.income_categories),
             "incomes": len(self.incomes),
             "income_rules": len(self.income_rules),
@@ -1522,14 +1780,15 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "amount": round(float(amount), 2),
             "expense_ids": expense_ids,
             "recurring_occurrence_ids": recurring_occurrence_ids,
-            "line_items": [
-                {
-                    "kind": str(row.get("kind") or ""),
-                    "id": str(row.get("id") or ""),
-                    "amount": round(float(row.get("amount", 0.0) or 0.0), 2),
-                }
-                for row in selected_items
-            ],
+                "line_items": [
+                    {
+                        "kind": str(row.get("kind") or ""),
+                        "id": str(row.get("id") or ""),
+                        "amount": round(float(row.get("amount", 0.0) or 0.0), 2),
+                        "house_id": self._resolve_house_id(row.get("house_id")),
+                    }
+                    for row in selected_items
+                ],
             "note": note.strip(),
             "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
@@ -1591,6 +1850,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         {
                             "kind": "expense",
                             "id": item_id,
+                            **({"house_id": item.get("house_id") or getattr(self, "default_house_id", None)}
+                               if item.get("house_id") or getattr(self, "default_house_id", None) else {}),
                             "amount": share,
                             "label": str(
                                 item.get("provider")
@@ -1639,6 +1900,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         {
                             "kind": "recurring",
                             "id": occurrence_id,
+                            **({"house_id": (recurring or {}).get("house_id") or getattr(self, "default_house_id", None)}
+                               if (recurring or {}).get("house_id") or getattr(self, "default_house_id", None) else {}),
                             "amount": share,
                             "label": str(
                                 (recurring or {}).get("name")
@@ -1806,14 +2069,50 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
     # ------------------------------------------------------------------
     # Public snapshot / aggregations
     # ------------------------------------------------------------------
-    def snapshot(self, forecast_months: int = 12) -> dict[str, Any]:
+    def snapshot(self, forecast_months: int = 12, house_id: str | None = None) -> dict[str, Any]:
         forecast_months = max(1, min(int(forecast_months), 24))
+        if house_id is not None:
+            selected = self._resolve_house_id(house_id)
+            # A shallow manager copy avoids changing the active workspace or
+            # applying a global house filter across concurrent WebSocket calls.
+            self._sync_recurring_occurrences()
+            self._sync_income_occurrences()
+            view = copy(self)
+            view.expenses = [dict(x) for x in self.expenses if x.get("house_id") == selected]
+            view.recurring_expenses = [
+                dict(x) for x in self.recurring_expenses if x.get("house_id") == selected
+            ]
+            recurring_ids = {row["id"] for row in view.recurring_expenses}
+            view.recurring_occurrences = [
+                dict(x) for x in self.recurring_occurrences if x.get("recurring_id") in recurring_ids
+            ]
+            view.recurring_payments = [
+                dict(x) for x in self.recurring_payments if x.get("recurring_id") in recurring_ids
+            ]
+            expense_ids = {row["id"] for row in view.expenses}
+            view.settlements = [
+                dict(row) for row in self.settlements
+                if all(item_id in expense_ids for item_id in row.get("expense_ids", []))
+                and all(item_id.split("@", 1)[0] in recurring_ids
+                        for item_id in row.get("recurring_occurrence_ids", []))
+                and bool(row.get("expense_ids") or row.get("recurring_occurrence_ids"))
+            ]
+            # Income belongs to the household, not automatically to a house.
+            # Do not show global income as house-specific revenue.
+            view.incomes = []
+            view.income_rules = []
+            result = view.snapshot(forecast_months)
+            result["house_id"] = selected
+            result["account_balances"] = self.account_balances()
+            return result
         self._sync_recurring_occurrences()
         self._sync_income_occurrences()
         today = date.today()
         return {
             "schema_version": STORAGE_SCHEMA_VERSION,
             "currency": self.currency,
+            "houses": [dict(x) for x in self.houses],
+            "default_house_id": self.default_house_id,
             "categories": [dict(x) for x in self.categories],
             "active_categories": [dict(x) for x in self.categories if x.get("enabled", True)],
             "payers": [dict(x) for x in self.payers],
@@ -1826,6 +2125,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "recurring_occurrences": [
                 self._public_recurring_occurrence(x) for x in self.recurring_occurrences
             ],
+            "recurring_payments": [dict(x) for x in self.recurring_payments],
             "income_categories": [dict(x) for x in self.income_categories],
             "incomes": [dict(x) for x in self.incomes if not x.get("voided")],
             "income_rules": [dict(x) for x in self.income_rules],
@@ -1871,13 +2171,15 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         return items
 
     def recurring_history_items(self) -> list[dict[str, Any]]:
-        """Return scheduled recurring charges from activation through the current month."""
+        """Expose scheduled installments separately from confirmed cash movements."""
         today = date.today()
         window_end = date(today.year, today.month, monthrange(today.year, today.month)[1])
         items: list[dict[str, Any]] = []
+        payments = {
+            (str(row.get("recurring_id")), str(row.get("due_date"))): row
+            for row in getattr(self, "recurring_payments", [])
+        }
         for recurring in self.recurring_expenses:
-            if not bool(recurring.get("active", True)):
-                continue
             start_text = str(recurring.get("start_date") or "")
             if not start_text:
                 continue
@@ -1887,7 +2189,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 continue
             if start > window_end:
                 continue
-            for due in self._recurring_occurrences_between(recurring, start, window_end):
+            # An inactive rule can still have paid history; inactivity only
+            # suppresses future due charges, not an existing cash ledger.
+            historical_rule = {**recurring, "active": True}
+            for due in self._recurring_occurrences_between(historical_rule, start, window_end):
+                payment = payments.get((str(recurring.get("id")), due.isoformat()))
                 items.append(
                     {
                         "id": str(recurring.get("id", "")),
@@ -1896,6 +2202,12 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         "color": self._normalize_color(recurring.get("color"), 0),
                         "amount": round(float(recurring.get("amount", 0.0) or 0.0), 2),
                         "due_date": due.isoformat(),
+                        "paid": payment is not None,
+                        "payment_date": payment.get("payment_date") if payment else None,
+                        "actual_amount": payment.get("amount") if payment else None,
+                        "account_id": payment.get("account_id") if payment else None,
+                        "already_recorded": bool(payment.get("already_recorded")) if payment else False,
+                        "payment_note": str(payment.get("note") or "") if payment else "",
                     }
                 )
         items.sort(key=lambda x: (str(x.get("due_date", "")), str(x.get("name", "")).casefold()))
@@ -1918,15 +2230,17 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         return self._rows_from_buckets(buckets, first, last)
 
     def cashflow_monthly_totals(self) -> list[dict[str, Any]]:
-        """Return real monthly outflow, including scheduled recurring charges."""
+        """Real cash outflow: paid bills plus confirmed, unlinked recurring payments."""
         bill_rows = {str(row["key"]): row for row in self.monthly_totals()}
         recurring_by_key: dict[str, float] = defaultdict(float)
-        for item in self.recurring_history_items():
+        for item in getattr(self, "recurring_payments", []):
+            if item.get("already_recorded"):
+                continue
             try:
-                due = date.fromisoformat(str(item.get("due_date") or ""))
+                paid = date.fromisoformat(str(item.get("payment_date") or ""))
             except ValueError:
                 continue
-            key = f"{due.year:04d}-{due.month:02d}"
+            key = f"{paid.year:04d}-{paid.month:02d}"
             recurring_by_key[key] += max(0.0, float(item.get("amount", 0.0) or 0.0))
 
         keys = set(bill_rows) | set(recurring_by_key)
@@ -2866,6 +3180,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             for row in item.get("line_items", [])
             if isinstance(row, dict) and row.get("kind") and row.get("id")
         }
+        stored_houses = {
+            (str(row.get("kind") or ""), str(row.get("id") or "")): row.get("house_id")
+            for row in item.get("line_items", [])
+            if isinstance(row, dict) and row.get("kind") and row.get("id") and row.get("house_id")
+        }
         details: list[dict[str, Any]] = []
         for expense_id in [str(x) for x in item.get("expense_ids", []) if x]:
             expense = next(
@@ -2881,6 +3200,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 {
                     "kind": "expense",
                     "id": expense_id,
+                    "house_id": stored_houses.get(("expense", expense_id))
+                    or (expense.get("house_id") if expense is not None else None),
                     "label": (
                         str(expense.get("provider") or "")
                         if expense is not None
@@ -2933,6 +3254,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 {
                     "kind": "recurring",
                     "id": occurrence_id,
+                    "house_id": stored_houses.get(("recurring", occurrence_id))
+                    or (recurring.get("house_id") if recurring is not None else None),
                     "label": (
                         str(occurrence.get("name") or "")
                         if occurrence is not None
@@ -3352,6 +3675,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 "id": str(item.get("id") or uuid4().hex),
                 "paid_year": paid_year, "paid_month": paid_month,
                 "category_id": str(category["id"]), "amount": round(amount, 2),
+                "house_id": self._resolve_house_id(item.get("house_id")),
                 "period_start_year": sy, "period_start_month": sm,
                 "period_end_year": ey, "period_end_month": em,
                 "period_start_date": period_start_date,
@@ -3405,6 +3729,9 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             if not source or not target or source == target or self.payer(source) is None or self.payer(target) is None or not isfinite(amount) or amount <= 0:
                 changed = True
                 continue
+            for line in raw.get("line_items", []):
+                if isinstance(line, dict) and line.get("house_id") and self.house(str(line["house_id"])) is None:
+                    raise ValueError("Reimbursement refers to a house that does not exist")
             item = {
                 "id": str(raw.get("id") or uuid4().hex),
                 "from_payer_id": source, "to_payer_id": target,
@@ -3418,6 +3745,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         "kind": str(x.get("kind") or ""),
                         "id": str(x.get("id") or ""),
                         "amount": round(float(x.get("amount", 0.0) or 0.0), 2),
+                        **({"house_id": str(x["house_id"])}
+                           if x.get("house_id") else {}),
                     }
                     for x in raw.get("line_items", [])
                     if isinstance(x, dict)
@@ -3468,6 +3797,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             item = {
                 "id": str(raw.get("id") or uuid4().hex),
                 **normalized,
+                "house_id": self._resolve_house_id(raw.get("house_id")),
                 "created_at": str(
                     raw.get("created_at")
                     or datetime.now().astimezone().isoformat(timespec="seconds")
@@ -3556,6 +3886,36 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 changed = True
             migrated.append(item)
         self.recurring_occurrences = migrated
+        return changed
+
+    def _migrate_recurring_payments(self) -> bool:
+        """Validate confirmed payments before using them in account balances."""
+        original = self.recurring_payments
+        migrated: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for raw in original:
+            normalized = self._normalize_recurring_payment(
+                recurring_id=str(raw.get("recurring_id") or ""),
+                due_date=str(raw.get("due_date") or ""),
+                payment_date=str(raw.get("payment_date") or ""),
+                amount=raw.get("amount"),
+                account_id=raw.get("account_id"),
+                already_recorded=raw.get("already_recorded", False),
+                note=str(raw.get("note") or ""),
+                allow_unassigned=True,
+            )
+            if normalized["id"] in seen:
+                raise ValueError("Duplicate recurring payment in storage or backup")
+            seen.add(normalized["id"])
+            normalized["created_at"] = str(
+                raw.get("created_at")
+                or datetime.now().astimezone().isoformat(timespec="seconds")
+            )
+            if raw.get("updated_at"):
+                normalized["updated_at"] = str(raw["updated_at"])
+            migrated.append(normalized)
+        changed = migrated != original
+        self.recurring_payments = migrated
         return changed
 
     async def _save_and_notify(self) -> None:
@@ -3780,11 +4140,14 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             {
                 "schema_version": STORAGE_SCHEMA_VERSION,
                 "categories": self.categories,
+                "houses": self.houses,
+                "default_house_id": self.default_house_id,
                 "payers": self.payers,
                 "expenses": self.expenses,
                 "settlements": self.settlements,
                 "recurring_expenses": self.recurring_expenses,
                 "recurring_occurrences": self.recurring_occurrences,
+                "recurring_payments": self.recurring_payments,
                 "income_categories": self.income_categories,
                 "incomes": self.incomes,
                 "income_rules": self.income_rules,
@@ -3799,6 +4162,10 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         self.settlements.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
         self.recurring_expenses.sort(key=lambda x: (not bool(x.get("active", True)), str(x.get("name", "")).casefold()))
         self.recurring_occurrences.sort(key=lambda x: (str(x.get("due_date", "")), str(x.get("id", ""))), reverse=True)
+        if hasattr(self, "recurring_payments"):
+            self.recurring_payments.sort(
+                key=lambda x: (str(x.get("payment_date", "")), str(x.get("due_date", ""))), reverse=True
+            )
         if hasattr(self, "incomes"):
             self.incomes.sort(key=lambda x: (str(x.get("expected_date", "")), str(x.get("created_at", ""))), reverse=True)
         if hasattr(self, "income_rules"):
