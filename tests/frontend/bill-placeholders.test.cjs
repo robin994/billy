@@ -102,6 +102,36 @@ test('v0.17.1: bill types configure independent automatic bills for two houses',
   assert.equal(sent.house_placeholders['home-b'].provider, 'Holiday power provider')
 })
 
+test('issue #17 follow-up: bill type save keeps the form open after a server validation error', async t => {
+  const f = fixture(t)
+  f.data.houses = [{ id: 'house-default', name: 'Home' }]
+  f.data.default_house_id = 'house-default'
+  const panel = f.element('billy-settings')
+  panel._openCategory('power')
+  const form = panel.shadowRoot.getElementById('category-form')
+  const modal = panel.shadowRoot.getElementById('modal')
+  form.elements.placeholder_provider.value = 'Local utility'
+  form.elements.placeholder_contract.value = 'New contract'
+  f.hass.callWS = async () => { throw new Error("not a valid option at 'placeholder.contract'") }
+  await panel._saveCategory({ preventDefault() {}, currentTarget: form }, 'power', 'house-default')
+  assert.equal(modal.hidden, false)
+  assert.equal(panel.shadowRoot.getElementById('category-form'), form)
+  assert.equal(form.elements.placeholder_provider.value, 'Local utility')
+  assert.equal(form.elements.placeholder_contract.value, 'New contract')
+  assert.match(form.querySelector('[data-category-save-error]').textContent, /placeholder\.contract/)
+  assert.equal(form.querySelector('[type="submit"]').disabled, false)
+  f.hass.callWS = async request => {
+    f.calls.push(request)
+    return request.type === 'bill_tracker/list' ? f.data : {}
+  }
+  await panel._saveCategory({ preventDefault() {}, currentTarget: form }, 'power', 'house-default')
+  const sent = f.calls.find(request => request.type === 'bill_tracker/category/update')
+  assert.equal(sent.placeholder.provider, 'Local utility')
+  assert.equal(sent.placeholder.contract, 'New contract')
+  assert.equal(sent.house_placeholders['house-default'].provider, 'Local utility')
+  assert.equal(modal.hidden, true)
+})
+
 test('checking a provisional bill opens amount confirmation before paying it', async t => {
   const f = fixture(t)
   const bills = f.element('billy-bills')

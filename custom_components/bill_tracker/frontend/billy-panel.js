@@ -1,12 +1,12 @@
-import './billy-parser-manager.js?v=0.17.1-r1'
-import './billy-accounts.js?v=0.17.1-r1'
+import './billy-parser-manager.js?v=0.17.2-r1'
+import './billy-accounts.js?v=0.17.2-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.17.1-r1'
+} from './billy-extra-i18n.js?v=0.17.2-r1'
 
-const BILLY_PANEL_VERSION = '0.17.1'
+const BILLY_PANEL_VERSION = '0.17.2'
 
 const TEXT = {
   en: {
@@ -5179,6 +5179,7 @@ class BillySettings extends HTMLElement {
   async _saveCategory(event, id, primaryHouseId = null) {
     event.preventDefault()
     const form = event.currentTarget
+    if (form.dataset.saving === '1') return
     const values = new FormData(form)
     const payload = {
       type: id ? 'bill_tracker/category/update' : 'bill_tracker/category/add',
@@ -5227,6 +5228,9 @@ class BillySettings extends HTMLElement {
       }
       payload.house_placeholders = houses
     }
+    form.dataset.saving = '1'
+    const saveButton = form.querySelector('[type="submit"]')
+    if (saveButton) saveButton.disabled = true
     try {
       await this._hass.callWS(payload)
       this.shadowRoot.getElementById('modal').hidden = true
@@ -5234,8 +5238,18 @@ class BillySettings extends HTMLElement {
       this._error = null
       await this._load(false)
     } catch (error) {
-      this._error = errorText(this._hass, error)
-      this._render()
+      let notice = form.querySelector('[data-category-save-error]')
+      if (!notice) {
+        notice = document.createElement('div')
+        notice.className = 'notice error'
+        notice.setAttribute('role', 'alert')
+        notice.setAttribute('data-category-save-error', '')
+        form.querySelector('.modal-actions').before(notice)
+      }
+      notice.textContent = errorText(this._hass, error)
+    } finally {
+      form.dataset.saving = '0'
+      if (saveButton) saveButton.disabled = false
     }
   }
 
@@ -5593,7 +5607,7 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.17.1-r1').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.17.2-r1').catch((error) => {
         this._incomePromise = null
         for (const id of ['income-panel', 'recurring-income-panel']) {
           const section = this.shadowRoot?.getElementById(id)
@@ -5613,7 +5627,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.17.1-r1'
+        './billy-reimbursement-history.js?v=0.17.2-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(

@@ -950,6 +950,7 @@ async def ws_internal_transfer_delete(hass, connection, msg):
 _RECURRING_COMMON = {
     vol.Required("name"): str,
     vol.Required("kind"): vol.In(RECURRING_KINDS),
+    vol.Optional("house_id"): str,
     vol.Required("amount"): vol.Coerce(float),
     vol.Required("interval_months"): vol.In(RECURRING_INTERVALS),
     vol.Required("start_date"): str,
@@ -1161,6 +1162,8 @@ _CATEGORY_COMMON = {
         vol.Optional("fixed_amount", default=0): vol.Coerce(float),
         vol.Optional("due_day"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=31))),
         vol.Optional("start_month", default=""): str,
+        vol.Optional("provider", default=""): str,
+        vol.Optional("contract", default=""): str,
     },
     vol.Optional("house_placeholders"): {
         str: {

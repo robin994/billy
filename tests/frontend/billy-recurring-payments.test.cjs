@@ -266,6 +266,38 @@ test('v0.17.1: fixed-term preview calculates the final different installment', a
   assert.equal(request.auto_renew, false)
 })
 
+test('issue #17 follow-up: selected house is included when saving the installment plan', async t => {
+  const { dom, recurring, snapshot, calls } = await fixture(t)
+  const selectedHouse = 'd736a68ed48f4935ac036b4ecef69b31'
+  snapshot.houses = [
+    { id: selectedHouse, name: 'Default home' },
+    { id: 'vacation-home', name: 'Vacation home' },
+  ]
+  snapshot.default_house_id = selectedHouse
+  const originalCall = recurring._hass.callWS
+  recurring._hass.callWS = async request => {
+    if (request.type === 'bill_tracker/recurring/add') {
+      calls.push({ ...request })
+      return { id: 'new-loan' }
+    }
+    return originalCall(request)
+  }
+  recurring._openRecurring()
+  const form = recurring.shadowRoot.getElementById('recurring-form')
+  assert.equal(form.elements.namedItem('house_id').value, selectedHouse)
+  form.elements.namedItem('kind').value = 'installment'
+  form.elements.namedItem('name').value = 'Mortgage'
+  form.elements.namedItem('amount').value = '500'
+  form.elements.namedItem('installment_count').value = '21'
+  form.elements.namedItem('total_amount').value = '10520.09'
+  form.dispatchEvent(new dom.window.Event('submit', { cancelable: true, bubbles: true }))
+  await settled()
+  const sent = calls.find(request => request.type === 'bill_tracker/recurring/add')
+  assert.equal(sent.house_id, selectedHouse)
+  assert.equal(sent.total_amount, 10520.09)
+  assert.equal(recurring.shadowRoot.getElementById('recurring-modal').hidden, true)
+})
+
 test('v0.17.1: incomplete payer share does not close the recurring editor', async t => {
   const { dom, recurring } = await fixture(t)
   recurring._openRecurring()

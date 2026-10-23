@@ -13,9 +13,9 @@ import pytest
 
 INIT = Path(__file__).resolve().parents[1] / "custom_components" / "bill_tracker" / "__init__.py"
 NEW_URL = "/bill_tracker/billy-lovelace.js"
-NEW_MODULE_URL = NEW_URL + "?v=0.17.1-r1"
+NEW_MODULE_URL = NEW_URL + "?v=0.17.2-r1"
 OLD_URL = "/bill_tracker/bill-tracker-card.js"
-OLD_MODULE_URL = OLD_URL + "?v=0.17.1-r1"
+OLD_MODULE_URL = OLD_URL + "?v=0.17.2-r1"
 
 
 class ResourceStorageCollection:

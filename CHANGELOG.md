@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.17.2
+
+Released: 2026-10-23.
+
+- Fixed issue #17 follow-up: recurring expense add/update now accepts the
+  selected `house_id` in the Home Assistant WebSocket schema. The manager
+  continues to reject references to unknown houses.
+- Fixed bill type add/update rejecting optional `placeholder.provider` and
+  `placeholder.contract` fields. Empty values and non-empty values are
+  supported for the legacy schedule as well as the per-house schedules.
+- A rejected bill type save now shows the server error inside the editor
+  without closing it or erasing unsaved changes. Correcting and retrying
+  requires no re-entry.
+- Added backend WebSocket schema tests reproducing both user reports and
+  frontend regression tests for submitted fields and retry behavior.
+- Updated frontend resource cache to `0.17.2-r1`; no data migration.
+
 ## 0.17.1
 
 Released: 2026-10-23.

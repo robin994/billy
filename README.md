@@ -113,7 +113,7 @@ For detailed configuration and security constraints, see [Income & document arch
 - [Changelog — version-by-version updates](CHANGELOG.md)
 - [GitHub issues and feature requests](https://github.com/robin994/billy/issues)
 
-The deprecated `custom:bill-tracker-card` remains available to existing dashboards during Billy 0.x, but new dashboards should use the seven dedicated widgets. For Lovelace installations in YAML resource mode, register `/bill_tracker/billy-lovelace.js?v=0.17.1-r1` as a JavaScript module; keep the legacy `bill-tracker-card.js` resource only if an existing dashboard still uses it.
+The deprecated `custom:bill-tracker-card` remains available to existing dashboards during Billy 0.x, but new dashboards should use the seven dedicated widgets. For Lovelace installations in YAML resource mode, register `/bill_tracker/billy-lovelace.js?v=0.17.2-r1` as a JavaScript module; keep the legacy `bill-tracker-card.js` resource only if an existing dashboard still uses it.
 
 ## Contributing and support
 
@@ -122,4 +122,4 @@ Bug reports, parser requests and improvements are welcome through [Billy issues]
 Maintained by [@robin994](https://github.com/robin994). If you find Billy useful, consider [starring the repository](https://github.com/robin994/billy) or [supporting its development](https://paypal.me/rtortora94).
 
 ---
-**Billy 0.17.1** · Open source · Home Assistant integration
+**Billy 0.17.2** · Open source · Home Assistant integration
