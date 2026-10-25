@@ -54,6 +54,92 @@ def balance(manager, account_id, as_of=date(2026, 10, 18)):
     return next(item for item in result["accounts"] if item["id"] == account_id)
 
 
+def test_balance_adjustment_preserves_opening_and_past_balances():
+    manager = AccountsHarness()
+    account = add(manager, initial=100)
+    result = run(manager.async_adjust_account_balance(account["id"], balance=125.25, note="Correction"))
+    assert result["adjusted"] is True
+    assert result["movement"]["type"] == "income"
+    assert result["movement"]["amount"] == 25.25
+    assert manager.account(account["id"])["opening_balance"] == 100
+    assert manager.account_balances()["total"] == 125.25
+    assert manager.account_balances()["accounts"][0]["manual_income"] == 25.25
+    assert manager.account_balances()["accounts"][0]["manual_expenses"] == 0
+    assert manager.account_balances()["accounts"][0]["income"] == 0
+    assert manager.account_balances()["accounts"][0]["expenses"] == 0
+    assert balance(manager, account["id"], date(2026, 1, 2))["balance"] == 100
+    assert manager._migrate_accounts() is False
+    assert manager.account_balances()["total"] == 125.25
+    correction = run(manager.async_adjust_account_balance(
+        account["id"], balance=90.10, note="Purchase outside Billy",
+    ))
+    assert correction["movement"]["type"] == "expense"
+    assert correction["movement"]["amount"] == -35.15
+    assert manager.account_balances()["total"] == 90.10
+    assert manager.account_balances()["accounts"][0]["manual_expenses"] == 35.15
+    assert balance(manager, account["id"], date(2026, 1, 2))["balance"] == 100
+    with pytest.raises(ValueError, match="adjustment history"):
+        run(manager.async_delete_account(account["id"]))
+    assert run(manager.async_adjust_account_balance(account["id"], balance=90.10))["adjusted"] is False
+    assert len(manager.account(account["id"])["balance_adjustments"]) == 2
+
+
+def test_manual_movements_do_not_change_real_receipts_or_paid_bills():
+    manager = AccountsHarness()
+    item = add(manager, "Bank", initial=100)
+    manager.incomes.append({
+        "account_id": item["id"], "received": True, "actual_amount": 30,
+        "received_date": "2026-01-20",
+    })
+    manager.expenses.append({
+        "account_id": item["id"], "paid": True, "amount": 10,
+        "payment_date": "2026-01-25",
+    })
+    run(manager.async_adjust_account_balance(item["id"], balance=150))
+    row = manager.account_balances()["accounts"][0]
+    assert row["income"] == 30
+    assert row["expenses"] == 10
+    assert row["manual_income"] == 30
+    assert row["manual_expenses"] == 0
+    assert row["balance"] == 150
+    assert len(manager.incomes) == len(manager.expenses) == 1
+    assert manager.incomes[0]["actual_amount"] == 30
+    assert manager.expenses[0]["amount"] == 10
+
+
+def test_legacy_signed_adjustments_migrate_to_dated_income_and_expense():
+    manager = AccountsHarness()
+    item = add(manager, initial=100)
+    manager.account(item["id"])["balance_adjustments"] = [
+        {"id": "old", "date": "2026-02-01", "amount": -12.5, "note": "Old correction"},
+        {"id": "new", "date": "2026-02-02", "amount": 7.25, "note": ""},
+    ]
+    assert manager._migrate_accounts()
+    assert [row["type"] for row in manager.account(item["id"])["balance_adjustments"]] == [
+        "expense", "income",
+    ]
+    assert manager._migrate_accounts() is False
+    assert balance(manager, item["id"], date(2026, 1, 31))["balance"] == 100
+    assert balance(manager, item["id"], date(2026, 2, 1))["balance"] == 87.5
+    assert balance(manager, item["id"], date(2026, 2, 2))["balance"] == 94.75
+    with pytest.raises(ValueError, match="exclude balance adjustments"):
+        run(manager.async_update_account(
+            item["id"], name=item["name"], account_type="checking",
+            opening_date="2026-03-01", opening_balance=100, payer_id="owner",
+        ))
+
+
+@pytest.mark.parametrize("balance", [float("nan"), float("inf"), 100.001, 1e12])
+def test_invalid_manual_balance_does_not_record_or_save(balance):
+    manager = AccountsHarness()
+    item = add(manager)
+    saved = manager.save_count
+    with pytest.raises(ValueError):
+        run(manager.async_adjust_account_balance(item["id"], balance=balance))
+    assert manager.save_count == saved
+    assert not manager.account(item["id"]).get("balance_adjustments")
+
+
 def test_accounts_start_empty_and_have_no_fabricated_balances():
     manager = AccountsHarness()
     result = manager.account_balances()
@@ -331,6 +417,7 @@ def test_account_routes_and_storage_are_in_manager():
         "bill_tracker/accounts/update",
         "bill_tracker/accounts/delete",
         "bill_tracker/accounts/default",
+        "bill_tracker/accounts/adjust_balance",
         "bill_tracker/accounts/transfer/add",
         "bill_tracker/accounts/transfer/update",
         "bill_tracker/accounts/transfer/delete",

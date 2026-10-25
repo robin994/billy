@@ -45,8 +45,8 @@ use genuinely separated environments and appropriate access controls.
 
 ## Accounts, income and recurring plans
 
-The main **Accounts / Conti** tab shows balances and internal transfer history.
-Select an account card to filter its outgoing transfers, or choose an account
+The main **Accounts / Conti** tab shows balances, internal transfers and
+dated manual corrections. Select an account card to filter outgoing movements, or choose an account
 and direction (incoming, outgoing or both) in the history controls. The
 **Record a transfer** button moves money between two manually tracked accounts.
 
@@ -54,6 +54,13 @@ Account creation, editing, deletion and default-account selection are in
 **Settings / Impostazioni → Accounts / Conti**. Accounts require a payer owner,
 which can be configured under **Settings → Payers**. Billy does not access
 bank accounts or import bank transactions.
+
+To reconcile an untracked bank operation, use **Edit current balance / Modifica
+saldo attuale** on the account in Settings. Enter the actual balance and an
+optional reason. Billy saves the difference as **manual income** or **manual
+expense**, visible in the account movement history, without rewriting the
+opening balance or older records. Corrections affect account cash balances
+but not bill-based spending statistics or confirmed income reports.
 
 **Income / Entrate** is for actual and expected individual receipts. Use
 **Recurring / Ricorrenti → Expenses / Spese** for recurring costs and

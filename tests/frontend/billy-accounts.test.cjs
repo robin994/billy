@@ -35,9 +35,15 @@ function mount(language = 'en') {
       const outflow = data.internal_transfers
         .filter((transfer) => transfer.from_account === row.id)
         .reduce((sum, transfer) => sum + transfer.amount, 0)
+      const manualIncome = (row.balance_adjustments || [])
+        .reduce((sum, movement) => sum + Math.max(0, movement.amount), 0)
+      const manualExpenses = (row.balance_adjustments || [])
+        .reduce((sum, movement) => sum + Math.max(0, -movement.amount), 0)
       return { ...row, is_default: row.id === data.default_account_id,
         income: 0, expenses: 0, transfers_in: inflow, transfers_out: outflow,
-        balance: row.opening_balance + inflow - outflow }
+        manual_income: manualIncome, manual_expenses: manualExpenses,
+        adjustments: manualIncome - manualExpenses,
+        balance: row.opening_balance + inflow - outflow + manualIncome - manualExpenses }
     })
     data.account_balances = {
       configured: Boolean(accounts.length), accounts, as_of: '2026-10-18',
@@ -70,6 +76,17 @@ function mount(language = 'en') {
         data.accounts = data.accounts.filter((row) => row.id !== msg.account_id)
         if (data.default_account_id === msg.account_id)
           data.default_account_id = data.accounts[0]?.id || null
+      } else if (msg.type === 'bill_tracker/accounts/adjust_balance') {
+        const row = data.accounts.find(item => item.id === msg.account_id)
+        const current = data.account_balances.accounts.find(item => item.id === msg.account_id).balance
+        const amount = msg.balance - current
+        if (amount) {
+          row.balance_adjustments ||= []
+          row.balance_adjustments.push({
+            id: `m${++index}`, date: '2026-10-18', amount,
+            type: amount > 0 ? 'income' : 'expense', note: msg.note,
+          })
+        }
       } else if (msg.type === 'bill_tracker/accounts/default') {
         data.default_account_id = msg.account_id
       } else if (msg.type === 'bill_tracker/accounts/transfer/add') {
@@ -182,6 +199,81 @@ test('Account settings manage accounts without duplicating the transfers interfa
   assert.equal(ctx.element.shadowRoot.querySelector('[data-filter-outgoing]'), null)
 })
 
+test('Account balance can be corrected without changing its opening balance', async t => {
+  const ctx = mount('it')
+  t.after(() => ctx.dom.window.close())
+  const account = await createAccount(ctx, 'Current', 'checking', 100)
+  ctx.element.shadowRoot.querySelector('[data-adjust-balance]').click()
+  const form = ctx.element.shadowRoot.querySelector('#accounts-modal form')
+  assert.match(form.textContent, /Modifica saldo attuale/)
+  form.elements.balance.value = '85.50'
+  form.elements.balance.dispatchEvent(new ctx.dom.window.Event('input', { bubbles: true }))
+  assert.match(form.querySelector('[data-adjustment-preview]').textContent, /Uscita manuale da registrare/)
+  assert.match(form.querySelector('[data-adjustment-preview]').textContent, /14,50/)
+  form.elements.note.value = 'Payment outside Billy'
+  await submit(ctx.dom, form)
+  const message = ctx.calls.find(item => item.type === 'bill_tracker/accounts/adjust_balance')
+  assert.equal(message.account_id, account.id)
+  assert.equal(message.balance, 85.5)
+  assert.equal(message.note, 'Payment outside Billy')
+  assert.equal(ctx.data.accounts[0].opening_balance, 100)
+  assert.equal(ctx.data.account_balances.total, 85.5)
+  assert.equal(ctx.data.account_balances.accounts[0].manual_expenses, 14.5)
+  assert.equal(ctx.data.accounts[0].balance_adjustments[0].type, 'expense')
+  assert.match(ctx.element.shadowRoot.querySelector('.manual-row').textContent, /Uscita manuale/)
+})
+
+test('Positive and negative corrections are dated account movements and filter by direction', async t => {
+  const ctx = mount('en')
+  t.after(() => ctx.dom.window.close())
+  const bank = await createAccount(ctx, 'Main bank', 'checking', 100)
+  const cash = await createAccount(ctx, 'Cash', 'cash', 50)
+  async function setBalance(id, amount, note) {
+    ctx.element.shadowRoot.querySelector(`[data-adjust-balance="${id}"]`).click()
+    const form = ctx.element.shadowRoot.querySelector('#accounts-modal form')
+    form.elements.balance.value = String(amount)
+    form.elements.note.value = note
+    await submit(ctx.dom, form)
+  }
+  await setBalance(bank.id, 80, 'Untracked purchase')
+  await setBalance(bank.id, 125, 'Untracked credit')
+  await setBalance(cash.id, 55, 'Wallet correction')
+  assert.equal(ctx.data.account_balances.total, 180)
+  assert.equal(ctx.data.account_balances.accounts[0].manual_income, 45)
+  assert.equal(ctx.data.account_balances.accounts[0].manual_expenses, 20)
+  assert.equal(ctx.data.accounts[0].opening_balance, 100)
+  assert.deepEqual(ctx.data.accounts[0].balance_adjustments.map(row => row.type),
+    ['expense', 'income'])
+  ctx.data.internal_transfers = [{
+    id: 't1', from_account: bank.id, to_account: cash.id,
+    amount: 5, transfer_date: '2026-10-10', note: 'Normal transfer',
+  }]
+  ctx.recalculate()
+  ctx.element.data = ctx.data
+  ctx.element.setAttribute('mode', 'overview')
+  assert.equal(ctx.element.shadowRoot.querySelectorAll('.manual-row').length, 3)
+  assert.equal(ctx.element.shadowRoot.querySelectorAll('.transfer-row:not(.manual-row)').length, 1)
+  assert.match(ctx.element.shadowRoot.textContent, /Untracked purchase/)
+  assert.match(ctx.element.shadowRoot.textContent, /Untracked credit/)
+  const choose = (id, value) => {
+    const control = ctx.element.shadowRoot.getElementById(id)
+    control.value = value
+    control.dispatchEvent(new ctx.dom.window.Event('change', { bubbles: true }))
+  }
+  choose('transfer-account', bank.id)
+  choose('transfer-direction', 'incoming')
+  assert.equal(ctx.element.shadowRoot.querySelectorAll('.manual-row').length, 1)
+  assert.match(ctx.element.shadowRoot.querySelector('.manual-row').textContent, /Manual income/)
+  choose('transfer-direction', 'outgoing')
+  assert.equal(ctx.element.shadowRoot.querySelectorAll('.manual-row').length, 1)
+  assert.equal(ctx.element.shadowRoot.querySelectorAll('.transfer-row:not(.manual-row)').length, 1)
+  assert.match(ctx.element.shadowRoot.querySelector('.manual-row').textContent, /Manual expense/)
+  choose('transfer-account', cash.id)
+  choose('transfer-direction', 'incoming')
+  assert.match(ctx.element.shadowRoot.querySelector('.manual-row').textContent, /Wallet correction/)
+  assert.equal(ctx.element.shadowRoot.querySelectorAll('.manual-row').length, 1)
+})
+
 test('Transfer history filters by source, destination, or both without mutating records', async t => {
   const ctx = mount()
   t.after(() => ctx.dom.window.close())
@@ -222,7 +314,7 @@ test('Transfer history filters by source, destination, or both without mutating 
   assert.equal(count(), 1)
   select('transfer-direction', 'outgoing')
   assert.equal(count(), 0)
-  assert.match(ctx.element.shadowRoot.querySelector('.history').textContent, /No transfers match/)
+  assert.match(ctx.element.shadowRoot.querySelector('.history').textContent, /No movements match/)
   select('transfer-account', 'all')
   assert.equal(count(), 3)
   assert.equal(ctx.element.shadowRoot.getElementById('transfer-direction').value, 'all')

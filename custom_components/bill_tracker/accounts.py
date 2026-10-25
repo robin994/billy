@@ -182,7 +182,37 @@ class AccountMixin:
                 raise ValueError("Account names must be unique")
             names.add(payload["name"].casefold())
             account_ids.add(account_id)
+            adjustments = []
+            raw_adjustments = raw.get("balance_adjustments", [])
+            if not isinstance(raw_adjustments, list):
+                raise ValueError("Malformed balance adjustment history")
+            adjustment_ids = set()
+            for adjustment in raw_adjustments:
+                if not isinstance(adjustment, dict):
+                    raise ValueError("Malformed balance adjustment")
+                day = _date(adjustment.get("date"))
+                if day < payload["opening_date"]:
+                    raise ValueError("Balance adjustment predates account opening")
+                amount = _cents(adjustment.get("amount"), signed=True)
+                if amount == 0:
+                    raise ValueError("Balance adjustment cannot be zero")
+                kind = "income" if amount > 0 else "expense"
+                if adjustment.get("type", kind) != kind:
+                    raise ValueError("Balance adjustment type does not match its amount")
+                adjustment_id = str(adjustment.get("id") or uuid4().hex)
+                if adjustment_id in adjustment_ids:
+                    raise ValueError("Duplicate balance adjustment ID")
+                adjustment_ids.add(adjustment_id)
+                adjustments.append({
+                    "id": adjustment_id,
+                    "date": day,
+                    "amount": _value(amount),
+                    "type": kind,
+                    "note": str(adjustment.get("note") or "").strip()[:500],
+                })
             item = {"id": account_id, **payload}
+            if adjustments:
+                item["balance_adjustments"] = adjustments
             normalized_accounts.append(item)
             changed |= item != raw
         self.accounts = normalized_accounts
@@ -272,6 +302,9 @@ class AccountMixin:
         ):
             raise ValueError("New opening date would exclude existing transfers")
         if changes["opening_date"] > account["opening_date"]:
+            if any(row["date"] < changes["opening_date"]
+                   for row in account.get("balance_adjustments", [])):
+                raise ValueError("New opening date would exclude balance adjustments")
             # Moving the opening snapshot past posted money flows would hide
             # those flows without changing their records.
             for item in self.incomes:
@@ -302,12 +335,46 @@ class AccountMixin:
         await self._save_and_notify()
         return {"default_account_id": account_id}
 
+    async def async_adjust_account_balance(
+        self, account_id: str, *, balance: float, note: str = "",
+    ) -> dict:
+        """Post the difference as an account-only movement, not a bill or receipt."""
+        account = self.account(account_id)
+        if account is None:
+            raise ValueError("Account not found")
+        today = date.today().isoformat()
+        if account["opening_date"] > today:
+            raise ValueError("Account is not open")
+        desired = _cents(balance, signed=True)
+        actual = _cents(next(
+            row["balance"] for row in self.account_balances()["accounts"]
+            if row["id"] == account_id
+        ), signed=True)
+        delta = desired - actual
+        if not delta:
+            return {"account_id": account_id, "balance": _value(desired), "adjusted": False}
+        if abs(delta) > _MAX_AMOUNT * 100:
+            raise ValueError("Balance adjustment exceeds supported limit")
+        movement = {
+            "id": uuid4().hex, "date": today, "amount": _value(delta),
+            "type": "income" if delta > 0 else "expense",
+            "note": str(note or "").strip()[:500],
+        }
+        account.setdefault("balance_adjustments", []).append(movement)
+        await self._save_and_notify()
+        return {
+            "account_id": account_id, "balance": _value(desired),
+            "adjusted": True, "movement": dict(movement),
+        }
+
     async def async_delete_account(self, account_id: str) -> bool:
         account = self.account(account_id)
         if not account:
             return False
         if any(account_id in (row["from_account"], row["to_account"]) for row in self.internal_transfers):
             raise ValueError("Account has internal transfer history")
+        if account.get("balance_adjustments"):
+            raise ValueError("Account has balance adjustment history")
         if any(str(row.get("account_id") or "") == account_id for row in (*self.expenses, *self.incomes, *self.income_rules)):
             raise ValueError("Account has linked bills or income")
         if any(row.get("account_id") == account_id for row in getattr(self, "recurring_payments", [])):
@@ -393,7 +460,10 @@ class AccountMixin:
             return result
         end = as_of.isoformat()
         buckets = {
-            row["id"]: {"income": 0, "expenses": 0, "transfers_in": 0, "transfers_out": 0}
+            row["id"]: {
+                "income": 0, "expenses": 0, "transfers_in": 0, "transfers_out": 0,
+                "manual_income": 0, "manual_expenses": 0,
+            }
             for row in self.accounts
         }
         opening_dates = {row["id"]: row["opening_date"] for row in self.accounts}
@@ -434,6 +504,15 @@ class AccountMixin:
             # are ever saved; both legs are posted in the same operation.
             buckets[row["from_account"]]["transfers_out"] += amount
             buckets[row["to_account"]]["transfers_in"] += amount
+        for account in self.accounts:
+            # Reconciliation movements do not belong in actual income/bill KPIs.
+            for adjustment in account.get("balance_adjustments", []):
+                if account["opening_date"] <= adjustment["date"] <= end:
+                    cents = _cents(adjustment["amount"], signed=True)
+                    if cents > 0:
+                        buckets[account["id"]]["manual_income"] += cents
+                    else:
+                        buckets[account["id"]]["manual_expenses"] -= cents
         total_cents = 0
         for account in self.accounts:
             amounts = buckets[account["id"]]
@@ -442,6 +521,7 @@ class AccountMixin:
             current = (
                 start_cents + amounts["income"] - amounts["expenses"]
                 + amounts["transfers_in"] - amounts["transfers_out"]
+                + amounts["manual_income"] - amounts["manual_expenses"]
             ) if is_open else None
             if current is not None:
                 total_cents += current
@@ -452,6 +532,9 @@ class AccountMixin:
                 "expenses": _value(amounts["expenses"]),
                 "transfers_in": _value(amounts["transfers_in"]),
                 "transfers_out": _value(amounts["transfers_out"]),
+                "manual_income": _value(amounts["manual_income"]),
+                "manual_expenses": _value(amounts["manual_expenses"]),
+                "adjustments": _value(amounts["manual_income"] - amounts["manual_expenses"]),
                 "balance": _value(current) if current is not None else None,
             })
         result["total"] = _value(total_cents)

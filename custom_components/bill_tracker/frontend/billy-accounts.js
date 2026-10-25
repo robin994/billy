@@ -15,11 +15,19 @@ const ACCOUNT_TEXT = {
     total: 'Combined balance',
     openingDate: 'Opening date',
     openingBalance: 'Opening balance',
+    adjustBalance: 'Edit current balance', currentBalance: 'Current balance',
+    adjustmentHelp: 'Set the desired current balance. The difference is recorded today as manual income or expense, without changing prior transactions.',
+    adjustmentNote: 'Reason (optional)',
+    adjustmentUnchanged: 'No change: no manual movement will be recorded.',
+    adjustmentInPreview: 'Manual income to record: {amount}',
+    adjustmentOutPreview: 'Manual expense to record: {amount}',
+    manualIncome: 'Manual income',
+    manualExpense: 'Manual expense',
     setOpening: 'Create your first account',
     editOpening: 'Edit account',
     setupHelp: 'Create as many accounts as you need. Give each a name, type, opening date and initial balance.',
     dateHelp: 'The opening amounts already include all transactions before this date.',
-    scopeHelp: 'Only confirmed income and paid bills affect the account selected on each transaction. Scheduled recurring expenses, unpaid bills, forecasts and payer reimbursements are excluded. Unassigned historical movements use the account selected as default at migration time.',
+    scopeHelp: 'Balances include confirmed income, paid bills, completed transfers and manual balance corrections. Manual corrections do not change the actual bills, income history or spending reports. Scheduled expenses, unpaid bills, forecasts and reimbursements are excluded. Unassigned older movements use the migration default account.',
     transfer: 'Internal transfer',
     addTransfer: 'Record a transfer',
     direction: 'From account',
@@ -28,8 +36,9 @@ const ACCOUNT_TEXT = {
     amount: 'Amount',
     note: 'Note (optional)',
     transferHelp: 'Moves money between any two accounts without creating income or expense.',
-    history: 'Transfer history',
-    empty: 'No internal transfers recorded.',
+    history: 'Account movements',
+    historyHelp: 'Transfers and manual income/expense corrections, listed by date.',
+    empty: 'No transfers or manual movements recorded.',
     edit: 'Edit',
     remove: 'Delete',
     save: 'Save',
@@ -41,14 +50,14 @@ const ACCOUNT_TEXT = {
     needsTwo: 'Create at least two accounts to record an internal transfer.',
     accountError: 'Unable to save this account.',
     manageAccounts: 'Manage accounts in Settings',
-    filterOutgoing: 'Show outgoing transfers from {name}',
+    filterOutgoing: 'Show outgoing movements from {name}',
     filterAccount: 'Filter by account',
     filterDirection: 'Direction',
     allAccounts: 'All accounts',
     allDirections: 'All directions',
     outgoingTransfers: 'Outgoing',
     incomingTransfers: 'Incoming',
-    noMatches: 'No transfers match these filters.',
+    noMatches: 'No movements match these filters.',
     loading: 'Loading accounts…',
   },
   it: {
@@ -66,11 +75,19 @@ const ACCOUNT_TEXT = {
     total: 'Saldo complessivo',
     openingDate: 'Data saldo iniziale',
     openingBalance: 'Saldo iniziale',
+    adjustBalance: 'Modifica saldo attuale', currentBalance: 'Saldo attuale',
+    adjustmentHelp: 'Imposta il saldo corrente desiderato. La differenza viene registrata oggi come entrata o uscita manuale, senza alterare i movimenti precedenti.',
+    adjustmentNote: 'Motivo (facoltativo)',
+    adjustmentUnchanged: 'Saldo invariato: nessun movimento da registrare.',
+    adjustmentInPreview: 'Entrata manuale da registrare: {amount}',
+    adjustmentOutPreview: 'Uscita manuale da registrare: {amount}',
+    manualIncome: 'Entrata manuale',
+    manualExpense: 'Uscita manuale',
     setOpening: 'Crea il primo conto',
     editOpening: 'Modifica conto',
     setupHelp: 'Crea tutti i conti necessari indicando nome, tipologia, data e saldo iniziale.',
     dateHelp: 'I saldi iniziali comprendono già tutti i movimenti precedenti a questa data.',
-    scopeHelp: 'Solo entrate confermate e bollette pagate incidono sul conto associato al movimento. Le ricorrenze previste, le bollette non pagate, le stime e i rimborsi tra paganti restano esclusi. I vecchi movimenti senza conto vengono associati al conto predefinito durante la migrazione.',
+    scopeHelp: 'Il saldo comprende entrate confermate, bollette pagate, giroconti completati e rettifiche manuali. Le rettifiche non modificano bollette, storico delle entrate o report delle spese. Ricorrenze previste, bollette non pagate, stime e rimborsi restano esclusi. I vecchi movimenti senza conto usano il predefinito della migrazione.',
     transfer: 'Giroconto',
     addTransfer: 'Registra giroconto',
     direction: 'Dal conto',
@@ -79,8 +96,9 @@ const ACCOUNT_TEXT = {
     amount: 'Importo',
     note: 'Nota (facoltativa)',
     transferHelp: 'Sposta denaro tra due conti qualsiasi senza generare entrate o spese.',
-    history: 'Storico giroconti',
-    empty: 'Nessun giroconto registrato.',
+    history: 'Movimenti dei conti',
+    historyHelp: 'Giroconti ed entrate/uscite manuali, ordinati per data.',
+    empty: 'Nessun giroconto o movimento manuale registrato.',
     edit: 'Modifica',
     remove: 'Elimina',
     save: 'Salva',
@@ -92,14 +110,14 @@ const ACCOUNT_TEXT = {
     needsTwo: 'Crea almeno due conti per registrare un giroconto.',
     accountError: 'Impossibile salvare il conto.',
     manageAccounts: 'Gestisci conti nelle Impostazioni',
-    filterOutgoing: 'Mostra i giroconti in uscita da {name}',
+    filterOutgoing: 'Mostra i movimenti in uscita da {name}',
     filterAccount: 'Filtra per conto',
     filterDirection: 'Direzione',
     allAccounts: 'Tutti i conti',
     allDirections: 'Tutte le direzioni',
     outgoingTransfers: 'In uscita',
     incomingTransfers: 'In entrata',
-    noMatches: 'Nessun giroconto corrisponde ai filtri.',
+    noMatches: 'Nessun movimento corrisponde ai filtri.',
     loading: 'Caricamento conti…',
   },
 }
@@ -295,6 +313,18 @@ class BillyAccounts extends HTMLElement {
       </div>
     </article>`
   }
+  _manualRow(movement) {
+    const record = movement.record
+    const incoming = Number(record.amount) > 0
+    return `<article class="transfer-row manual-row">
+      <span class="transfer-icon"><ha-icon icon="mdi:${incoming ? 'plus-circle-outline' : 'minus-circle-outline'}"></ha-icon></span>
+      <div class="transfer-main">
+        <strong>${e(this._t(incoming ? 'manualIncome' : 'manualExpense'))} · ${e(movement.accountName)}</strong>
+        <small>${e(record.date)}${record.note ? ' · ' + e(record.note) : ''}</small>
+      </div>
+      <strong class="transfer-amount">${incoming ? '+' : '−'}${e(this._money(Math.abs(record.amount)))}</strong>
+    </article>`
+  }
   _render() {
     if (!this._data) {
       this.shadowRoot.textContent = this._error || this._t('loading')
@@ -303,7 +333,16 @@ class BillyAccounts extends HTMLElement {
     const balances = this._data.account_balances || {}
     const rows = balances.accounts || []
     const configured = rows.length > 0
-    const history = this._data.internal_transfers || []
+    const history = [
+      ...(this._data.internal_transfers || []).map(record => ({
+        kind: 'transfer', record, date: record.transfer_date,
+      })),
+      ...(this._data.accounts || []).flatMap(account =>
+        (account.balance_adjustments || []).map(record => ({
+          kind: 'manual', record, date: record.date,
+          accountId: account.id, accountName: account.name,
+        }))),
+    ].sort((a, b) => b.date.localeCompare(a.date))
     const manage = this._mode !== 'overview'
     const transfers = this._mode !== 'settings'
     if (this._transferAccount !== 'all' && !rows.some(row => row.id === this._transferAccount)) {
@@ -312,9 +351,15 @@ class BillyAccounts extends HTMLElement {
     }
     const filteredHistory = history.filter(row => {
       if (this._transferAccount === 'all') return true
-      if (this._transferDirection === 'outgoing') return row.from_account === this._transferAccount
-      if (this._transferDirection === 'incoming') return row.to_account === this._transferAccount
-      return row.from_account === this._transferAccount || row.to_account === this._transferAccount
+      if (row.kind === 'manual') {
+        if (row.accountId !== this._transferAccount) return false
+        if (this._transferDirection === 'outgoing') return row.record.amount < 0
+        if (this._transferDirection === 'incoming') return row.record.amount > 0
+        return true
+      }
+      if (this._transferDirection === 'outgoing') return row.record.from_account === this._transferAccount
+      if (this._transferDirection === 'incoming') return row.record.to_account === this._transferAccount
+      return row.record.from_account === this._transferAccount || row.record.to_account === this._transferAccount
     })
     const payerNames = Object.fromEntries((this._data.payers || []).map((payer) => [payer.id, payer.name]))
     this.shadowRoot.innerHTML = `<style>${this._styles()}</style>
@@ -343,9 +388,12 @@ class BillyAccounts extends HTMLElement {
               <div class="account-breakdown">
                 <span>+${e(this._money(row.income))} · ${e(this._t('incoming'))}</span>
                 <span>−${e(this._money(row.expenses))} · ${e(this._t('outgoing'))}</span>
+                ${row.manual_income ? `<span>+${e(this._money(row.manual_income))} · ${e(this._t('manualIncome'))}</span>` : ''}
+                ${row.manual_expenses ? `<span>−${e(this._money(row.manual_expenses))} · ${e(this._t('manualExpense'))}</span>` : ''}
               </div>
               ${manage ? `<div class="actions account-actions">
                 <button data-edit-account="${e(row.id)}">${e(this._t('edit'))}</button>
+                <button data-adjust-balance="${e(row.id)}">${e(this._t('adjustBalance'))}</button>
                 ${!row.is_default ? `<button data-default-account="${e(row.id)}">${e(this._t('setDefault'))}</button>` : ''}
                 <button class="danger" data-delete-account="${e(row.id)}">${e(this._t('remove'))}</button>
               </div>` : ''}
@@ -361,7 +409,7 @@ class BillyAccounts extends HTMLElement {
           ${transfers && rows.length < 2 ? `<p class="hint">${e(this._t('needsTwo'))}</p>` : ''}
           ${transfers ? `<section class="history">
             <div class="history-head"><h3>${e(this._t('history'))}</h3>
-              <span class="hint">${e(this._t('transferHelp'))}</span></div>
+              <span class="hint">${e(this._t('historyHelp'))}</span></div>
             <div class="transfer-filters">
               <label>${e(this._t('filterAccount'))}
                 <select id="transfer-account">
@@ -377,7 +425,8 @@ class BillyAccounts extends HTMLElement {
                 </select>
               </label>
             </div>
-            ${filteredHistory.length ? filteredHistory.map(row => this._transferRow(row)).join('')
+            ${filteredHistory.length ? filteredHistory.map(row =>
+              row.kind === 'manual' ? this._manualRow(row) : this._transferRow(row.record)).join('')
               : `<div class="empty">${e(this._t(history.length ? 'noMatches' : 'empty'))}</div>`}
           </section>` : ''}
         ` : `<div class="setup">
@@ -418,6 +467,9 @@ class BillyAccounts extends HTMLElement {
     })
     for (const button of this.shadowRoot.querySelectorAll('[data-edit-account]')) {
       button.addEventListener('click', () => this._openAccount(button.dataset.editAccount))
+    }
+    for (const button of this.shadowRoot.querySelectorAll('[data-adjust-balance]')) {
+      button.addEventListener('click', () => this._openBalanceAdjustment(button.dataset.adjustBalance))
     }
     for (const button of this.shadowRoot.querySelectorAll('[data-default-account]')) {
       button.addEventListener('click', () => this._request({
@@ -500,6 +552,43 @@ class BillyAccounts extends HTMLElement {
       opening_balance: Number(data.get('opening_balance')),
       make_default: data.get('make_default') === 'on',
     }))
+  }
+  _openBalanceAdjustment(id) {
+    const account = (this._data?.account_balances?.accounts || []).find(row => row.id === id)
+    if (!account || account.balance == null) return
+    const modal = this._modal(`<form>
+      <h2>${e(this._t('adjustBalance'))} — ${e(account.name)}</h2>
+      <p class="hint">${e(this._t('adjustmentHelp'))}</p>
+      <div class="fields">
+        <label>${e(this._t('currentBalance'))}
+          <input name="balance" type="number" step="0.01" required value="${e(account.balance)}"></label>
+        <label class="wide">${e(this._t('adjustmentNote'))}
+          <textarea name="note" maxlength="500" rows="2"></textarea></label>
+      </div>
+      <p class="hint" role="status" data-adjustment-preview></p>
+      <div class="modal-actions"><button type="button" data-close>${e(this._t('cancel'))}</button>
+        <button type="submit" class="primary">${e(this._t('save'))}</button></div>
+    </form>`, data => this._request({
+      type: 'bill_tracker/accounts/adjust_balance', account_id: id,
+      balance: Number(data.get('balance')), note: String(data.get('note') || ''),
+    }))
+    const balanceInput = modal?.querySelector('[name="balance"]')
+    const preview = modal?.querySelector('[data-adjustment-preview]')
+    if (!balanceInput || !preview) return
+    const updatePreview = () => {
+      const balance = Number(balanceInput.value)
+      if (!balanceInput.value.trim() || !Number.isFinite(balance)) {
+        preview.textContent = ''
+        return
+      }
+      const cents = Math.round(balance * 100) - Math.round(account.balance * 100)
+      preview.textContent = !cents ? this._t('adjustmentUnchanged') : this._t(
+        cents > 0 ? 'adjustmentInPreview' : 'adjustmentOutPreview',
+        { amount: this._money(Math.abs(cents) / 100) },
+      )
+    }
+    balanceInput.addEventListener('input', updatePreview)
+    updatePreview()
   }
   _openTransfer(id = null) {
     const accounts = this._data?.accounts || []

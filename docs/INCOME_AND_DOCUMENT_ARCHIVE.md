@@ -106,7 +106,8 @@ but previously recorded transactions retain their original account.
 On or after the individual opening date, the balance of each account is:
 
 - **Account balance:** opening balance + confirmed receipts assigned to it −
-  paid bills assigned to it + incoming transfers − outgoing transfers.
+  paid bills assigned to it + incoming transfers − outgoing transfers +
+  manual income adjustments − manual expense adjustments.
 - **Combined balance:** sum of all account balances. Internal transfers
   cancel and never appear as external income or expenses.
 
@@ -115,18 +116,38 @@ forms have an optional account selector. If none is configured, the first
 created account becomes the default for existing unassigned transactions.
 Subsequent changes to the default do **not** retroactively reallocate history.
 
+Use **Settings → Accounts → Edit current balance** to reconcile an account
+with money movements that Billy does not otherwise track. Enter the **actual
+balance** and an optional reason: the difference from Billy's calculated
+balance is posted **today** as a dated **manual income** (positive difference)
+or **manual expense** (negative difference). The opening snapshot and
+previously recorded bills, income and transfers remain unchanged; balances
+for dates before the correction are unaffected. Entering the same balance
+again does not create a duplicate movement.
+
+Manual adjustments appear alongside transfers in **Account movements**, with
+account and direction filters. The account card shows manual income/expenses
+separately from confirmed receipts and paid bills. Manual movements are
+**account-only corrections**: they do not generate fictional bills, increase
+the income categories or change monthly spending, forecasts or payer
+reimbursements. They are saved with the account and preserved in JSON backups.
+To correct a mistaken adjustment, make a new inverse correction so the audit
+history stays intact. Accounts with manual correction history cannot be
+deleted.
+
 Click **Record a transfer** to move money between **any two distinct existing
 accounts**. A transfer is editable/deletable, uses cents-accurate accounting,
 and must be greater than zero. It cannot predate either account's opening date
 or be dated in the future. An account cannot be deleted while referenced by a
 bill, income, recurring income rule, or transfer. Renaming it does not change
 transaction IDs; accounts can have custom names and types.
-The transfer history can be filtered by account and by incoming, outgoing or
-both directions. Selecting an account's balance card automatically filters to
-transfers going out of that account. The **Manage accounts in Settings** button
+The account movement history can be filtered by account and by incoming,
+outgoing or both directions. Selecting an account's balance card automatically
+filters to outgoing transfers and manual expenses for that account. The
+**Manage accounts in Settings** button
 opens account configuration directly.
 Billy blocks moving an opening date forward if this would silently exclude
-previously posted income, paid bills, or transfers.
+previously posted income, paid bills, transfers or manual corrections.
 
 **Example:** With an opening Checking balance of EUR 1,000 and Savings balance
 of EUR 500, confirming an income of EUR 2,000, paying an EUR 80 bill, and moving

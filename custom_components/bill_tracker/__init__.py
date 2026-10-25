@@ -166,6 +166,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         ws_income_category_delete,
         ws_account_add,
         ws_account_update,
+        ws_account_adjust_balance,
         ws_account_delete,
         ws_account_set_default,
         ws_house_add,
@@ -851,6 +852,24 @@ async def ws_account_update(hass, connection, msg):
         return
     if result is None:
         connection.send_error(msg["id"], "account_not_found", "Account not found")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/accounts/adjust_balance",
+    vol.Required("account_id"): str,
+    vol.Required("balance"): vol.Coerce(float),
+    vol.Optional("note", default=""): str,
+})
+@websocket_api.async_response
+async def ws_account_adjust_balance(hass, connection, msg):
+    try:
+        result = await _manager(hass).async_adjust_account_balance(
+            msg["account_id"], balance=msg["balance"], note=msg["note"],
+        )
+    except (ValueError, RuntimeError) as err:
+        _ws_error(connection, msg, err, "invalid_accounts")
         return
     connection.send_result(msg["id"], result)
 

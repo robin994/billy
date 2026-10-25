@@ -150,10 +150,14 @@ def test_backup_round_trip_preserves_named_accounts_and_linked_transactions():
         "amount": 850, "account_id": accounts[0]["id"],
         "already_recorded": False, "note": "Historical payment",
     }]
+    correction = run(original.async_adjust_account_balance(
+        accounts[0]["id"], balance=42.75, note="External bank operation",
+    ))
     expected = original.account_balances()
     exported = original.export_backup().decode("utf-8")
     data = json.loads(exported)["data"]
     assert len(data["accounts"]) == 4
+    assert data["accounts"][0]["balance_adjustments"] == [correction["movement"]]
     assert data["default_account_id"] == accounts[-1]["id"]
     assert len(data["recurring_payments"]) == 1
     assert "accounts_config" not in data
@@ -165,6 +169,7 @@ def test_backup_round_trip_preserves_named_accounts_and_linked_transactions():
     assert counts["recurring_payments"] == 1
     assert restored.saves == 1
     assert restored.account_balances() == expected
+    assert restored.accounts[0]["balance_adjustments"] == [correction["movement"]]
     assert restored.incomes[0]["account_id"] == inc["account_id"]
     assert restored.internal_transfers[0]["id"] == transfer["id"]
     assert restored.expenses[0]["account_id"] == accounts[0]["id"]
