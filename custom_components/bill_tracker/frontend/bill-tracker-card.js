@@ -1,5 +1,5 @@
-const BILLY_FRONTEND_VERSION = '0.17.2'
-const BILLY_FRONTEND_CACHE_VERSION = '0.17.2-r1'
+const BILLY_FRONTEND_VERSION = '0.17.3'
+const BILLY_FRONTEND_CACHE_VERSION = '0.17.3-r1'
 const BILLY_IMPL_URL = `/bill_tracker/bill-tracker-card-impl.js?v=${BILLY_FRONTEND_CACHE_VERSION}`
 
 const BOOTSTRAP_TEXT = {

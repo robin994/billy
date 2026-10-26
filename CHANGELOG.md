@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.17.3
+
+Released: 2026-10-26.
+
+- Added **Edit current balance** to **Settings → Accounts** (issue #19).
+  Enter the actual balance of an existing account and an optional reason;
+  Billy records the difference as a dated manual income or expense.
+- Manual corrections preserve opening balances, previously recorded movements,
+  and historical balances. They appear in the account movement history with
+  account and direction filters, but do not change normal income, spending,
+  forecasts, bills or reimbursement reports.
+- Included manual corrections in account persistence and JSON backups, with
+  compatibility handling for legacy adjustments and backend/frontend regression
+  coverage. No storage schema upgrade is required.
+- Updated integration and frontend resource versions to `0.17.3` and
+  `0.17.3-r1` to invalidate cached frontend modules.
+
 ## 0.17.2
 
 Released: 2026-10-23.

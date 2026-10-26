@@ -1,12 +1,12 @@
-import './billy-parser-manager.js?v=0.17.2-r1'
-import './billy-accounts.js?v=0.17.2-r1'
+import './billy-parser-manager.js?v=0.17.3-r1'
+import './billy-accounts.js?v=0.17.3-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.17.2-r1'
+} from './billy-extra-i18n.js?v=0.17.3-r1'
 
-const BILLY_PANEL_VERSION = '0.17.2'
+const BILLY_PANEL_VERSION = '0.17.3'
 
 const TEXT = {
   en: {
@@ -5607,7 +5607,7 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.17.2-r1').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.17.3-r1').catch((error) => {
         this._incomePromise = null
         for (const id of ['income-panel', 'recurring-income-panel']) {
           const section = this.shadowRoot?.getElementById(id)
@@ -5627,7 +5627,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.17.2-r1'
+        './billy-reimbursement-history.js?v=0.17.3-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(
