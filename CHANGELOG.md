@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.17.5
+
+Released: 2026-11-06.
+
+- Implemented issue #22: selecting an account card now shows that account's
+  paid bills and recorded recurring payments, with direct links to their
+  existing editors. Payments already recorded as bills are not duplicated.
+- Added incremental loading for long account expense histories and kept
+  transfers and manual balance corrections in their separate movements list.
+- Added a billing-month selector to **Bills**, including **Current month**,
+  a specific month, and **All months** (the backward-compatible default).
+- Remembered Bills filters (paid/unpaid, category, house, reimbursements, year
+  and month) per Home Assistant user in the current browser. Search text is
+  not persisted, and deleted categories/houses do not strand saved filters.
+- Added localization and end-to-end frontend regression tests, with no new
+  APIs, storage migrations or changes to financial balances.
+- Updated the integration version to `0.17.5` and frontend cache suffix
+  to `0.17.5-r1`.
+
 ## 0.17.4
 
 Released: 2026-11-06.

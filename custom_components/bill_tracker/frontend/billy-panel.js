@@ -1,12 +1,12 @@
-import './billy-parser-manager.js?v=0.17.4-r1'
-import './billy-accounts.js?v=0.17.4-r1'
+import './billy-parser-manager.js?v=0.17.5-r1'
+import './billy-accounts.js?v=0.17.5-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.17.4-r1'
+} from './billy-extra-i18n.js?v=0.17.5-r1'
 
-const BILLY_PANEL_VERSION = '0.17.4'
+const BILLY_PANEL_VERSION = '0.17.5'
 
 const TEXT = {
   en: {
@@ -180,6 +180,9 @@ const TEXT = {
     allStatuses: 'All statuses',
     allReimbursementStatuses: 'All reimbursements',
     allYears: 'All years',
+    allBillingMonths: 'All months',
+    currentBillingMonth: 'Current month',
+    filterBillingMonth: 'Filter by billing month',
     providerPaid: 'Provider paid',
     providerUnpaid: 'Provider unpaid',
     reimbursementPending: 'To reimburse',
@@ -579,6 +582,9 @@ const TEXT = {
     allStatuses: 'Tutti gli stati',
     allReimbursementStatuses: 'Tutti i rimborsi',
     allYears: 'Tutti gli anni',
+    allBillingMonths: 'Tutti i mesi',
+    currentBillingMonth: 'Mese corrente',
+    filterBillingMonth: 'Filtra per mese bolletta',
     providerPaid: 'Bolletta pagata',
     providerUnpaid: 'Bolletta da pagare',
     reimbursementPending: 'Da rimborsare',
@@ -809,6 +815,16 @@ const TEXT = {
   },
 }
 Object.assign(TEXT, BILLY_PANEL_EXTRA_TEXT)
+for (const [language, labels] of Object.entries({
+  es: { allBillingMonths: 'Todos los meses', currentBillingMonth: 'Mes actual',
+    filterBillingMonth: 'Filtrar por mes de facturación' },
+  fr: { allBillingMonths: 'Tous les mois', currentBillingMonth: 'Mois en cours',
+    filterBillingMonth: 'Filtrer par mois de facturation' },
+  de: { allBillingMonths: 'Alle Monate', currentBillingMonth: 'Aktueller Monat',
+    filterBillingMonth: 'Nach Rechnungsmonat filtern' },
+  pt: { allBillingMonths: 'Todos os meses', currentBillingMonth: 'Mês atual',
+    filterBillingMonth: 'Filtrar por mês de faturação' },
+})) Object.assign(TEXT[language], labels)
 for (const [language, labels] of Object.entries(BILLY_PLACEHOLDER_TEXT)) {
   Object.assign(TEXT[language], labels)
 }
@@ -2353,8 +2369,11 @@ class BillyBills extends HTMLElement {
     this._status = 'all'
     this._reimbursement = 'all'
     this._year = 'all'
+    this._month = 'all'
     this._sort = 'billing'
     this._sortLoadedFor = null
+    this._filtersLoadedFor = null
+    this._requestedBillId = null
     this._page = 1
     this._pageSize = 25
     this._editing = null
@@ -2372,6 +2391,7 @@ class BillyBills extends HTMLElement {
     const firstAssignment = !this._hass
     this._hass = value
     this._loadSortPreference()
+    this._loadFilterPreferences()
     if (!this.isConnected) return
     if (connectionChanged) {
       this._unsubscribe?.()
@@ -2465,7 +2485,20 @@ class BillyBills extends HTMLElement {
     } finally {
       this._loading = false
       this._render()
+      this._openRequestedBill()
     }
+  }
+  openBillFromAccount(id) {
+    this._requestedBillId = String(id || '')
+    this._openRequestedBill()
+    if (this._requestedBillId && !this._loading) this._load(false)
+  }
+  _openRequestedBill() {
+    const id = this._requestedBillId
+    if (!id || !this._data || !this.shadowRoot.getElementById('bill-modal')) return
+    if (!(this._data.expenses || []).some(row => row.id === id)) return
+    this._requestedBillId = null
+    this._openBill(id)
   }
 
   _money(value) {
@@ -2651,9 +2684,58 @@ class BillyBills extends HTMLElement {
       // Sorting remains available even if browser storage is blocked.
     }
   }
+  _filterPreferenceKey() {
+    return `billy.bills.filters.v1:${this._hass?.user?.id || 'local'}`
+  }
+  _loadFilterPreferences() {
+    const key = this._filterPreferenceKey()
+    if (this._filtersLoadedFor === key) return
+    this._filtersLoadedFor = key
+    // User-scoped browser preferences; do not persist searches or record data.
+    this._category = 'all'
+    this._house = 'all'
+    this._status = 'all'
+    this._reimbursement = 'all'
+    this._year = 'all'
+    this._month = 'all'
+    try {
+      const saved = JSON.parse(globalThis.localStorage?.getItem(key) || '{}')
+      if (saved && typeof saved === 'object') {
+        for (const field of ['category', 'house']) {
+          if (typeof saved[field] === 'string' && saved[field].length < 128)
+            this[`_${field}`] = saved[field]
+        }
+        if (['all', 'paid', 'unpaid'].includes(saved.status)) this._status = saved.status
+        if (['all', 'pending', 'done', 'none'].includes(saved.reimbursement))
+          this._reimbursement = saved.reimbursement
+        if (saved.year === 'all' || /^\d{4}$/.test(String(saved.year || '')))
+          this._year = String(saved.year)
+        if (['all', 'current'].includes(saved.month) ||
+          /^\d{4}-(0[1-9]|1[0-2])$/.test(String(saved.month || '')))
+          this._month = saved.month
+        if (this._year !== 'all' && this._month !== 'all')
+          this._month = 'all'
+      }
+    } catch (_error) {
+      // Invalid/blocked browser storage must not prevent using the filters.
+    }
+  }
+  _saveFilterPreferences() {
+    try {
+      globalThis.localStorage?.setItem(this._filterPreferenceKey(), JSON.stringify({
+        category: this._category,
+        house: this._house,
+        status: this._status,
+        reimbursement: this._reimbursement,
+        year: this._year,
+        month: this._month,
+      }))
+    } catch (_error) {}
+  }
 
   _filtered() {
     const query = this._search.trim().toLocaleLowerCase(localeOf(this._hass))
+    const month = this._month === 'current' ? this._defaultMonth() : this._month
     return (this._data?.expenses || [])
       .filter((row) => {
         if (this._house !== 'all' && row.house_id !== this._house) return false
@@ -2680,6 +2762,9 @@ class BillyBills extends HTMLElement {
           this._year !== 'all' &&
           Number(row.paid_year || row.year) !== Number(this._year)
         )
+          return false
+        if (month !== 'all' &&
+          this._monthValue(row.paid_year || row.year, row.paid_month || row.month) !== month)
           return false
         if (!query) return true
         const haystack = [
@@ -2980,6 +3065,20 @@ class BillyBills extends HTMLElement {
     }
     if (!this._data) return
 
+    // Removed houses/types must not leave an invisible, permanently empty list.
+    let removedFilter = false
+    for (const [field, items] of [
+      ['category', this._data.categories || []],
+      ['house', this._data.houses || []],
+    ]) {
+      if (this[`_${field}`] !== 'all' &&
+          !items.some(item => item.id === this[`_${field}`])) {
+        this[`_${field}`] = 'all'
+        removedFilter = true
+      }
+    }
+    if (removedFilter) this._saveFilterPreferences()
+
     const categories = (this._data.categories || [])
       .slice()
       .sort((a, b) =>
@@ -2992,6 +3091,13 @@ class BillyBills extends HTMLElement {
           .filter(Boolean),
       ),
     ].sort((a, b) => b - a)
+    const currentMonth = this._defaultMonth()
+    const months = [...new Set([
+      ...(this._data.expenses || [])
+        .map(row => this._monthValue(row.paid_year || row.year, row.paid_month || row.month)),
+      this._month,
+    ].filter(value => /^\d{4}-(0[1-9]|1[0-2])$/.test(value) && value !== currentMonth))]
+      .sort((a, b) => b.localeCompare(a))
     this.shadowRoot.innerHTML = `
       <style>${this._styles()}</style>
       <div class="bills-page">
@@ -3005,6 +3111,12 @@ class BillyBills extends HTMLElement {
           <select id="bill-status"><option value="all" ${this._status === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allStatuses'))}</option><option value="unpaid" ${this._status === 'unpaid' ? 'selected' : ''}>${escapeHtml(this._t('providerUnpaid'))}</option><option value="paid" ${this._status === 'paid' ? 'selected' : ''}>${escapeHtml(this._t('providerPaid'))}</option></select>
           <select id="bill-reimbursement"><option value="all" ${this._reimbursement === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allReimbursementStatuses'))}</option><option value="pending" ${this._reimbursement === 'pending' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementPending'))}</option><option value="done" ${this._reimbursement === 'done' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementDone'))}</option><option value="none" ${this._reimbursement === 'none' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementNone'))}</option></select>
           <select id="bill-year"><option value="all">${escapeHtml(this._t('allYears'))}</option>${years.map((year) => `<option value="${year}" ${String(this._year) === String(year) ? 'selected' : ''}>${year}</option>`).join('')}</select>
+          <select id="bill-month" aria-label="${escapeHtml(this._t('filterBillingMonth'))}">
+            <option value="current" ${this._month === 'current' ? 'selected' : ''}>${escapeHtml(this._t('currentBillingMonth'))}</option>
+            <option value="all" ${this._month === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allBillingMonths'))}</option>
+            ${months.map(month => `<option value="${month}" ${this._month === month ? 'selected' : ''}>${escapeHtml(this._monthLabel({ paid_year: Number(month.slice(0, 4)), paid_month: Number(month.slice(5)) }))}</option>`).join('')}
+            ${this._month === currentMonth ? `<option value="${currentMonth}" selected>${escapeHtml(this._monthLabel({ paid_year: Number(currentMonth.slice(0, 4)), paid_month: Number(currentMonth.slice(5)) }))}</option>` : ''}
+          </select>
           <select id="bill-sort" aria-label="${escapeHtml(this._t('sortBills'))}">
             <option value="billing" ${this._sort === 'billing' ? 'selected' : ''}>${escapeHtml(this._t('sortBillingMonth'))}</option>
             <option value="due" ${this._sort === 'due' ? 'selected' : ''}>${escapeHtml(this._t('sortDueDate'))}</option>
@@ -3077,11 +3189,13 @@ class BillyBills extends HTMLElement {
       .getElementById('bill-category')
       ?.addEventListener('change', (event) => {
         this._category = event.target.value
+        this._saveFilterPreferences()
         this._page = 1
         this._renderListOnly()
       })
     this.shadowRoot.getElementById('bill-house')?.addEventListener('change', event => {
       this._house = event.currentTarget.value
+      this._saveFilterPreferences()
       this._page = 1
       this._renderListOnly()
     })
@@ -3089,6 +3203,7 @@ class BillyBills extends HTMLElement {
       .getElementById('bill-status')
       ?.addEventListener('change', (event) => {
         this._status = event.target.value
+        this._saveFilterPreferences()
         this._page = 1
         this._renderListOnly()
       })
@@ -3096,6 +3211,7 @@ class BillyBills extends HTMLElement {
       .getElementById('bill-reimbursement')
       ?.addEventListener('change', (event) => {
         this._reimbursement = event.target.value
+        this._saveFilterPreferences()
         this._page = 1
         this._renderListOnly()
       })
@@ -3103,9 +3219,18 @@ class BillyBills extends HTMLElement {
       .getElementById('bill-year')
       ?.addEventListener('change', (event) => {
         this._year = event.target.value
+        this._month = 'all'
+        this._saveFilterPreferences()
         this._page = 1
-        this._renderListOnly()
+        this._render()
       })
+    this.shadowRoot.getElementById('bill-month')?.addEventListener('change', event => {
+      this._month = event.currentTarget.value
+      this._year = 'all'
+      this._saveFilterPreferences()
+      this._page = 1
+      this._render()
+    })
     this._wireRows()
     this._wirePager()
   }
@@ -3424,8 +3549,9 @@ class BillyBills extends HTMLElement {
         ),
       )
     const year = this._year === 'all' ? null : Number(this._year)
-    const fromMonth = year ? `${year}-01` : ''
-    const toMonth = year ? `${year}-12` : ''
+    const selectedMonth = this._month === 'current' ? this._defaultMonth() : this._month
+    const fromMonth = selectedMonth !== 'all' ? selectedMonth : year ? `${year}-01` : ''
+    const toMonth = selectedMonth !== 'all' ? selectedMonth : year ? `${year}-12` : ''
     card.innerHTML = `<div class="modal-head"><h3>${escapeHtml(this._t('exportBillsTitle'))}</h3><button type="button" class="icon-close" id="export-close">×</button></div>
       <p class="export-help">${escapeHtml(this._t('exportCurrentFilters'))}</p>
       <div class="form-grid">
@@ -3561,6 +3687,7 @@ class BillyRecurring extends HTMLElement {
     this._editing = null
     this._unsubscribe = null
     this._paymentBusy = false
+    this._requestedPayment = null
   }
 
   set hass(value) {
@@ -3621,7 +3748,22 @@ class BillyRecurring extends HTMLElement {
     } finally {
       this._loading = false
       this._render()
+      this._openRequestedPayment()
     }
+  }
+  openPaymentFromAccount(recurringId, dueDate) {
+    if (!recurringId || !dueDate) return
+    this._requestedPayment = { recurringId, dueDate }
+    this._openRequestedPayment()
+    if (this._requestedPayment && !this._loading) this._load(false)
+  }
+  _openRequestedPayment() {
+    const payment = this._requestedPayment
+    if (!payment || !this._data || !this.shadowRoot.getElementById('recurring-modal')) return
+    if (!(this._data.recurring_history || [])
+      .some(row => row.id === payment.recurringId && row.due_date === payment.dueDate)) return
+    this._requestedPayment = null
+    this._openRecurringPaymentEditor(payment.recurringId, payment.dueDate)
   }
 
   _money(value) {
@@ -5532,7 +5674,15 @@ class BillyPanel extends HTMLElement {
       if (view === 'settings' && event.detail?.section) {
         this._settingsSection = event.detail.section
       }
+      if (view === 'recurring' && event.detail?.recurringId)
+        this._recurringType = 'expenses'
       if (view) this._setView(view)
+      if (view === 'bills' && event.detail?.billId)
+        this.shadowRoot.getElementById('bills-panel')
+          ?.openBillFromAccount?.(event.detail.billId)
+      if (view === 'recurring' && event.detail?.recurringId)
+        this.shadowRoot.getElementById('recurring-panel')
+          ?.openPaymentFromAccount?.(event.detail.recurringId, event.detail.dueDate)
     })
     this.shadowRoot.addEventListener('billy-settings-section-changed', (event) => {
       this._settingsSection = event.detail?.section || 'categories'
@@ -5607,7 +5757,7 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.17.4-r1').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.17.5-r1').catch((error) => {
         this._incomePromise = null
         for (const id of ['income-panel', 'recurring-income-panel']) {
           const section = this.shadowRoot?.getElementById(id)
@@ -5627,7 +5777,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.17.4-r1'
+        './billy-reimbursement-history.js?v=0.17.5-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(

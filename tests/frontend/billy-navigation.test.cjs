@@ -148,3 +148,56 @@ test('issue #16: mounted panel loads Account overview and Settings editor using 
   assert.ok(editor.shadowRoot.querySelector('[data-add-account]'))
   assert.equal(editor.shadowRoot.querySelector('[data-add-transfer]'), null)
 })
+
+test('issue #22: account expense editing opens existing bill and recurring payment editors', t => {
+  const { panel } = fixture(t, 'https://ha.example/billy?view=accounts')
+  const snapshot = {
+    currency: 'EUR',
+    categories: [{ id: 'electricity', name: 'Electricity', enabled: true, interval_months: 1 }],
+    payers: [{ id: 'p1', name: 'Owner', enabled: true }],
+    houses: [{ id: 'h1', name: 'Home' }], default_house_id: 'h1',
+    accounts: [{ id: 'a1', name: 'Current account', account_type: 'checking',
+      payer_id: 'p1', opening_date: '2026-01-01', opening_balance: 500 }],
+    default_account_id: 'a1', internal_transfers: [],
+    account_balances: {
+      accounts: [{ id: 'a1', name: 'Current account', account_type: 'checking',
+        payer_id: 'p1', opening_date: '2026-01-01',
+        opening_balance: 500, balance: 400, income: 0, expenses: 100 }],
+      total: 400, as_of: '2026-11-06',
+    },
+    expenses: [{ id: 'b1', paid: true, category: 'Electricity',
+      category_id: 'electricity', house_id: 'h1', amount: 45,
+      paid_year: 2026, paid_month: 10, payment_date: '2026-10-10',
+      account_id: 'a1', split: [] }],
+    recurring_expenses: [{ id: 'r1', name: 'Monthly rental', kind: 'recurring',
+      start_date: '2026-01-01', interval_months: 1, amount: 55 }],
+    recurring_payments: [{ recurring_id: 'r1', due_date: '2026-09-01',
+      payment_date: '2026-09-03', account_id: 'a1', amount: 55 }],
+    recurring_history: [{ id: 'r1', name: 'Monthly rental',
+      due_date: '2026-09-01', amount: 55, paid: true,
+      payment_date: '2026-09-03', actual_amount: 55 }],
+  }
+  const accountView = panel.shadowRoot.getElementById('accounts-panel')
+  const bills = panel.shadowRoot.getElementById('bills-panel')
+  const recurring = panel.shadowRoot.getElementById('recurring-panel')
+  accountView.data = snapshot
+  bills._data = snapshot
+  bills._render()
+  recurring._data = snapshot
+  recurring._render()
+  accountView.shadowRoot.querySelector('[data-filter-outgoing]').click()
+
+  const expenseButtons = accountView.shadowRoot.querySelectorAll('[data-edit-account-expense]')
+  assert.equal(expenseButtons.length, 2)
+  expenseButtons[0].click()
+  assert.equal(panel._view, 'bills')
+  assert.equal(bills.shadowRoot.getElementById('bill-modal').hidden, false)
+  assert.equal(bills._editing?.id, 'b1')
+
+  panel._setView('accounts')
+  expenseButtons[1].click()
+  assert.equal(panel._view, 'recurring')
+  assert.equal(panel._recurringType, 'expenses')
+  assert.equal(recurring.shadowRoot.getElementById('recurring-modal').hidden, false)
+  assert.equal(recurring.shadowRoot.querySelector('[name="payment_date"]').value, '2026-09-03')
+})

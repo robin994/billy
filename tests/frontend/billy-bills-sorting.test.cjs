@@ -126,3 +126,85 @@ test('sort labels are translated in all supported languages', t => {
     assert.equal(f.panel.shadowRoot.getElementById('bill-sort').getAttribute('aria-label'), label)
   }
 })
+
+test('issue #22: billing-month filter can show one month and all months', t => {
+  const f = fixture(t)
+  const choose = (id, value) => {
+    const select = f.panel.shadowRoot.getElementById(id)
+    select.value = value
+    select.dispatchEvent(new f.dom.window.Event('change', { bubbles: true }))
+  }
+  assert.equal(f.panel.shadowRoot.getElementById('bill-month').value, 'all')
+  choose('bill-month', '2026-08')
+  assert.deepEqual(f.ids(), ['late-payment'])
+  assert.equal(f.panel.shadowRoot.getElementById('bill-year').value, 'all')
+  choose('bill-status', 'unpaid')
+  assert.deepEqual(f.ids(), [])
+  choose('bill-month', '2026-09')
+  assert.deepEqual(f.ids(), ['unpaid'])
+  choose('bill-month', 'all')
+  assert.deepEqual(f.ids(), ['unpaid', 'undated'])
+  choose('bill-year', '2026')
+  assert.equal(f.panel.shadowRoot.getElementById('bill-month').value, 'all')
+  choose('bill-month', 'current')
+  assert.equal(f.panel.shadowRoot.getElementById('bill-year').value, 'all')
+})
+
+test('issue #22: filters persist per user across instances and do not leak to another user', t => {
+  const f = fixture(t)
+  const set = (id, value) => {
+    const select = f.panel.shadowRoot.getElementById(id)
+    select.value = value
+    select.dispatchEvent(new f.dom.window.Event('change', { bubbles: true }))
+  }
+  set('bill-status', 'unpaid')
+  set('bill-category', 'power')
+  set('bill-month', '2026-09')
+  const stored = JSON.parse(f.dom.window.localStorage.getItem('billy.bills.filters.v1:test-user'))
+  assert.equal(stored.month, '2026-09')
+  assert.equal(stored.status, 'unpaid')
+  assert.equal(stored.category, 'power')
+  const second = f.dom.window.document.createElement('billy-bills')
+  second._data = f.data
+  second.hass = f.hass
+  second._render()
+  assert.deepEqual(second._filtered().map(row => row.id), ['unpaid'])
+  assert.equal(second.shadowRoot.getElementById('bill-status').value, 'unpaid')
+  assert.equal(second.shadowRoot.getElementById('bill-month').value, '2026-09')
+  const otherUser = f.dom.window.document.createElement('billy-bills')
+  otherUser._data = f.data
+  otherUser.hass = { ...f.hass, user: { id: 'another-user' } }
+  assert.equal(otherUser._status, 'all')
+  assert.equal(otherUser._month, 'all')
+  assert.equal(otherUser._filtered().length, 4)
+})
+
+test('issue #22: monthly filter controls are translated in all supported languages', t => {
+  for (const language of ['en', 'it', 'es', 'fr', 'de', 'pt']) {
+    const f = fixture(t, language)
+    const select = f.panel.shadowRoot.getElementById('bill-month')
+    assert.notEqual(select.getAttribute('aria-label'), 'filterBillingMonth')
+    assert.notEqual(select.options[0].textContent, 'currentBillingMonth')
+    assert.notEqual(select.options[1].textContent, 'allBillingMonths')
+  }
+})
+
+test('issue #22: deleted saved categories/houses do not hide all bills', t => {
+  const f = fixture(t)
+  f.dom.window.localStorage.setItem(
+    'billy.bills.filters.v1:test-user',
+    JSON.stringify({ category: 'deleted-category', house: 'deleted-house',
+      status: 'unpaid', reimbursement: 'all', year: 'all', month: 'all' }),
+  )
+  const next = f.dom.window.document.createElement('billy-bills')
+  next._data = f.data
+  next.hass = f.hass
+  next._render()
+  assert.equal(next._category, 'all')
+  assert.equal(next._house, 'all')
+  assert.equal(next._status, 'unpaid')
+  assert.deepEqual(next._filtered().map(row => row.id), ['unpaid', 'undated'])
+  const stored = JSON.parse(f.dom.window.localStorage.getItem('billy.bills.filters.v1:test-user'))
+  assert.equal(stored.category, 'all')
+  assert.equal(stored.house, 'all')
+})

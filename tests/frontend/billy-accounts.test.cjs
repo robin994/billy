@@ -432,3 +432,88 @@ test('Italian account management is localized', (t) => {
   assert.match(ctx.element.shadowRoot.textContent, /Gestisci conti e giroconti/)
   assert.match(ctx.element.shadowRoot.textContent, /Crea il primo conto/)
 })
+
+test('issue #22: account card lists paid bills and non-duplicated recurring payments with edit links', async t => {
+  const ctx = mount()
+  t.after(() => ctx.dom.window.close())
+  const checking = await createAccount(ctx, 'Checking')
+  const cash = await createAccount(ctx, 'Cash')
+  ctx.data.expenses = [
+    { id: 'b1', paid: true, category: 'Electricity', provider: 'HK Electric',
+      account_id: checking.id, amount: 55.30, payment_date: '2026-10-14' },
+    { id: 'b2', paid: true, category: 'Water', account_id: '',
+      amount: 20, paid_year: 2026, paid_month: 9 },
+    { id: 'b3', paid: false, category: 'Pending', account_id: checking.id, amount: 12 },
+    { id: 'b4', paid: true, category: 'Other', account_id: cash.id, amount: 35 },
+    { id: 'b5', paid: true, is_placeholder: true,
+      category: 'Estimate', account_id: checking.id, amount: 99 },
+  ]
+  ctx.data.recurring_expenses = [{ id: 'r1', name: 'Mortgage' }]
+  ctx.data.recurring_payments = [
+    { recurring_id: 'r1', due_date: '2026-10-01',
+      payment_date: '2026-10-15', account_id: checking.id, amount: 400 },
+    { recurring_id: 'r1', due_date: '2026-09-01',
+      payment_date: '2026-09-02', account_id: checking.id,
+      amount: 400, already_recorded: true },
+    { recurring_id: 'r1', due_date: '2026-08-01',
+      payment_date: '2026-08-03', account_id: cash.id, amount: 400 },
+  ]
+  ctx.element.data = ctx.data
+  ctx.element.setAttribute('mode', 'overview')
+  const events = []
+  ctx.element.addEventListener('billy-navigate', event => events.push(event.detail))
+
+  ctx.element.shadowRoot.querySelector(`[data-filter-outgoing="${checking.id}"]`).click()
+  const expenses = ctx.element.shadowRoot.querySelector('#account-expenses')
+  assert.match(expenses.textContent, /Expenses paid from Checking/)
+  assert.equal(expenses.querySelectorAll('.expense-row').length, 3)
+  assert.match(expenses.textContent, /HK Electric/)
+  assert.match(expenses.textContent, /Mortgage/)
+  assert.match(expenses.textContent, /Water/)
+  assert.doesNotMatch(expenses.textContent, /Pending|Estimate|Other/)
+
+  expenses.querySelector('[data-edit-account-expense="0"]').click()
+  expenses.querySelector('[data-edit-account-expense="1"]').click()
+  assert.deepEqual(JSON.parse(JSON.stringify(events)), [
+    { view: 'recurring', recurringId: 'r1', dueDate: '2026-10-01' },
+    { view: 'bills', billId: 'b1' },
+  ])
+
+  ctx.element.shadowRoot.querySelector(`[data-filter-outgoing="${cash.id}"]`).click()
+  const cashExpenses = ctx.element.shadowRoot.querySelector('#account-expenses')
+  assert.equal(cashExpenses.querySelectorAll('.expense-row').length, 2)
+  assert.doesNotMatch(cashExpenses.textContent, /HK Electric/)
+})
+
+test('issue #22: long account expense history loads incrementally, never losing records', async t => {
+  const ctx = mount()
+  t.after(() => ctx.dom.window.close())
+  const account = await createAccount(ctx, 'Primary')
+  ctx.data.expenses = Array.from({ length: 55 }, (_, index) => ({
+    id: `bill-${index}`, category: `Invoice ${index}`,
+    paid: true, account_id: account.id,
+    payment_date: '2026-10-12', amount: 10,
+  }))
+  ctx.element.data = ctx.data
+  ctx.element.setAttribute('mode', 'overview')
+  ctx.element.shadowRoot.querySelector('[data-filter-outgoing]').click()
+  const rows = () => ctx.element.shadowRoot.querySelectorAll('#account-expenses .expense-row')
+  const more = () => ctx.element.shadowRoot.querySelector('[data-more-account-expenses]')
+  assert.equal(rows().length, 25)
+  more().click()
+  assert.equal(rows().length, 50)
+  more().click()
+  assert.equal(rows().length, 55)
+  assert.equal(more(), null)
+})
+
+test('issue #22: expense-history labels are translated in all supported languages', t => {
+  for (const language of ['en', 'it', 'es', 'fr', 'de', 'pt']) {
+    const ctx = mount(language)
+    t.after(() => ctx.dom.window.close())
+    const label = ctx.element._t('accountExpenses', { name: 'Example' })
+    assert.match(label, /Example/)
+    assert.notEqual(label, 'accountExpenses')
+    assert.notEqual(ctx.element._t('noAccountExpenses'), 'noAccountExpenses')
+  }
+})

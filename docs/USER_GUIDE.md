@@ -26,6 +26,12 @@ or **All houses / Tutte le case**. In the bill editor, select the house
 associated with that invoice. **Recurring → Expenses** similarly supports
 house assignment for subscriptions, mortgages and other recurring costs.
 
+The Bills toolbar also filters by **billing month** (including **Current
+month** and **All months**) and by paid/unpaid status. Your selected status,
+month, year, house, category and reimbursement filters are remembered in this
+browser for the current Home Assistant user. Choose **All months** to return
+to the full history; search text is not saved.
+
 **Overview / Dashboard** also has a House selector: **All houses** uses
 the existing combined totals, while an individual house shows only its
 bills, recurring charges, historical spending and forecasts. The common
@@ -46,9 +52,14 @@ use genuinely separated environments and appropriate access controls.
 ## Accounts, income and recurring plans
 
 The main **Accounts / Conti** tab shows balances, internal transfers and
-dated manual corrections. Select an account card to filter outgoing movements, or choose an account
-and direction (incoming, outgoing or both) in the history controls. The
-**Record a transfer** button moves money between two manually tracked accounts.
+dated manual corrections. Select an account card to see the paid bills and
+recorded recurring payments from that account, with buttons opening their
+existing editors. Recurring payments already recorded as bills are not
+duplicated. The card also filters outgoing movements; alternatively choose
+an account and direction (incoming, outgoing or both) in the history controls.
+The **Record a transfer** button moves money between two manually tracked
+accounts. Transfers and manual balance corrections are displayed separately
+from the account's paid bill and recurring-payment history.
 
 Account creation, editing, deletion and default-account selection are in
 **Settings / Impostazioni → Accounts / Conti**. Accounts require a payer owner,

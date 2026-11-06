@@ -59,6 +59,13 @@ const ACCOUNT_TEXT = {
     incomingTransfers: 'Incoming',
     noMatches: 'No movements match these filters.',
     loading: 'Loading accounts…',
+    accountExpenses: 'Expenses paid from {name}',
+    accountExpensesHelp: 'Paid bills and recorded recurring payments. Transfers and manual balance corrections are listed separately below.',
+    billExpense: 'Bill',
+    recurringExpense: 'Recurring payment',
+    noAccountExpenses: 'No paid expenses have been recorded for this account.',
+    closeAccountExpenses: 'Close expense history',
+    moreAccountExpenses: 'Show more expenses ({shown} of {total})',
   },
   it: {
     title: 'Conti',
@@ -119,6 +126,13 @@ const ACCOUNT_TEXT = {
     incomingTransfers: 'In entrata',
     noMatches: 'Nessun movimento corrisponde ai filtri.',
     loading: 'Caricamento conti…',
+    accountExpenses: 'Spese pagate da {name}',
+    accountExpensesHelp: 'Bollette pagate e pagamenti ricorrenti registrati. Giroconti e rettifiche manuali sono riportati separatamente sotto.',
+    billExpense: 'Bolletta',
+    recurringExpense: 'Pagamento ricorrente',
+    noAccountExpenses: 'Nessuna spesa pagata registrata per questo conto.',
+    closeAccountExpenses: 'Chiudi lo storico spese',
+    moreAccountExpenses: 'Mostra altre spese ({shown} di {total})',
   },
 }
 const ACCOUNT_OWNER_TEXT = {
@@ -143,6 +157,38 @@ const ACCOUNT_OWNER_TEXT = {
     allDirections: 'Todas as direções', outgoingTransfers: 'Saída', incomingTransfers: 'Entrada',
     noMatches: 'Nenhuma transferência corresponde aos filtros.', loading: 'A carregar contas…' },
 }
+Object.assign(ACCOUNT_OWNER_TEXT.es, {
+  accountExpenses: 'Gastos pagados desde {name}',
+  accountExpensesHelp: 'Facturas pagadas y pagos recurrentes registrados. Las transferencias y los ajustes manuales aparecen por separado.',
+  billExpense: 'Factura', recurringExpense: 'Pago recurrente',
+  noAccountExpenses: 'No hay gastos pagados para esta cuenta.',
+  closeAccountExpenses: 'Cerrar historial de gastos',
+  moreAccountExpenses: 'Mostrar más gastos ({shown} de {total})',
+})
+Object.assign(ACCOUNT_OWNER_TEXT.fr, {
+  accountExpenses: 'Dépenses payées depuis {name}',
+  accountExpensesHelp: 'Factures payées et paiements récurrents enregistrés. Virements et ajustements manuels sont affichés séparément.',
+  billExpense: 'Facture', recurringExpense: 'Paiement récurrent',
+  noAccountExpenses: 'Aucune dépense payée pour ce compte.',
+  closeAccountExpenses: 'Fermer l’historique des dépenses',
+  moreAccountExpenses: 'Afficher plus de dépenses ({shown} sur {total})',
+})
+Object.assign(ACCOUNT_OWNER_TEXT.de, {
+  accountExpenses: 'Bezahlte Ausgaben von {name}',
+  accountExpensesHelp: 'Bezahlte Rechnungen und erfasste wiederkehrende Zahlungen. Umbuchungen und manuelle Korrekturen stehen separat.',
+  billExpense: 'Rechnung', recurringExpense: 'Wiederkehrende Zahlung',
+  noAccountExpenses: 'Für dieses Konto sind keine bezahlten Ausgaben erfasst.',
+  closeAccountExpenses: 'Ausgabenverlauf schließen',
+  moreAccountExpenses: 'Weitere Ausgaben anzeigen ({shown} von {total})',
+})
+Object.assign(ACCOUNT_OWNER_TEXT.pt, {
+  accountExpenses: 'Despesas pagas a partir de {name}',
+  accountExpensesHelp: 'Faturas pagas e pagamentos recorrentes registados. Transferências e ajustes manuais aparecem separadamente.',
+  billExpense: 'Fatura', recurringExpense: 'Pagamento recorrente',
+  noAccountExpenses: 'Nenhuma despesa paga registada para esta conta.',
+  closeAccountExpenses: 'Fechar histórico de despesas',
+  moreAccountExpenses: 'Mostrar mais despesas ({shown} de {total})',
+})
 const e = (value) => String(value ?? '').replaceAll('&', '&amp;')
   .replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
   .replaceAll("'", '&#039;')
@@ -162,6 +208,8 @@ class BillyAccounts extends HTMLElement {
     this._mode = 'full'
     this._transferAccount = 'all'
     this._transferDirection = 'all'
+    this._selectedAccount = null
+    this._expenseVisibleCount = 25
     this._unsubscribe = null
     this._subscribing = false
     this._subscriptionToken = 0
@@ -325,6 +373,41 @@ class BillyAccounts extends HTMLElement {
       <strong class="transfer-amount">${incoming ? '+' : '−'}${e(this._money(Math.abs(record.amount)))}</strong>
     </article>`
   }
+  _accountExpenses(accountId) {
+    if (!accountId) return []
+    const defaultId = this._data?.default_account_id
+    const bills = (this._data?.expenses || [])
+      .filter(row => row.paid && !row.is_placeholder &&
+        (row.account_id || defaultId) === accountId)
+      .map(row => ({
+        kind: 'bill', id: row.id,
+        name: [row.category, row.provider].filter(Boolean).join(' · '),
+        date: row.payment_date ||
+          (row.paid_year && row.paid_month
+            ? `${row.paid_year}-${String(row.paid_month).padStart(2, '0')}` : ''),
+        amount: Number(row.amount || 0),
+      }))
+    const names = Object.fromEntries((this._data?.recurring_expenses || [])
+      .map(row => [row.id, row.name]))
+    const recurring = (this._data?.recurring_payments || [])
+      .filter(row => !row.already_recorded && row.account_id === accountId)
+      .map(row => ({
+        kind: 'recurring', id: row.recurring_id, dueDate: row.due_date,
+        name: names[row.recurring_id] || row.recurring_id,
+        date: row.payment_date || row.due_date || '',
+        amount: Number(row.amount || 0),
+      }))
+    return [...bills, ...recurring].sort((a, b) =>
+      b.date.localeCompare(a.date) || String(a.id).localeCompare(String(b.id)))
+  }
+  _navigateExpense(row) {
+    this.dispatchEvent(new CustomEvent('billy-navigate', {
+      bubbles: true, composed: true,
+      detail: row.kind === 'bill'
+        ? { view: 'bills', billId: row.id }
+        : { view: 'recurring', recurringId: row.id, dueDate: row.dueDate },
+    }))
+  }
   _render() {
     if (!this._data) {
       this.shadowRoot.textContent = this._error || this._t('loading')
@@ -349,6 +432,12 @@ class BillyAccounts extends HTMLElement {
       this._transferAccount = 'all'
       this._transferDirection = 'all'
     }
+    if (this._selectedAccount && !rows.some(row => row.id === this._selectedAccount)) {
+      this._selectedAccount = null
+    }
+    const selectedAccount = rows.find(row => row.id === this._selectedAccount)
+    const accountExpenses = this._accountExpenses(this._selectedAccount)
+    const visibleExpenses = accountExpenses.slice(0, this._expenseVisibleCount)
     const filteredHistory = history.filter(row => {
       if (this._transferAccount === 'all') return true
       if (row.kind === 'manual') {
@@ -375,7 +464,7 @@ class BillyAccounts extends HTMLElement {
         ${!(this._data.payers || []).length ? `<p class="hint">${e(this._t('noPayers'))}</p>` : ''}
         ${configured ? `
           <div class="account-cards">
-            ${rows.map((row) => `<article class="account-card ${!manage ? 'selectable' : ''}" ${!manage ? `data-filter-outgoing="${e(row.id)}" role="button" tabindex="0" aria-label="${e(this._t('filterOutgoing', { name: row.name }))}"` : ''}>
+            ${rows.map((row) => `<article class="account-card ${!manage ? 'selectable' : ''} ${this._selectedAccount === row.id ? 'selected' : ''}" ${!manage ? `data-filter-outgoing="${e(row.id)}" role="button" tabindex="0" aria-label="${e(this._t('accountExpenses', { name: row.name }))}"` : ''}>
               <div class="account-label">
                 <ha-icon icon="mdi:wallet-outline"></ha-icon>
                 <span>${e(row.name)}</span>
@@ -406,6 +495,22 @@ class BillyAccounts extends HTMLElement {
             </article>
           </div>
           <p class="hint">${e(this._t('scopeHelp'))}</p>
+          ${transfers && selectedAccount ? `<section class="account-expenses" id="account-expenses">
+            <div class="history-head">
+              <div><h3>${e(this._t('accountExpenses', { name: selectedAccount.name }))}</h3>
+                <p class="hint">${e(this._t('accountExpensesHelp'))}</p></div>
+              <button type="button" data-close-account-expenses>${e(this._t('closeAccountExpenses'))}</button>
+            </div>
+            ${visibleExpenses.length ? visibleExpenses.map((row, index) => `
+              <article class="transfer-row expense-row">
+                <span class="transfer-icon"><ha-icon icon="mdi:${row.kind === 'bill' ? 'receipt-text-outline' : 'calendar-check-outline'}"></ha-icon></span>
+                <div class="transfer-main"><strong>${e(row.name || this._t(row.kind === 'bill' ? 'billExpense' : 'recurringExpense'))}</strong>
+                  <small>${e(this._t(row.kind === 'bill' ? 'billExpense' : 'recurringExpense'))} · ${e(row.date)}</small></div>
+                <strong class="transfer-amount">−${e(this._money(row.amount))}</strong>
+                <div class="actions"><button type="button" data-edit-account-expense="${index}">${e(this._t('edit'))}</button></div>
+              </article>`).join('') : `<div class="empty">${e(this._t('noAccountExpenses'))}</div>`}
+            ${accountExpenses.length > visibleExpenses.length ? `<button type="button" data-more-account-expenses>${e(this._t('moreAccountExpenses', { shown: visibleExpenses.length, total: accountExpenses.length }))}</button>` : ''}
+          </section>` : ''}
           ${transfers && rows.length < 2 ? `<p class="hint">${e(this._t('needsTwo'))}</p>` : ''}
           ${transfers ? `<section class="history">
             <div class="history-head"><h3>${e(this._t('history'))}</h3>
@@ -445,9 +550,14 @@ class BillyAccounts extends HTMLElement {
       button.addEventListener('click', () => this._goToSettings()))
     this.shadowRoot.querySelectorAll('[data-filter-outgoing]').forEach(card => {
       const activate = () => {
+        if (this._selectedAccount !== card.dataset.filterOutgoing)
+          this._expenseVisibleCount = 25
         this._transferAccount = card.dataset.filterOutgoing
         this._transferDirection = 'outgoing'
+        this._selectedAccount = card.dataset.filterOutgoing
         this._render()
+        this.shadowRoot.getElementById('account-expenses')
+          ?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
       }
       card.addEventListener('click', activate)
       card.addEventListener('keydown', event => {
@@ -456,6 +566,17 @@ class BillyAccounts extends HTMLElement {
         activate()
       })
     })
+    this.shadowRoot.querySelector('[data-close-account-expenses]')?.addEventListener('click', () => {
+      this._selectedAccount = null
+      this._render()
+    })
+    this.shadowRoot.querySelector('[data-more-account-expenses]')?.addEventListener('click', () => {
+      this._expenseVisibleCount += 25
+      this._render()
+    })
+    this.shadowRoot.querySelectorAll('[data-edit-account-expense]').forEach(button =>
+      button.addEventListener('click', () =>
+        this._navigateExpense(accountExpenses[Number(button.dataset.editAccountExpense)])))
     this.shadowRoot.getElementById('transfer-account')?.addEventListener('change', event => {
       this._transferAccount = event.target.value
       if (this._transferAccount === 'all') this._transferDirection = 'all'
@@ -651,10 +772,12 @@ class BillyAccounts extends HTMLElement {
       .account-balance{font-size:clamp(21px,2.3vw,29px);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
       .account-card small{color:var(--secondary-text-color);font-size:12px}
       .account-breakdown{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--secondary-text-color)}
-      .history{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:13px;padding:15px}
+      .history,.account-expenses{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:13px;padding:15px}
+      .account-expenses{scroll-margin-top:110px}
       .history-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
       .account-card.selectable{cursor:pointer;transition:border-color .15s ease,background-color .15s ease}
       .account-card.selectable:hover,.account-card.selectable:focus-visible{border-color:var(--primary-color);outline:2px solid transparent;background:color-mix(in srgb,var(--primary-color) 6%,var(--secondary-background-color))}
+      .account-card.selected{border-color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}
       .transfer-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px}
       .transfer-filters label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--secondary-text-color)}
       .transfer-filters select{font:inherit;color:var(--primary-text-color);background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:9px;padding:9px 11px;width:100%;min-width:0}
