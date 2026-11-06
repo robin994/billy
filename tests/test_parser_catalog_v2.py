@@ -294,24 +294,42 @@ def test_etag_304_reuses_cached_payload_without_redownloading_json():
     assert calls == [(index_url, "index-etag"), (it_url, "it-etag")]
 
 
-def test_index_without_requested_country_fails_without_loading_another_shard():
+def test_index_without_requested_country_returns_empty_catalog_without_loading_another_shard():
     index_url = "https://example.test/main/catalog/index.json"
-    module, client, calls = _client(
-        {
-            index_url: {
-                "schema_version": 2,
-                "countries": {"FR": {"path": "catalog/fr.json", "parsers": 1}},
+    for country in ("HK", "SG", "ZA"):
+        _module, client, calls = _client(
+            {
+                index_url: {
+                    "schema_version": 2,
+                    "countries": {"FR": {"path": "catalog/fr.json", "parsers": 1}},
+                }
             }
+        )
+        catalog, cache, stale = asyncio.run(client.async_fetch_catalog(country, {}))
+        assert catalog == {"country": country, "parsers": [], "catalog_unavailable": True}
+        assert cache["index"]["payload"]["countries"] == {
+            "FR": {"path": "catalog/fr.json", "parsers": 1}
         }
-    )
+        assert cache["country"] == country
+        assert cache["path"] == ""
+        assert stale is False
+        assert [url for url, _etag in calls] == [index_url]
 
+
+def test_index_network_error_without_cache_is_not_treated_as_missing_country():
+    module = _catalog_module()
+    client = module.ParserCatalogClient(None)
+
+    async def offline(self, url, _max_bytes, *, etag=None):
+        raise module.CatalogError("network offline")
+
+    client._get_cached = MethodType(offline, client)
     try:
-        asyncio.run(client.async_fetch_catalog("IT", {}))
+        asyncio.run(client.async_fetch_catalog("HK", {}))
     except module.CatalogError as err:
-        assert "country IT" in str(err)
+        assert "network offline" in str(err)
     else:
-        raise AssertionError("Missing country should fail")
-    assert [url for url, _etag in calls] == [index_url]
+        raise AssertionError("Network failure must still be reported as an error")
 
 
 def test_malformed_or_unsupported_shard_is_rejected_without_cache():

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.17.4
+
+Released: 2026-11-06.
+
+- Fixed issue #20: the midnight recurring synchronization now imports and
+  broadcasts `EVENT_UPDATED` without raising `NameError`.
+- Fixed issue #21: refreshing parsers for a country absent from the official
+  v2 index now returns an empty, informational catalog instead of failing.
+  Local custom parsers remain available and official parsers from other
+  countries remain browsable.
+- Preserved international catalog caches through storage reloads and cleared
+  missing-country state when the configured country changes. Network and
+  malformed-catalog errors remain real errors.
+- Added Python and frontend regression coverage for both fixes, including
+  unsupported countries, country switching and custom parser visibility.
+- Updated integration and frontend resource versions to `0.17.4` and
+  `0.17.4-r1` to invalidate cached frontend modules. No storage schema
+  migration is required.
+
 ## 0.17.3
 
 Released: 2026-10-26.

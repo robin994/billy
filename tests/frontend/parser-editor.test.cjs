@@ -73,6 +73,49 @@ function fixture(t, handler = () => undefined) {
   return { panel, hass, calls, field, edit, fill, assertDraft }
 }
 
+test('missing country catalog is informational and does not trigger repeated refreshes', async t => {
+  const catalog = {
+    country: 'HK',
+    catalog_unavailable: true,
+    parsers: [],
+    countries: ['HK'],
+  }
+  const f = fixture(t, msg =>
+    msg.type === 'bill_tracker/parser/list' ? { catalog, installed: [] } : undefined)
+  await f.panel._load()
+  assert.equal(f.calls.filter(msg => msg.type === 'bill_tracker/parser/refresh').length, 0)
+  assert.match(f.panel.shadowRoot.textContent, /No official parser catalog is available for HK yet/)
+  assert.equal(f.panel.shadowRoot.querySelector('.warning-box'), null)
+})
+
+test('missing home-country catalog still shows custom and other-country parsers', async t => {
+  const catalog = {
+    country: 'HK',
+    catalog_unavailable: true,
+    countries: ['FR', 'HK'],
+    parsers: [{
+      id: 'fr.example.water', version: 1, country: 'FR',
+      provider: 'French Water', bill_type: 'water', status: 'available',
+      catalog_status: 'verified', source: 'official',
+    }],
+  }
+  const installed = [{
+    id: 'hk.hkelectric.electricity', version: 1, country: 'HK',
+    provider: 'HK Electric', bill_type: 'electricity', source: 'custom',
+  }]
+  const f = fixture(t, msg =>
+    msg.type === 'bill_tracker/parser/list' ? { catalog, installed } : undefined)
+  await f.panel._load()
+  assert.match(f.panel.shadowRoot.textContent, /HK Electric/)
+  assert.match(f.panel.shadowRoot.textContent, /French Water/)
+  assert.deepEqual(Array.from(f.field('country').options, option => option.value), ['all', 'FR', 'HK'])
+  f.edit('country', 'HK')
+  assert.match(f.panel.shadowRoot.textContent, /HK Electric/)
+  assert.doesNotMatch(f.panel.shadowRoot.textContent, /French Water/)
+  f.edit('country', 'all')
+  assert.match(f.panel.shadowRoot.textContent, /French Water/)
+})
+
 test('unrelated HA state updates preserve a new editor, focus, and selection', async t => {
   const f = fixture(t)
   await f.panel._openCustomEditor()

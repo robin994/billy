@@ -28,6 +28,7 @@ from homeassistant.loader import async_get_integration
 
 from .const import (
     DOMAIN,
+    EVENT_UPDATED,
     FRONTEND_CACHE_VERSION,
     FRONTEND_VERSION,
     RECURRING_INTERVALS,

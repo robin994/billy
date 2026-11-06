@@ -29,6 +29,8 @@ class ParserStorage:
             "schema_version": 1,
             "catalog": {},
             "catalog_cache": {"index": {}, "country": "", "path": "", "shard": {}},
+            "catalog_other_countries": {},
+            "catalog_other_caches": {},
             "community_id": "",
             "installed": {},
             "custom": {},
@@ -46,6 +48,10 @@ class ParserStorage:
             data["installed"] = {}
         if not isinstance(data["custom"], dict):
             data["custom"] = {}
+        if not isinstance(data["catalog_other_countries"], dict):
+            data["catalog_other_countries"] = {}
+        if not isinstance(data["catalog_other_caches"], dict):
+            data["catalog_other_caches"] = {}
         if not isinstance(data["catalog_cache"], dict):
             data["catalog_cache"] = {
                 "index": {},

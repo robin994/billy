@@ -371,7 +371,14 @@ class ParserManager:
         country = self.catalog_country()
         changed = False
         catalog = self.storage.data.get("catalog")
-        if isinstance(catalog, dict) and catalog.get("schema_version") in {1, 2}:
+        if (
+            isinstance(catalog, dict)
+            and catalog.get("catalog_unavailable")
+            and self.catalog_client.normalize_country(catalog.get("country")) != country
+        ):
+            self.storage.data["catalog"] = {"country": country, "parsers": []}
+            changed = True
+        elif isinstance(catalog, dict) and catalog.get("schema_version") in {1, 2}:
             try:
                 normalized = self.catalog_client.normalize_stored_catalog(catalog, country)
             except CatalogError:
@@ -396,7 +403,13 @@ class ParserManager:
     def _stored_catalog_for_country(self, country: str) -> dict[str, Any]:
         catalog = (self.storage.data.get("catalog") if country == self.catalog_country()
                    else (self.storage.data.get("catalog_other_countries") or {}).get(country))
-        if not isinstance(catalog, dict) or not catalog.get("parsers"):
+        if not isinstance(catalog, dict):
+            return {"country": country, "parsers": []}
+        if catalog.get("catalog_unavailable"):
+            if self.catalog_client.normalize_country(catalog.get("country")) != country:
+                return {"country": country, "parsers": []}
+            return {**catalog, "country": country, "parsers": []}
+        if not catalog.get("parsers"):
             return {"country": country, "parsers": []}
         try:
             return self.catalog_client.normalize_stored_catalog(catalog, country)

@@ -72,7 +72,11 @@ class ParserCatalogClient:
 
         descriptor = (index.get("countries") or {}).get(normalized_country)
         if not isinstance(descriptor, dict):
-            raise CatalogError(f"No parser catalog is available for country {normalized_country}")
+            return (
+                {"country": normalized_country, "parsers": [], "catalog_unavailable": True},
+                {"index": next_index_cache, "country": normalized_country, "path": "", "shard": {}},
+                bool(index_stale),
+            )
         shard_path = self._safe_repo_path(descriptor.get("path"))
         if not shard_path:
             raise CatalogError(f"Parser catalog shard for {normalized_country} has no valid path")

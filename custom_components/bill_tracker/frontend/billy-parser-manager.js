@@ -1,9 +1,9 @@
 import {
   BILLY_ERROR_TEXT,
   BILLY_PARSER_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.17.3-r1'
+} from './billy-extra-i18n.js?v=0.17.4-r1'
 
-const BILLY_PARSER_MANAGER_VERSION = '0.17.3'
+const BILLY_PARSER_MANAGER_VERSION = '0.17.4'
 
 const TEXT = {
   en: {
@@ -56,6 +56,8 @@ const TEXT = {
     catalogUpdated: 'Catalog updated',
     catalogCacheWarning:
       'Remote catalog refresh failed. Showing the last cached catalog.',
+    catalogUnavailable:
+      'No official parser catalog is available for {country} yet. Custom parsers remain available; select All countries to browse other catalogs.',
     lastIngestion: 'Last IMAP event',
     never: 'not yet',
     parsers: 'parsers',
@@ -172,6 +174,8 @@ const TEXT = {
     catalogUpdated: 'Catalogo aggiornato',
     catalogCacheWarning:
       'Aggiornamento del catalogo remoto non riuscito. Viene mostrata l’ultima copia in cache.',
+    catalogUnavailable:
+      'Nessun catalogo parser ufficiale disponibile per {country}. I parser personalizzati restano disponibili; seleziona Tutte le nazioni per consultare gli altri cataloghi.',
     lastIngestion: 'Ultimo evento IMAP',
     never: 'mai',
     parsers: 'parser',
@@ -410,7 +414,7 @@ class BillyParserManagerPanel extends HTMLElement {
       this._data = parserData
       this._billData = billData
       const rows = parserData?.catalog?.parsers || []
-      if (refreshIfEmpty && rows.length === 0) {
+      if (refreshIfEmpty && rows.length === 0 && !parserData?.catalog?.updated_at && !parserData?.catalog?.catalog_unavailable) {
         await this._refreshCatalog()
         return
       }
@@ -753,6 +757,7 @@ class BillyParserManagerPanel extends HTMLElement {
         </section>
 
         ${this._data?.catalog?.refresh_error ? `<div class="warning-box">⚠ ${esc(this._t('catalogCacheWarning'))}</div>` : ''}
+        ${this._data?.catalog?.catalog_unavailable ? `<div class="diagnostic-box">${esc(this._t('catalogUnavailable', { country: this._data.catalog.country }))}</div>` : ''}
         ${
           this._data?.diagnostic
             ? `<div class="diagnostic-box"><strong>${esc(this._t('lastIngestion'))}</strong><span>${esc(`${this._data.diagnostic.outcome || 'unknown'} · UID ${this._data.diagnostic.uid || '—'} · ${this._data.diagnostic.subject || '—'}`)}</span><small>${esc(this._data.diagnostic.detail || '')}</small></div>`

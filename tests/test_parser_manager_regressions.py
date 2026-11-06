@@ -125,6 +125,46 @@ def test_catalog_snapshot_includes_parsers_from_other_countries():
     assert result["counts"]["available"] == 2
 
 
+def test_catalog_snapshot_preserves_absent_country_notice_and_foreign_catalogs():
+    snapshot = _load_method("catalog_snapshot")
+    manager = _ManagerHarness({"country": "HK", "parsers": [], "catalog_unavailable": True})
+    manager.catalog_country = lambda: "HK"
+    manager.storage.data["catalog_other_countries"] = {
+        "FR": {"country": "FR", "parsers": [{"id": "fr.example.water", "version": 1}]}
+    }
+    result = snapshot(manager)
+    assert result["catalog_unavailable"] is True
+    assert result["country"] == "HK"
+    assert result["countries"] == ["FR", "HK"]
+    assert [row["id"] for row in result["parsers"]] == ["fr.example.water"]
+
+
+def test_missing_catalog_state_is_cleared_when_country_changes():
+    normalize = _load_method("_normalize_cached_catalog_country")
+    stored = _load_method("_stored_catalog_for_country")
+    data = {
+        "catalog": {"country": "HK", "parsers": [], "catalog_unavailable": True},
+        "catalog_cache": {
+            "country": "HK",
+            "index": {"payload": {"schema_version": 2, "countries": {}}},
+            "path": "",
+            "shard": {},
+        },
+    }
+    manager = SimpleNamespace(
+        storage=SimpleNamespace(data=data),
+        catalog_country=lambda: "IT",
+        catalog_client=SimpleNamespace(normalize_country=lambda value: str(value or "").upper()),
+    )
+
+    # A stale missing-country notice must not block loading the new country.
+    assert stored(manager, "IT") == {"country": "IT", "parsers": []}
+    assert normalize(manager) is True
+    assert data["catalog"] == {"country": "IT", "parsers": []}
+    assert data["catalog_cache"]["country"] == ""
+    assert data["catalog_cache"]["index"]["payload"]["schema_version"] == 2
+
+
 class _InstallStorageHarness:
     def __init__(self, catalog):
         self.data = {
