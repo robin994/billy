@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.18.1
+
+Released: 2026-11-09.
+
+- Completed the optional **scheduled Autopay** mode requested in issue #23.
+  Parser configuration now has a separate opt-in flag to pay imported bills on
+  the due date rather than immediately. The flag is disabled by default.
+- Added a **Scheduled payment** status and filter in Bills, excluding those
+  bills from unpaid-due checklists and early reimbursement obligations.
+- Scheduled payments are persisted, processed at local midnight and caught
+  up on Home Assistant startup after missed due dates. Payment timestamps
+  retain the original due date, with idempotent processing and optional
+  joint-account reimbursement completion at settlement time.
+- Bills without a valid due date remain unpaid for review; invoices with an
+  explicit recorded payment date remain paid instead of being scheduled.
+- Added backend and frontend regression coverage, documented scheduled
+  parsing behavior, and bumped frontend cache assets to `0.18.1-r1`.
+
 ## 0.18.0
 
 Released: 2026-11-09.

@@ -182,6 +182,31 @@ test('issue #23: installed parser configuration sends autopay flags', async t =>
   assert.equal(saved.autopay_payment_date, 'import_date')
 })
 
+test('issue #23: scheduled-autopay flag requires autopay and overrides date selection', async t => {
+  const f = fixture(t, msg =>
+    msg.type === 'bill_tracker/parser/configure' ? {} : undefined)
+  f.panel._openDialog({ ...row, installed: true }, 'configure')
+  assert.equal(f.field('dialog-autopay-scheduled').disabled, true)
+  f.edit('dialog-autopay', true)
+  f.edit('dialog-autopay-scheduled', true)
+  assert.equal(f.field('dialog-autopay-date').disabled, true)
+  await f.panel._saveDialog()
+  const saved = f.calls.find(msg => msg.type === 'bill_tracker/parser/configure')
+  assert.equal(saved.autopay_scheduled, true)
+  assert.equal(saved.autopay, true)
+})
+
+test('issue #23: custom parser preserves the scheduled-autopay option', async t => {
+  const f = fixture(t)
+  await f.panel._openCustomEditor(row)
+  f.edit('custom-autopay', true)
+  f.edit('custom-autopay-scheduled', true)
+  assert.equal(f.field('custom-autopay-date').disabled, true)
+  await f.panel._saveCustomEditor()
+  const saved = f.calls.find(msg => msg.type === 'bill_tracker/parser/custom/save')
+  assert.equal(saved.autopay_scheduled, true)
+})
+
 test('creating a parser omits expected_parser_id', async t => {
   const f = fixture(t)
   await f.panel._openCustomEditor()

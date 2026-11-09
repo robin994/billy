@@ -23,11 +23,18 @@ class BillImportCoordinator:
         end = self._iso_date(data.get("period_end"))
         invoice_number = str(data.get("invoice_number") or "").strip()
         provider = str(data.get("provider") or "").strip()
+        schedule_at_due = bool(
+            candidate.get("autopay") and candidate.get("autopay_scheduled")
+            and not data.get("payment_date")
+        )
+        # Scheduled debits only work with an actual due date. A missing date
+        # leaves the bill unpaid for manual review instead of guessing.
+        scheduled_date = data.get("due_date") if schedule_at_due else None
         note_parts = ["Automatic import"]
         if invoice_number:
             note_parts.append(f"invoice {invoice_number}")
         payment_date = data.get("payment_date")
-        if candidate.get("autopay") and not payment_date:
+        if candidate.get("autopay") and not schedule_at_due and not payment_date:
             selected = candidate.get("autopay_payment_date", "due_date")
             if selected == "import_date":
                 payment_date = date.today().isoformat()
@@ -50,13 +57,13 @@ class BillImportCoordinator:
             "period_end_month": end.month if end else None,
             "period_start_date": start.isoformat() if start else None,
             "period_end_date": end.isoformat() if end else None,
-            "paid": bool(candidate.get("autopay")),
+            "paid": bool(candidate.get("autopay") and not schedule_at_due),
             "payer_id": candidate.get("default_payer_id"),
             # An empty parser-specific split means "use Billy defaults". Passing
             # [] would instead be treated as an explicit empty split and fail
             # once the domain manager resolves a payer.
             "split": candidate.get("default_split") or None,
-            "payment_date": payment_date,
+            "payment_date": None if schedule_at_due else payment_date,
             "due_date": data.get("due_date"),
             "provider": provider or None,
             "contract": str(data.get("offer") or data.get("contract") or "").strip() or None,
@@ -70,11 +77,13 @@ class BillImportCoordinator:
             "invoice_number": invoice_number or None,
             "issue_date": data.get("issue_date"),
             "source_import_id": candidate.get("id"),
+            "scheduled_autopay_date": scheduled_date,
+            "scheduled_autopay_joint": bool(scheduled_date and candidate.get("autopay_joint")),
         }
         accepted = inspect.signature(self.bill_manager.async_add).parameters
         kwargs.update({key: value for key, value in optional_metadata.items() if key in accepted})
         expense = await self.bill_manager.async_add(**kwargs)
-        if candidate.get("autopay") and candidate.get("autopay_joint"):
+        if candidate.get("autopay") and candidate.get("autopay_joint") and expense.get("paid"):
             try:
                 await self.bill_manager.async_set_reimbursement_done(expense["id"], True)
             except Exception as err:

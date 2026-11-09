@@ -53,6 +53,30 @@ providers before selecting that IMAP entry in Billy.
 6. New candidates appear under **Bills waiting for review**.
 7. Once a parser is proven reliable you can enable automatic import for it.
 
+## Autopay and scheduled direct debits
+
+In an installed or custom parser's configuration, enable **Autopay** to mark
+imported bills as paid automatically. An optional second flag, **Pay
+automatically on the due date**, defers payment until the parsed due date.
+
+- Before that date, the imported bill appears as **Scheduled payment** in
+  Bills, not as an overdue/unpaid action; future scheduled bills can still
+  appear in Upcoming.
+- On the due date, the regular midnight synchronization records the payment.
+  If Home Assistant is offline at midnight, the payment is caught up during
+  the next integration startup, preserving the original due date as the
+  payment date. The operation is idempotent.
+- If the parser provides no due date, Billy leaves the imported bill unpaid
+  for manual review rather than inventing a payment date.
+- **Autopay from joint account** also completes eligible reimbursements, but
+  only when the scheduled bill is actually marked paid.
+- If a parsed invoice already contains an explicit payment date, Billy honors
+  that date as an existing payment rather than scheduling a second payment.
+
+All flags are off by default and apply only to new imports. Existing scheduled
+bills remain scheduled if you later change the parser configuration; manually
+changing a bill's payment status cancels its remaining schedule.
+
 ## Parser storage
 
 Parser files intentionally live outside the HACS integration directory so HACS

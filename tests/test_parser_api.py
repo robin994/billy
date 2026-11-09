@@ -61,6 +61,7 @@ def test_custom_save_validates_and_forwards_original_id(editing):
         message["content"], category_id="electricity",
         expected_parser_id="gr.protergia.electricity" if editing else None,
         enabled=True, auto_import=False, autopay=False, autopay_joint=False,
+        autopay_scheduled=False,
         autopay_payment_date="due_date",
         default_payer_id=None, default_split=None,
     )

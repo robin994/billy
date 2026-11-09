@@ -118,6 +118,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         changed |= self._migrate_income()
         changed |= self._migrate_accounts()
         changed |= self._migrate_recurring_payments()
+        changed |= self._sync_scheduled_autopay()
         changed |= self._sync_income_occurrences()
         changed |= self._sync_recurring_occurrences()
         changed |= self._sync_bill_placeholders()
@@ -542,6 +543,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         document_url: str = "",
         account_id: str | None = None,
         house_id: str | None = None,
+        scheduled_autopay_date: str | None = None,
+        scheduled_autopay_joint: bool = False,
     ) -> dict[str, Any]:
         category = self._resolve_category(category_id, category_name)
         self._validate_date(year, month)
@@ -554,6 +557,15 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         normalized_split = self._resolve_expense_split(split, resolved_payer)
         normalized_payment_date = self._normalize_optional_iso_date(payment_date)
         normalized_due_date = self._normalize_optional_iso_date(due_date)
+        scheduled_date = self._normalize_optional_iso_date(scheduled_autopay_date)
+        if scheduled_date and scheduled_date != normalized_due_date:
+            raise ValueError("Scheduled payment must match the bill due date")
+        if scheduled_date and scheduled_date <= dt_util.now().date().isoformat():
+            paid = True
+            normalized_payment_date = scheduled_date
+            scheduled_date = None
+        if paid:
+            scheduled_date = None
         if paid and not normalized_payment_date:
             normalized_payment_date = date.today().isoformat()
         normalized_period_start_date = self._normalize_optional_iso_date(period_start_date)
@@ -583,6 +595,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "reimbursement_manual_done": False,
             "reimbursement_manual_at": None,
             "paid": bool(paid),
+            "scheduled_autopay_date": scheduled_date,
+            "scheduled_autopay_joint": bool(scheduled_autopay_joint and scheduled_date),
             "exclude_from_estimates": bool(exclude_from_estimates),
             "payment_date": normalized_payment_date,
             "due_date": normalized_due_date,
@@ -678,6 +692,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 resolved_payment_date = date.today().isoformat()
             if not resolved_paid:
                 resolved_payment_date = None
+            scheduled_date = item.get("scheduled_autopay_date")
+            if resolved_paid or (
+                due_date is not None and normalized_due_date != item.get("due_date")
+            ):
+                scheduled_date = None
             reimbursement_changed = (
                 round(float(item.get("amount", 0.0) or 0.0), 2) != round(float(amount), 2)
                 or str(item.get("payer_id") or "") != str(resolved_payer or "")
@@ -719,6 +738,10 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         None if reimbursement_changed else item.get("reimbursement_manual_at")
                     ),
                     "paid": resolved_paid,
+                    "scheduled_autopay_date": scheduled_date,
+                    "scheduled_autopay_joint": bool(
+                        scheduled_date and item.get("scheduled_autopay_joint")
+                    ),
                     "exclude_from_estimates": (
                         bool(exclude_from_estimates)
                         if exclude_from_estimates is not None
@@ -757,6 +780,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             if item.get("id") != expense_id:
                 continue
             item["paid"] = bool(paid)
+            item["scheduled_autopay_date"] = None
+            item["scheduled_autopay_joint"] = False
             if paid:
                 item["is_placeholder"] = False
                 if not item.get("payment_date"):
@@ -796,6 +821,34 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         before = len(self.expenses)
         self.expenses = [x for x in self.expenses if x.get("id") != expense_id]
         changed = len(self.expenses) != before
+        if changed:
+            await self._save_and_notify()
+        return changed
+
+    def _sync_scheduled_autopay(self, today: date | None = None) -> bool:
+        """Complete due automatic debits once, including after HA restarts."""
+        today_iso = (today or dt_util.now().date()).isoformat()
+        changed = False
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        for item in self.expenses:
+            due = str(item.get("scheduled_autopay_date") or "")
+            if not due or item.get("paid") or due > today_iso:
+                continue
+            joint = bool(item.get("scheduled_autopay_joint"))
+            item["paid"] = True
+            item["payment_date"] = due
+            item["scheduled_autopay_date"] = None
+            item["scheduled_autopay_joint"] = False
+            if joint:
+                reimbursement = self._expense_reimbursement_state(item)
+                if reimbursement["status"] != "none" and not reimbursement["has_recorded_settlement"]:
+                    item["reimbursement_manual_done"] = True
+                    item["reimbursement_manual_at"] = now
+            changed = True
+        return changed
+
+    async def async_sync_scheduled_autopay(self) -> bool:
+        changed = self._sync_scheduled_autopay()
         if changed:
             await self._save_and_notify()
         return changed
@@ -1015,6 +1068,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
              "is_placeholder": bool(x.get("is_placeholder", False)),
              "year": int(x["paid_year"]), "month": int(x["paid_month"])}
             for x in self.expenses if not x.get("paid", False)
+            and not x.get("scheduled_autopay_date")
             and ((int(x["paid_year"]), int(x["paid_month"])) == (today.year, today.month)
                  or str(x.get("due_date") or "").startswith(f"{key}-"))
         ]
@@ -1913,6 +1967,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         # a separate state and therefore intentionally not checked here.
         for item in self.expenses:
             if item.get("is_placeholder", False):
+                continue
+            if item.get("scheduled_autopay_date") and not item.get("paid"):
                 continue
             if bool(item.get("reimbursement_manual_done", False)):
                 continue
@@ -3250,6 +3306,12 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
 
     def _expense_reimbursement_state(self, item: dict[str, Any]) -> dict[str, Any]:
         """Return the reimbursement state for one bill, independently from provider payment."""
+        if item.get("scheduled_autopay_date") and not item.get("paid"):
+            return {
+                "status": "none", "completed": 0, "total": 0,
+                "manual_done": False, "has_recorded_settlement": False,
+                "can_toggle": False,
+            }
         creditor = str(item.get("payer_id") or "")
         expense_id = str(item.get("id") or "")
         obligations: list[str] = []
@@ -3320,6 +3382,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         )
         return {
             **dict(item),
+            "payment_status": (
+                "paid" if item.get("paid")
+                else "scheduled" if item.get("scheduled_autopay_date")
+                else "unpaid"
+            ),
             "year": int(item["paid_year"]),
             "month": int(item["paid_month"]),
             "category": str(category.get("name")) if category else "Bolletta rimossa",
@@ -3826,6 +3893,18 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 due_date = None
                 changed = True
             try:
+                scheduled_autopay_date = self._normalize_optional_iso_date(
+                    item.get("scheduled_autopay_date")
+                )
+            except ValueError:
+                scheduled_autopay_date = None
+                changed = True
+            if scheduled_autopay_date and (
+                item.get("paid") or scheduled_autopay_date != due_date
+            ):
+                scheduled_autopay_date = None
+                changed = True
+            try:
                 period_start_date = self._normalize_optional_iso_date(item.get("period_start_date"))
             except ValueError:
                 period_start_date = None
@@ -3865,6 +3944,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                     str(item.get("reimbursement_manual_at")) if item.get("reimbursement_manual_at") else None
                 ),
                 "paid": bool(item.get("paid", False)),
+                "scheduled_autopay_date": scheduled_autopay_date,
+                "scheduled_autopay_joint": bool(
+                    scheduled_autopay_date
+                    and item.get("scheduled_autopay_joint")
+                ),
                 "is_placeholder": bool(item.get("is_placeholder", False)) and not bool(item.get("paid", False)),
                 "exclude_from_estimates": bool(item.get("exclude_from_estimates", False)),
                 "payment_date": payment_date,

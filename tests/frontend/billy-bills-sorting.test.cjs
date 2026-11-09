@@ -80,6 +80,25 @@ test('payment-date sorting retains unpaid bills at the bottom and cooperates wit
     ['current', 'late-payment', 'unpaid', 'undated'], 'sorting must not mutate backend data')
 })
 
+test('issue #23: scheduled bills have their own status and do not appear as unpaid', t => {
+  const f = fixture(t, 'it')
+  f.data.expenses.push({
+    id: 'scheduled-autopay', category_id: 'power', category: 'Power',
+    amount: 40, paid_year: 2026, paid_month: 11, due_date: '2026-11-20',
+    payment_date: null, paid: false, payment_status: 'scheduled',
+    scheduled_autopay_date: '2026-11-20', reimbursement_status: 'none',
+    created_at: '2026-11-09', split: [],
+  })
+  f.panel._render()
+  const scheduledRow = f.panel.shadowRoot.querySelector('[data-paid-id="scheduled-autopay"]').closest('.bill-row')
+  assert.match(scheduledRow.querySelector('.bill-state').textContent, /Pagamento programmato/)
+  assert.ok(scheduledRow.querySelector('.state.scheduled'))
+  f.panel._status = 'unpaid'
+  assert.deepEqual(f.ids(), ['unpaid', 'undated'])
+  f.panel._status = 'scheduled'
+  assert.deepEqual(f.ids(), ['scheduled-autopay'])
+})
+
 test('sort choice persists per user across panel instances', t => {
   const f = fixture(t, 'it')
   f.sort('due')

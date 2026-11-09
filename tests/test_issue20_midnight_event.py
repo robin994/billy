@@ -34,6 +34,7 @@ def test_midnight_sync_imports_and_fires_updated_event_when_unchanged():
         return False
 
     manager = SimpleNamespace(
+        async_sync_scheduled_autopay=unchanged,
         async_sync_recurring_occurrences=unchanged,
         async_sync_income_occurrences=unchanged,
         async_sync_bill_placeholders=unchanged,

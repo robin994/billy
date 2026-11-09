@@ -252,10 +252,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await manager.async_load()
 
     async def _sync_recurring_at_midnight(_now) -> None:
+        scheduled_changed = await manager.async_sync_scheduled_autopay()
         recurring_changed = await manager.async_sync_recurring_occurrences()
         income_changed = await manager.async_sync_income_occurrences()
         placeholders_changed = await manager.async_sync_bill_placeholders()
-        if not recurring_changed and not income_changed and not placeholders_changed:
+        if not scheduled_changed and not recurring_changed and not income_changed and not placeholders_changed:
             hass.bus.async_fire(EVENT_UPDATED)
 
     entry.async_on_unload(

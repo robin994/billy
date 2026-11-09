@@ -100,7 +100,7 @@ def test_import_autopay_uses_due_date_and_can_set_joint_reimbursement():
     class JointManager(_Manager):
         async def async_add(self, **kwargs):
             self.kwargs = kwargs
-            return {"id": "imported-1"}
+            return {"id": "imported-1", "paid": bool(kwargs["paid"])}
 
         async def async_set_reimbursement_done(self, expense_id, done):
             self.reimbursed = (expense_id, done)
@@ -130,6 +130,45 @@ def test_import_autopay_date_selection_and_disabled_default():
     manager = _Manager()
     asyncio.run(BillImportCoordinator(manager).async_import({
         "category_id": "electricity", "data": {"amount": 10, "due_date": "2026-09-15"},
+    }))
+    assert manager.kwargs["paid"] is False
+    assert manager.kwargs["payment_date"] is None
+
+
+def test_import_scheduled_autopay_defers_payment_and_joint_reimbursement():
+    class ScheduledManager(_Manager):
+        async def async_add(
+            self, *, scheduled_autopay_date=None, scheduled_autopay_joint=False,
+            **kwargs,
+        ):
+            self.kwargs = {
+                **kwargs,
+                "scheduled_autopay_date": scheduled_autopay_date,
+                "scheduled_autopay_joint": scheduled_autopay_joint,
+            }
+            return {"id": "scheduled-1", "paid": False}
+
+        async def async_set_reimbursement_done(self, *_args):
+            raise AssertionError("Joint reimbursement should wait until due")
+
+    manager = ScheduledManager()
+    asyncio.run(BillImportCoordinator(manager).async_import({
+        "category_id": "electricity",
+        "autopay": True, "autopay_scheduled": True, "autopay_joint": True,
+        "data": {"amount": 50, "due_date": "2099-03-21"},
+    }))
+    assert manager.kwargs["paid"] is False
+    assert manager.kwargs["payment_date"] is None
+    assert manager.kwargs["scheduled_autopay_date"] == "2099-03-21"
+    assert manager.kwargs["scheduled_autopay_joint"] is True
+
+
+def test_import_without_due_date_does_not_guess_a_scheduled_payment():
+    manager = _Manager()
+    asyncio.run(BillImportCoordinator(manager).async_import({
+        "category_id": "electricity",
+        "autopay": True, "autopay_scheduled": True,
+        "data": {"amount": 50, "issue_date": "2026-10-10"},
     }))
     assert manager.kwargs["paid"] is False
     assert manager.kwargs["payment_date"] is None
