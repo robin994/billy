@@ -60,7 +60,9 @@ def test_custom_save_validates_and_forwards_original_id(editing):
     manager.async_save_custom.assert_awaited_once_with(
         message["content"], category_id="electricity",
         expected_parser_id="gr.protergia.electricity" if editing else None,
-        enabled=True, auto_import=False, default_payer_id=None, default_split=None,
+        enabled=True, auto_import=False, autopay=False, autopay_joint=False,
+        autopay_payment_date="due_date",
+        default_payer_id=None, default_split=None,
     )
     connection.send_result.assert_called_once_with(1, {"id": "gr.protergia.electricity"})
     connection.send_error.assert_not_called()

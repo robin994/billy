@@ -152,6 +152,36 @@ test('editing an existing parser keeps its draft and sends the original ID', asy
   assert.equal(f.panel._customEditor, null)
 })
 
+test('issue #23: custom parser editor saves autopay and its date preference', async t => {
+  const f = fixture(t)
+  await f.panel._openCustomEditor(row)
+  assert.equal(f.field('custom-autopay-joint').disabled, true)
+  f.edit('custom-autopay', true)
+  assert.equal(f.field('custom-autopay-joint').disabled, false)
+  f.edit('custom-autopay-joint', true)
+  f.edit('custom-autopay-date', 'issue_date')
+  await f.panel._saveCustomEditor()
+  const saved = f.calls.find(msg => msg.type === 'bill_tracker/parser/custom/save')
+  assert.equal(saved.autopay, true)
+  assert.equal(saved.autopay_joint, true)
+  assert.equal(saved.autopay_payment_date, 'issue_date')
+})
+
+test('issue #23: installed parser configuration sends autopay flags', async t => {
+  const f = fixture(t, msg =>
+    msg.type === 'bill_tracker/parser/configure' ? {} : undefined)
+  f.panel._openDialog({ ...row, installed: true, auto_import: false }, 'configure')
+  assert.equal(f.field('dialog-autopay-joint').disabled, true)
+  f.edit('dialog-autopay', true)
+  f.edit('dialog-autopay-joint', true)
+  f.edit('dialog-autopay-date', 'import_date')
+  await f.panel._saveDialog()
+  const saved = f.calls.find(msg => msg.type === 'bill_tracker/parser/configure')
+  assert.equal(saved.autopay, true)
+  assert.equal(saved.autopay_joint, true)
+  assert.equal(saved.autopay_payment_date, 'import_date')
+})
+
 test('creating a parser omits expected_parser_id', async t => {
   const f = fixture(t)
   await f.panel._openCustomEditor()

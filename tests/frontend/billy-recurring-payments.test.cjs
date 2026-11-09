@@ -298,6 +298,32 @@ test('issue #17 follow-up: selected house is included when saving the installmen
   assert.equal(recurring.shadowRoot.getElementById('recurring-modal').hidden, true)
 })
 
+test('issue #23: recurring editor sends autopay and joint reimbursement flags', async t => {
+  const { dom, recurring, calls } = await fixture(t)
+  const original = recurring._hass.callWS
+  recurring._hass.callWS = async request => {
+    if (request.type === 'bill_tracker/recurring/add') {
+      calls.push({ ...request })
+      return { id: 'recurring-autopay' }
+    }
+    return original(request)
+  }
+  recurring._openRecurring()
+  const form = recurring.shadowRoot.getElementById('recurring-form')
+  assert.equal(form.elements.namedItem('autopay_joint').disabled, true)
+  form.elements.namedItem('name').value = 'Internet'
+  form.elements.namedItem('amount').value = '40'
+  form.elements.namedItem('autopay').checked = true
+  form.elements.namedItem('autopay').dispatchEvent(new dom.window.Event('change'))
+  assert.equal(form.elements.namedItem('autopay_joint').disabled, false)
+  form.elements.namedItem('autopay_joint').checked = true
+  form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  await settled()
+  const saved = calls.find(request => request.type === 'bill_tracker/recurring/add')
+  assert.equal(saved.autopay, true)
+  assert.equal(saved.autopay_joint, true)
+})
+
 test('v0.17.1: incomplete payer share does not close the recurring editor', async t => {
   const { dom, recurring } = await fixture(t)
   recurring._openRecurring()

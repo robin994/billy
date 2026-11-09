@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.18.0
+
+Released: 2026-11-09.
+
+- Added **Autopay** for installed and custom bill parsers (issue #23): imported
+  bills can be marked paid automatically, using the parsed payment date or the
+  configured due date, issue date, or import date.
+- Added an optional **Autopay from joint account** setting to mark eligible
+  reimbursements completed when the imported bill is paid.
+- Added the same two options to recurring expenses. Due installments are
+  recorded automatically through the existing payment ledger using the default
+  account, without duplicating previously recorded payments. Joint-account
+  reimbursements can also be completed.
+- Autopay defaults to disabled for existing and new configurations; no storage
+  migration is required. Deferred imported-bill payments and a dedicated
+  Home Assistant `set_paid` service are not part of this release.
+- Fixed a nested f-string in the config flow for Python 3.11 compatibility.
+- Added regression tests for the recurring WebSocket options and autopay.
+- Updated integration and frontend versions to `0.18.0` and cache suffix
+  `0.18.0-r1`.
+
 ## 0.17.5
 
 Released: 2026-11-06.

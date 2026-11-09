@@ -646,7 +646,7 @@ class BillTrackerOptionsFlow(config_entries.OptionsFlow):
                 payer_choices.setdefault(
                     str(selected["id"]),
                     f"{selected['name']}"
-                    f"{'' if selected.get('enabled', True) else f' — {self._label("disabled")}' }",
+                    f"{' — ' + self._label('disabled') if not selected.get('enabled', True) else ''}",
                 )
         return vol.Schema(
             {

@@ -603,6 +603,9 @@ class ParserManager:
                         if custom_state
                         else False
                     ),
+                    "autopay": bool((state or custom_state or {}).get("autopay", False)),
+                    "autopay_joint": bool((state or custom_state or {}).get("autopay_joint", False)),
+                    "autopay_payment_date": (state or custom_state or {}).get("autopay_payment_date", "due_date"),
                     "default_payer_id": (
                         state.get("default_payer_id")
                         if state
@@ -680,6 +683,9 @@ class ParserManager:
                     "enabled": bool(state.get("enabled", True)),
                     "category_id": state.get("category_id"),
                     "auto_import": bool(state.get("auto_import", False)),
+                    "autopay": bool(state.get("autopay", False)),
+                    "autopay_joint": bool(state.get("autopay_joint", False)),
+                    "autopay_payment_date": state.get("autopay_payment_date", "due_date"),
                     "load_error": load_error,
                     "source": "official",
                 }
@@ -799,6 +805,9 @@ class ParserManager:
         expected_parser_id: str | None = None,
         enabled: bool = True,
         auto_import: bool = False,
+        autopay: bool = False,
+        autopay_joint: bool = False,
+        autopay_payment_date: str = "due_date",
         default_payer_id: str | None = None,
         default_split: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
@@ -837,6 +846,9 @@ class ParserManager:
             "enabled": bool(enabled),
             "category_id": category_id,
             "auto_import": bool(auto_import),
+            "autopay": bool(autopay),
+            "autopay_joint": bool(autopay and autopay_joint),
+            "autopay_payment_date": autopay_payment_date,
             "default_payer_id": payer_id,
             "default_split": split,
             "catalog_status": str(item.get("catalog_status") or "experimental"),
@@ -880,6 +892,9 @@ class ParserManager:
         category_id: str,
         enabled: bool,
         auto_import: bool,
+        autopay: bool = False,
+        autopay_joint: bool = False,
+        autopay_payment_date: str = "due_date",
         default_payer_id: str | None = None,
         default_split: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
@@ -899,6 +914,9 @@ class ParserManager:
                 "category_id": category_id,
                 "enabled": bool(enabled),
                 "auto_import": bool(auto_import),
+                "autopay": bool(autopay),
+                "autopay_joint": bool(autopay and autopay_joint),
+                "autopay_payment_date": autopay_payment_date,
                 "default_payer_id": payer_id,
                 "default_split": split,
             }
@@ -913,6 +931,9 @@ class ParserManager:
         category_id: str,
         enabled: bool = True,
         auto_import: bool = False,
+        autopay: bool = False,
+        autopay_joint: bool = False,
+        autopay_payment_date: str = "due_date",
         default_payer_id: str | None = None,
         default_split: list[dict[str, Any]] | None = None,
         expected_parser_id: str | None = None,
@@ -940,6 +961,9 @@ class ParserManager:
             "enabled": bool(enabled),
             "category_id": category_id,
             "auto_import": bool(auto_import),
+            "autopay": bool(autopay),
+            "autopay_joint": bool(autopay and autopay_joint),
+            "autopay_payment_date": autopay_payment_date,
             "default_payer_id": payer_id,
             "default_split": split,
             "catalog_status": "custom",
@@ -1041,6 +1065,9 @@ class ParserManager:
             if config:
                 candidate["default_payer_id"] = config.get("default_payer_id")
                 candidate["default_split"] = list(config.get("default_split") or [])
+                candidate["autopay"] = bool(config.get("autopay"))
+                candidate["autopay_joint"] = bool(config.get("autopay_joint"))
+                candidate["autopay_payment_date"] = config.get("autopay_payment_date", "due_date")
             expense = await self.importer.async_import(candidate)
         except Exception as err:
             row["status"] = "error"

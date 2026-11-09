@@ -94,3 +94,42 @@ def test_import_empty_parser_split_falls_back_to_billy_defaults():
         )
     )
     assert manager.kwargs["split"] is None
+
+
+def test_import_autopay_uses_due_date_and_can_set_joint_reimbursement():
+    class JointManager(_Manager):
+        async def async_add(self, **kwargs):
+            self.kwargs = kwargs
+            return {"id": "imported-1"}
+
+        async def async_set_reimbursement_done(self, expense_id, done):
+            self.reimbursed = (expense_id, done)
+
+    manager = JointManager()
+    asyncio.run(BillImportCoordinator(manager).async_import({
+        "category_id": "electricity",
+        "autopay": True,
+        "autopay_joint": True,
+        "data": {"amount": 42, "due_date": "2026-09-15", "issue_date": "2026-09-01"},
+    }))
+    assert manager.kwargs["paid"] is True
+    assert manager.kwargs["payment_date"] == "2026-09-15"
+    assert manager.reimbursed == ("imported-1", True)
+
+
+def test_import_autopay_date_selection_and_disabled_default():
+    for mode, expected in (("issue_date", "2026-09-01"), ("due_date", "2026-09-15")):
+        manager = _Manager()
+        asyncio.run(BillImportCoordinator(manager).async_import({
+            "category_id": "electricity",
+            "autopay": True,
+            "autopay_payment_date": mode,
+            "data": {"amount": 42, "issue_date": "2026-09-01", "due_date": "2026-09-15"},
+        }))
+        assert manager.kwargs["payment_date"] == expected
+    manager = _Manager()
+    asyncio.run(BillImportCoordinator(manager).async_import({
+        "category_id": "electricity", "data": {"amount": 10, "due_date": "2026-09-15"},
+    }))
+    assert manager.kwargs["paid"] is False
+    assert manager.kwargs["payment_date"] is None

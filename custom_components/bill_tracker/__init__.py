@@ -990,6 +990,8 @@ _RECURRING_COMMON = {
     vol.Optional("color", default=""): str,
     vol.Optional("note", default=""): str,
     vol.Optional("active", default=True): bool,
+    vol.Optional("autopay", default=False): bool,
+    vol.Optional("autopay_joint", default=False): bool,
 }
 
 
@@ -1012,6 +1014,8 @@ def _recurring_kwargs(msg):
         "color": msg.get("color", ""),
         "note": msg.get("note", ""),
         "active": msg.get("active", True),
+        "autopay": msg.get("autopay", False),
+        "autopay_joint": msg.get("autopay_joint", False),
         "house_id": msg.get("house_id"),
     }
 

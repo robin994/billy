@@ -138,6 +138,32 @@ def pay(manager, account_id, due="2026-02-02", on="2026-02-05", amount=800, **kw
     ))
 
 
+def test_autopay_posts_due_occurrence_once_and_never_future_payment():
+    method = next(node for node in manager_class.body
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "_sync_recurring_occurrences")
+    isolated = ast.Module(body=[method], type_ignores=[])
+    ast.fix_missing_locations(isolated)
+    namespace = {"date": date, "datetime": datetime}
+    exec(compile(isolated, str(ROOT / "manager.py"), "exec"), namespace)
+    sync = namespace["_sync_recurring_occurrences"]
+    manager, account, rule = setup()
+    due = date.today()
+    rule["start_date"] = due.isoformat()
+    rule["end_date"] = None
+    rule["autopay"] = True
+    rule["autopay_joint"] = False
+    rule["reimbursement_tracking_start_date"] = due.isoformat()
+    assert sync(manager, due) is True
+    assert len(manager.recurring_payments) == 1
+    assert manager.recurring_payments[0]["due_date"] == due.isoformat()
+    assert manager.recurring_payments[0]["payment_date"] == due.isoformat()
+    assert manager.recurring_payments[0]["account_id"] == account["id"]
+    assert sync(manager, due) is False
+    assert len(manager.recurring_payments) == 1
+    assert sync(manager, due - timedelta(days=1)) is False
+
+
 def test_backdated_mortgage_payment_updates_actual_balance_and_cashflow_only():
     manager, account, _ = setup()
     assert manager.account_balances()["total"] == 5000

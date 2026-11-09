@@ -82,6 +82,9 @@ async def ws_parser_refresh(hass, connection, msg):
         vol.Required("category_id"): str,
         vol.Optional("enabled", default=True): bool,
         vol.Optional("auto_import", default=False): bool,
+        vol.Optional("autopay", default=False): bool,
+        vol.Optional("autopay_joint", default=False): bool,
+        vol.Optional("autopay_payment_date", default="due_date"): vol.In(("due_date", "issue_date", "import_date")),
         vol.Optional("default_payer_id"): str,
         vol.Optional("default_split"): list,
     }
@@ -94,6 +97,9 @@ async def ws_parser_install(hass, connection, msg):
             category_id=msg["category_id"],
             enabled=msg["enabled"],
             auto_import=msg["auto_import"],
+            autopay=msg["autopay"],
+            autopay_joint=msg["autopay_joint"],
+            autopay_payment_date=msg["autopay_payment_date"],
             default_payer_id=msg.get("default_payer_id"),
             default_split=msg.get("default_split"),
         )
@@ -123,6 +129,9 @@ async def ws_parser_uninstall(hass, connection, msg):
         vol.Required("category_id"): str,
         vol.Required("enabled"): bool,
         vol.Required("auto_import"): bool,
+        vol.Optional("autopay", default=False): bool,
+        vol.Optional("autopay_joint", default=False): bool,
+        vol.Optional("autopay_payment_date", default="due_date"): vol.In(("due_date", "issue_date", "import_date")),
         vol.Optional("default_payer_id"): str,
         vol.Optional("default_split"): list,
     }
@@ -135,6 +144,9 @@ async def ws_parser_configure(hass, connection, msg):
             category_id=msg["category_id"],
             enabled=msg["enabled"],
             auto_import=msg["auto_import"],
+            autopay=msg["autopay"],
+            autopay_joint=msg["autopay_joint"],
+            autopay_payment_date=msg["autopay_payment_date"],
             default_payer_id=msg.get("default_payer_id"),
             default_split=msg.get("default_split"),
         )
@@ -152,6 +164,9 @@ async def ws_parser_configure(hass, connection, msg):
         vol.Optional("expected_parser_id"): str,
         vol.Optional("enabled", default=True): bool,
         vol.Optional("auto_import", default=False): bool,
+        vol.Optional("autopay", default=False): bool,
+        vol.Optional("autopay_joint", default=False): bool,
+        vol.Optional("autopay_payment_date", default="due_date"): vol.In(("due_date", "issue_date", "import_date")),
         vol.Optional("default_payer_id"): str,
         vol.Optional("default_split"): list,
     }
@@ -165,6 +180,9 @@ async def ws_parser_custom_save(hass, connection, msg):
             expected_parser_id=msg.get("expected_parser_id"),
             enabled=msg["enabled"],
             auto_import=msg["auto_import"],
+            autopay=msg["autopay"],
+            autopay_joint=msg["autopay_joint"],
+            autopay_payment_date=msg["autopay_payment_date"],
             default_payer_id=msg.get("default_payer_id"),
             default_split=msg.get("default_split"),
         )

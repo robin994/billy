@@ -1,12 +1,12 @@
-import './billy-parser-manager.js?v=0.17.5-r1'
-import './billy-accounts.js?v=0.17.5-r1'
+import './billy-parser-manager.js?v=0.18.0-r1'
+import './billy-accounts.js?v=0.18.0-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.17.5-r1'
+} from './billy-extra-i18n.js?v=0.18.0-r1'
 
-const BILLY_PANEL_VERSION = '0.17.5'
+const BILLY_PANEL_VERSION = '0.18.0'
 
 const TEXT = {
   en: {
@@ -101,6 +101,8 @@ const TEXT = {
     forecast: 'Forecast',
     chartRecurring: 'Recurring expenses',
     paid: 'Provider paid',
+    autopay: 'Automatically record payment on the due date',
+    autopayJoint: 'Also mark joint-account reimbursement complete',
     unpaid: 'Provider unpaid',
     due: 'Due',
     reimbursements: 'User reimbursements',
@@ -503,6 +505,8 @@ const TEXT = {
     forecast: 'Previsione',
     chartRecurring: 'Spese ricorrenti',
     paid: 'Bolletta pagata',
+    autopay: 'Registra automaticamente il pagamento alla scadenza',
+    autopayJoint: 'Segna come completato anche il rimborso dal conto cointestato',
     unpaid: 'Bolletta da pagare',
     due: 'Scadenza',
     reimbursements: 'Rimborsi tra utenti',
@@ -4076,6 +4080,8 @@ class BillyRecurring extends HTMLElement {
         <label><span>${escapeHtml(this._t('color'))}</span><input name="color" type="color" value="${safeColor(row?.color || '#7b8794')}"></label>
         <label class="check" data-renewable><input name="auto_renew" type="checkbox" ${row?.auto_renew ? 'checked' : ''}><span>${escapeHtml(this._t('automaticRenewal'))}</span></label>
         <label class="check"><input name="active" type="checkbox" ${row?.active !== false ? 'checked' : ''}><span>${escapeHtml(this._t('enabled'))}</span></label>
+        <label class="check"><input name="autopay" type="checkbox" ${row?.autopay ? 'checked' : ''}><span>${escapeHtml(this._t('autopay'))}</span></label>
+        <label class="check"><input name="autopay_joint" type="checkbox" ${row?.autopay_joint ? 'checked' : ''} ${row?.autopay ? '' : 'disabled'}><span>${escapeHtml(this._t('autopayJoint'))}</span></label>
         <div class="span2 hint" data-fixed-term>${escapeHtml(this._t('recurringFixedTermHelp'))}</div>
         <div class="span2 notice" id="recurring-plan-preview" hidden></div>
         ${payers.length ? `<div class="span2 split-box"><div class="split-title"><strong>${escapeHtml(this._t('split'))}</strong><small>${escapeHtml(this._t('recurringSplitHelp'))}</small></div><div class="split-grid">${payers.map((payer) => `<label><span>${escapeHtml(payer.name)}</span><input class="recurring-split-input" data-payer="${escapeHtml(payer.id)}" type="number" min="0" max="100" step="0.01" value="${escapeHtml(splitMap.get(String(payer.id)) ?? 0)}"></label>`).join('')}</div><div id="recurring-split-total" class="split-total"></div></div>` : ''}
@@ -4090,6 +4096,10 @@ class BillyRecurring extends HTMLElement {
     }
     card.querySelector('#recurring-close')?.addEventListener('click', close)
     card.querySelector('#recurring-cancel')?.addEventListener('click', close)
+    card.querySelector('[name="autopay"]')?.addEventListener('change', (event) => {
+      const joint = card.querySelector('[name="autopay_joint"]')
+      if (joint) joint.disabled = !event.target.checked
+    })
     modal.querySelector('.modal-backdrop')?.addEventListener('click', close)
     card
       .querySelector('#recurring-form')
@@ -4194,6 +4204,8 @@ class BillyRecurring extends HTMLElement {
       color: String(values.get('color') || '').trim(),
       note: String(values.get('note') || '').trim(),
       active: values.get('active') === 'on',
+      autopay: values.get('autopay') === 'on',
+      autopay_joint: values.get('autopay') === 'on' && values.get('autopay_joint') === 'on',
     }
     const payerId = String(values.get('payer_id') || '')
     if (payerId) payload.payer_id = payerId
@@ -5757,7 +5769,7 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.17.5-r1').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.18.0-r1').catch((error) => {
         this._incomePromise = null
         for (const id of ['income-panel', 'recurring-income-panel']) {
           const section = this.shadowRoot?.getElementById(id)
@@ -5777,7 +5789,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.17.5-r1'
+        './billy-reimbursement-history.js?v=0.18.0-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(

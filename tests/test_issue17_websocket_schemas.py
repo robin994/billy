@@ -79,6 +79,18 @@ def test_issue_17_recurring_websocket_accepts_selected_house(command):
         common({**payload, "house_id": 123})
 
 
+@pytest.mark.parametrize("command", ["bill_tracker/recurring/add", "bill_tracker/recurring/update"])
+def test_recurring_websocket_accepts_autopay_flags(command):
+    payload = _installment_request(command)
+    payload.pop("recurring_id", None)
+    schema = _schema("_RECURRING_COMMON", command)
+    assert schema(payload)["autopay"] is False
+    assert schema(payload)["autopay_joint"] is False
+    parsed = schema({**payload, "autopay": True, "autopay_joint": True})
+    assert parsed["autopay"] is True
+    assert parsed["autopay_joint"] is True
+
+
 def _category_request(command, *, provider="", contract=""):
     payload = {
         "type": command,

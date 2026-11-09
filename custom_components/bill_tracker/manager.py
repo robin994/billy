@@ -1045,6 +1045,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         color: str | None = None,
         note: str = "",
         active: bool = True,
+        autopay: bool = False,
+        autopay_joint: bool = False,
         house_id: str | None = None,
     ) -> dict[str, Any]:
         item = self._normalize_recurring_payload(
@@ -1065,6 +1067,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             color=color,
             note=note,
             active=active,
+            autopay=autopay,
+            autopay_joint=autopay_joint,
         )
         item["house_id"] = self._resolve_house_id(house_id)
         item.update(
@@ -1101,6 +1105,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         color: str | None = None,
         note: str = "",
         active: bool = True,
+        autopay: bool = False,
+        autopay_joint: bool = False,
         house_id: str | None = None,
     ) -> dict[str, Any] | None:
         current = self.recurring_expense(recurring_id)
@@ -1129,6 +1135,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             color=color or current.get("color"),
             note=note,
             active=active,
+            autopay=autopay,
+            autopay_joint=autopay_joint,
         )
         normalized["house_id"] = self._resolve_house_id(
             house_id if house_id is not None else current.get("house_id")
@@ -2765,6 +2773,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         color: str | None = None,
         note: str = "",
         active: bool = True,
+        autopay: bool = False,
+        autopay_joint: bool = False,
     ) -> dict[str, Any]:
         normalized_name = self._normalize_optional_text(name, 120)
         if not normalized_name:
@@ -2843,6 +2853,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "color": self._normalize_color(color, color_index),
             "note": self._normalize_optional_text(note, 1000),
             "active": bool(active),
+            "autopay": bool(autopay),
+            "autopay_joint": bool(autopay and autopay_joint),
         }
 
     @staticmethod
@@ -2988,10 +3000,40 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 continue
             for due in self._recurring_occurrences_between(recurring, tracking_start, today):
                 occurrence_id = f"{recurring_id}@{due.isoformat()}"
+                if recurring.get("autopay") and not any(
+                    payment.get("id") == occurrence_id for payment in self.recurring_payments
+                ):
+                    # The cash ledger and reimbursement history remain independent.
+                    # Reuse the same validation as a manual payment and post only once.
+                    try:
+                        payment = self._normalize_recurring_payment(
+                            recurring_id=recurring_id,
+                            due_date=due.isoformat(),
+                            payment_date=due.isoformat(),
+                            amount=self._recurring_due_amount(recurring, due),
+                            account_id=self.default_account_id,
+                        )
+                    except ValueError:
+                        pass  # Missing/invalid account: leave the installment unpaid.
+                    else:
+                        payment["created_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+                        self.recurring_payments.append(payment)
+                        changed = True
                 if occurrence_id in existing:
+                    if recurring.get("autopay") and recurring.get("autopay_joint") and any(
+                        payment.get("id") == occurrence_id for payment in self.recurring_payments
+                    ):
+                        occurrence = next(
+                            (x for x in self.recurring_occurrences if x.get("id") == occurrence_id), None
+                        )
+                        if occurrence and not occurrence.get("reimbursement_manual_done"):
+                            reimbursement = self._recurring_occurrence_reimbursement_state(occurrence)
+                            if reimbursement["status"] != "none" and not reimbursement["has_recorded_settlement"]:
+                                occurrence["reimbursement_manual_done"] = True
+                                occurrence["reimbursement_manual_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+                                changed = True
                     continue
-                self.recurring_occurrences.append(
-                    {
+                occurrence = {
                         "id": occurrence_id,
                         "recurring_id": recurring_id,
                         "due_date": due.isoformat(),
@@ -3005,7 +3047,14 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         "reimbursement_manual_at": None,
                         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
                     }
-                )
+                if recurring.get("autopay") and recurring.get("autopay_joint") and any(
+                    payment.get("id") == occurrence_id for payment in self.recurring_payments
+                ):
+                    reimbursement = self._recurring_occurrence_reimbursement_state(occurrence)
+                    if reimbursement["status"] != "none":
+                        occurrence["reimbursement_manual_done"] = True
+                        occurrence["reimbursement_manual_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+                self.recurring_occurrences.append(occurrence)
                 existing.add(occurrence_id)
                 changed = True
         if changed:

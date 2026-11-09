@@ -1,9 +1,9 @@
 import {
   BILLY_ERROR_TEXT,
   BILLY_PARSER_EXTRA_TEXT,
-} from './billy-extra-i18n.js?v=0.17.5-r1'
+} from './billy-extra-i18n.js?v=0.18.0-r1'
 
-const BILLY_PARSER_MANAGER_VERSION = '0.17.5'
+const BILLY_PARSER_MANAGER_VERSION = '0.18.0'
 
 const TEXT = {
   en: {
@@ -48,6 +48,12 @@ const TEXT = {
     save: 'Save',
     enabled: 'Parser enabled',
     autoImport: 'Automatic import',
+    autopay: 'Mark imported bills as paid',
+    autopayJoint: 'Also settle joint-account reimbursements',
+    autopayPaymentDate: 'Payment date',
+    dueDate: 'Due date',
+    issueDate: 'Issue date',
+    importDate: 'Import date',
     category: 'Billy bill type',
     defaultPayer: 'Default payer',
     defaultSplit: 'Default split',
@@ -166,6 +172,12 @@ const TEXT = {
     save: 'Salva',
     enabled: 'Parser abilitato',
     autoImport: 'Import automatico',
+    autopay: 'Segna le bollette importate come pagate',
+    autopayJoint: 'Chiudi anche i rimborsi del conto cointestato',
+    autopayPaymentDate: 'Data del pagamento',
+    dueDate: 'Scadenza',
+    issueDate: 'Data emissione',
+    importDate: 'Data importazione',
     category: 'Tipo di bolletta Billy',
     defaultPayer: 'Pagante predefinito',
     defaultSplit: 'Divisione predefinita',
@@ -899,6 +911,12 @@ class BillyParserManagerPanel extends HTMLElement {
       .getElementById('dialog-save')
       ?.addEventListener('click', () => this._saveDialog())
     this.shadowRoot
+      .getElementById('dialog-autopay')
+      ?.addEventListener('change', (event) => {
+        const joint = this.shadowRoot.getElementById('dialog-autopay-joint')
+        if (joint) joint.disabled = !event.target.checked
+      })
+    this.shadowRoot
       .getElementById('custom-editor-close')
       ?.addEventListener('click', () => this._closeCustomEditor())
     this.shadowRoot
@@ -907,6 +925,12 @@ class BillyParserManagerPanel extends HTMLElement {
     this.shadowRoot
       .getElementById('custom-editor-save')
       ?.addEventListener('click', () => this._saveCustomEditor())
+    this.shadowRoot
+      .getElementById('custom-autopay')
+      ?.addEventListener('change', (event) => {
+        const joint = this.shadowRoot.getElementById('custom-autopay-joint')
+        if (joint) joint.disabled = !event.target.checked
+      })
     this.shadowRoot
       .getElementById('custom-editor-test')
       ?.addEventListener('click', () => this._testCustomEditor())
@@ -992,6 +1016,9 @@ fields:
       categoryId: defaultCategory,
       enabled: row ? row.enabled !== false : true,
       autoImport: row ? Boolean(row.auto_import) : false,
+      autopay: row ? Boolean(row.autopay) : false,
+      autopayJoint: row ? Boolean(row.autopay_joint) : false,
+      autopayPaymentDate: row?.autopay_payment_date || 'due_date',
       sender: '',
       subject: '',
       emailText: '',
@@ -1068,6 +1095,9 @@ fields:
                 <label class="modal-field"><span>${this._t('category')}</span><select id="custom-category">${options}</select></label>
                 <label class="check"><input id="custom-enabled" type="checkbox" ${editor.enabled ? 'checked' : ''}><span>${this._t('enabled')}</span></label>
                 <label class="check"><input id="custom-auto" type="checkbox" ${editor.autoImport ? 'checked' : ''}><span>${this._t('autoImport')}</span></label>
+                <label class="check"><input id="custom-autopay" type="checkbox" ${editor.autopay ? 'checked' : ''}><span>${this._t('autopay')}</span></label>
+                <label class="check"><input id="custom-autopay-joint" type="checkbox" ${editor.autopayJoint ? 'checked' : ''} ${editor.autopay ? '' : 'disabled'}><span>${this._t('autopayJoint')}</span></label>
+                <label class="modal-field"><span>${this._t('autopayPaymentDate')}</span><select id="custom-autopay-date"><option value="due_date" ${editor.autopayPaymentDate === 'due_date' ? 'selected' : ''}>${this._t('dueDate')}</option><option value="issue_date" ${editor.autopayPaymentDate === 'issue_date' ? 'selected' : ''}>${this._t('issueDate')}</option><option value="import_date" ${editor.autopayPaymentDate === 'import_date' ? 'selected' : ''}>${this._t('importDate')}</option></select></label>
                 <h3>${this._t('testData')}</h3>
                 <label class="modal-field"><span>${this._t('testSender')}</span><input id="custom-test-sender" type="text" value="${esc(editor.sender)}" placeholder="billing@example.com"></label>
                 <label class="modal-field"><span>${this._t('testSubject')}</span><input id="custom-test-subject" type="text" value="${esc(editor.subject)}"></label>
@@ -1099,6 +1129,12 @@ fields:
         this.shadowRoot.getElementById('custom-enabled')?.checked ?? editor.enabled,
       autoImport:
         this.shadowRoot.getElementById('custom-auto')?.checked ?? editor.autoImport,
+      autopay:
+        this.shadowRoot.getElementById('custom-autopay')?.checked ?? editor.autopay,
+      autopayJoint:
+        this.shadowRoot.getElementById('custom-autopay-joint')?.checked ?? editor.autopayJoint,
+      autopayPaymentDate:
+        this.shadowRoot.getElementById('custom-autopay-date')?.value ?? editor.autopayPaymentDate,
       sender:
         this.shadowRoot.getElementById('custom-test-sender')?.value ?? editor.sender,
       subject:
@@ -1157,6 +1193,9 @@ fields:
         category_id: form.categoryId,
         enabled: form.enabled,
         auto_import: form.autoImport,
+        autopay: form.autopay,
+        autopay_joint: form.autopay && form.autopayJoint,
+        autopay_payment_date: form.autopayPaymentDate,
         ...(editor.originalId ? { expected_parser_id: editor.originalId } : {}),
       })
       if (this._customEditor === editor) this._customEditor = null
@@ -1330,6 +1369,9 @@ fields:
         row.installed || row.replaces_custom ? row.enabled !== false : true,
       autoImport:
         row.installed || row.replaces_custom ? Boolean(row.auto_import) : false,
+      autopay: Boolean(row.autopay),
+      autopayJoint: Boolean(row.autopay_joint),
+      autopayPaymentDate: row.autopay_payment_date || 'due_date',
       defaultPayerId:
         row.installed || row.replaces_custom
           ? String(row.default_payer_id || '')
@@ -1379,6 +1421,9 @@ fields:
           <div class="modal-field"><span>${this._t('defaultSplit')}</span><div class="dialog-split-grid">${payers.map((payer) => `<label><span>${esc(payer.name)}</span><input class="dialog-split" data-payer-id="${esc(payer.id)}" type="number" min="0" max="100" step="0.01" value="${splitMap.get(String(payer.id)) ?? 0}"></label>`).join('')}</div></div>
           <label class="check"><input id="dialog-enabled" type="checkbox" ${dialog.enabled ? 'checked' : ''}><span>${this._t('enabled')}</span></label>
           <label class="check"><input id="dialog-auto" type="checkbox" ${dialog.autoImport ? 'checked' : ''}><span>${this._t('autoImport')}</span></label>
+          <label class="check"><input id="dialog-autopay" type="checkbox" ${dialog.autopay ? 'checked' : ''}><span>${this._t('autopay')}</span></label>
+          <label class="check"><input id="dialog-autopay-joint" type="checkbox" ${dialog.autopayJoint ? 'checked' : ''} ${dialog.autopay ? '' : 'disabled'}><span>${this._t('autopayJoint')}</span></label>
+          <label class="modal-field"><span>${this._t('autopayPaymentDate')}</span><select id="dialog-autopay-date"><option value="due_date" ${dialog.autopayPaymentDate === 'due_date' ? 'selected' : ''}>${this._t('dueDate')}</option><option value="issue_date" ${dialog.autopayPaymentDate === 'issue_date' ? 'selected' : ''}>${this._t('issueDate')}</option><option value="import_date" ${dialog.autopayPaymentDate === 'import_date' ? 'selected' : ''}>${this._t('importDate')}</option></select></label>
           <div class="modal-actions">
             <button id="dialog-close-secondary" class="secondary">${this._t('close')}</button>
             <button id="dialog-save" class="primary">${dialog.mode === 'install' ? this._t('install') : dialog.mode === 'update' ? this._t('update') : this._t('save')}</button>
@@ -1399,6 +1444,9 @@ fields:
     const autoImport = Boolean(
       this.shadowRoot.getElementById('dialog-auto')?.checked,
     )
+    const autopay = Boolean(this.shadowRoot.getElementById('dialog-autopay')?.checked)
+    const autopayJoint = autopay && Boolean(this.shadowRoot.getElementById('dialog-autopay-joint')?.checked)
+    const autopayPaymentDate = this.shadowRoot.getElementById('dialog-autopay-date')?.value || 'due_date'
     const defaultPayerId =
       this.shadowRoot.getElementById('dialog-payer')?.value || ''
     const defaultSplit = [...this.shadowRoot.querySelectorAll('.dialog-split')]
@@ -1418,6 +1466,9 @@ fields:
           category_id: categoryId,
           enabled,
           auto_import: autoImport,
+          autopay,
+          autopay_joint: autopayJoint,
+          autopay_payment_date: autopayPaymentDate,
           default_payer_id: defaultPayerId,
           default_split: defaultSplit,
         })
@@ -1428,6 +1479,9 @@ fields:
           category_id: categoryId,
           enabled,
           auto_import: autoImport,
+          autopay,
+          autopay_joint: autopayJoint,
+          autopay_payment_date: autopayPaymentDate,
           default_payer_id: defaultPayerId,
           default_split: defaultSplit,
         })

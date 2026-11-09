@@ -26,6 +26,16 @@ class BillImportCoordinator:
         note_parts = ["Automatic import"]
         if invoice_number:
             note_parts.append(f"invoice {invoice_number}")
+        payment_date = data.get("payment_date")
+        if candidate.get("autopay") and not payment_date:
+            selected = candidate.get("autopay_payment_date", "due_date")
+            if selected == "import_date":
+                payment_date = date.today().isoformat()
+            elif selected == "issue_date":
+                payment_date = data.get("issue_date") or data.get("due_date")
+            else:
+                payment_date = data.get("due_date") or data.get("issue_date")
+            payment_date = payment_date or date.today().isoformat()
 
         kwargs = {
             "year": anchor.year,
@@ -40,13 +50,13 @@ class BillImportCoordinator:
             "period_end_month": end.month if end else None,
             "period_start_date": start.isoformat() if start else None,
             "period_end_date": end.isoformat() if end else None,
-            "paid": False,
+            "paid": bool(candidate.get("autopay")),
             "payer_id": candidate.get("default_payer_id"),
             # An empty parser-specific split means "use Billy defaults". Passing
             # [] would instead be treated as an explicit empty split and fail
             # once the domain manager resolves a payer.
             "split": candidate.get("default_split") or None,
-            "payment_date": data.get("payment_date"),
+            "payment_date": payment_date,
             "due_date": data.get("due_date"),
             "provider": provider or None,
             "contract": str(data.get("offer") or data.get("contract") or "").strip() or None,
@@ -63,7 +73,14 @@ class BillImportCoordinator:
         }
         accepted = inspect.signature(self.bill_manager.async_add).parameters
         kwargs.update({key: value for key, value in optional_metadata.items() if key in accepted})
-        return await self.bill_manager.async_add(**kwargs)
+        expense = await self.bill_manager.async_add(**kwargs)
+        if candidate.get("autopay") and candidate.get("autopay_joint"):
+            try:
+                await self.bill_manager.async_set_reimbursement_done(expense["id"], True)
+            except Exception as err:
+                if getattr(err, "code", "") != "expense_no_reimbursement":
+                    raise
+        return expense
 
     @classmethod
     def _anchor_date(cls, data: dict[str, Any]) -> date:
