@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.18.2
+
+Released: 2026-11-10.
+
+- Merged community contribution [#24](https://github.com/robin994/billy/pull/24)
+  by **gsanya**: archived PDF attachments now download instead of opening an
+  empty inline viewer in the Home Assistant Android Companion App.
+- Detect Android Companion App through the V1/V2 JavaScript bridges and
+  compatible user agents; desktop browsers and iOS retain inline PDF previews.
+- Retain temporary blob download links long enough for the Android app to
+  save the file and cover the Android path with frontend regression tests.
+- Bumped the integration and frontend versions to `0.18.2` and cache suffix
+  to `0.18.2-r1` to ensure updated JavaScript is loaded after upgrading.
+
 ## 0.18.1
 
 Released: 2026-11-09.
