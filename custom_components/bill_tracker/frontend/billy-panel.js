@@ -1038,6 +1038,33 @@ function pdfContentBlob(payload) {
   return new Blob([content], { type: 'application/pdf' })
 }
 
+// The Home Assistant Android app cannot render PDFs inside its WebView: an
+// iframe's blob: URL is handed to Android, which has no app to open it.
+// Downloads are supported, though: the app fetches the blob itself and saves
+// it to the phone's Downloads folder.
+function isAndroidCompanionApp() {
+  // V1 bridge (addJavascriptInterface) or V2 bridge (WebMessageListener, used
+  // by current apps with recent servers). As a fallback, the app's user agent
+  // ends with e.g. "Home Assistant/2026.10.1-24906 (Android 17; Pixel Fold)";
+  // older versions wrote "HomeAssistant/". The iOS app is excluded on purpose:
+  // its WebView renders PDFs inline.
+  return Boolean(window.externalApp || window.externalAppV2)
+    || /\bHome ?Assistant\/[^(]*\(Android\b/.test(navigator.userAgent || '')
+}
+
+function downloadPdfBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename || 'billy.pdf'
+  anchor.rel = 'noopener'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  // The companion app reads the blob asynchronously, so keep it alive briefly.
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
+}
+
 function encodePdfChunk(bytes) {
   const pieces = []
   for (let start = 0; start < bytes.length; start += 8192) {
@@ -2897,7 +2924,21 @@ class BillyBills extends HTMLElement {
     }
   }
 
+  async _downloadArchivedDocument(id) {
+    try {
+      const payload = await this._hass.callWS({ type: 'bill_tracker/document/read', expense_id: id })
+      downloadPdfBlob(pdfContentBlob(payload), payload.filename)
+    } catch (error) {
+      this._error = errorText(this._hass, error)
+      this._render()
+    }
+  }
+
   async _openArchivedDocument(id) {
+    if (isAndroidCompanionApp()) {
+      await this._downloadArchivedDocument(id)
+      return
+    }
     try {
       const payload = await this._hass.callWS({ type: 'bill_tracker/document/read', expense_id: id })
       const url = URL.createObjectURL(pdfContentBlob(payload))
