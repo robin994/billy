@@ -1203,10 +1203,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             if payment.get("recurring_id") == recurring_id and not self._recurring_payment_due(
                 normalized, str(payment["due_date"])
             ):
-                raise ValueError(
-                    "Cannot change this schedule while recorded payments depend on its due dates. "
-                    "Undo or correct the affected payments first."
-                )
+                raise billy_error("recurring_schedule_has_payments")
         current.update(normalized)
         if schedule_changed or (not was_active and bool(current.get("active", True))):
             current["reimbursement_tracking_start_date"] = self._recurring_tracking_start(
@@ -1317,8 +1314,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         if not due or not paid or not self._recurring_payment_due(recurring, due):
             raise ValueError("Payment must reference a valid scheduled installment")
         today = date.today().isoformat()
-        if due > today or paid > today:
-            raise ValueError("Future installments cannot be marked paid")
+        if paid > today:
+            raise ValueError("Future payment dates cannot be recorded")
         cents = _cents(amount)
         if cents <= 0:
             raise ValueError("Payment amount must be greater than zero")
@@ -2323,7 +2320,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
     def recurring_history_items(self) -> list[dict[str, Any]]:
         """Expose scheduled installments separately from confirmed cash movements."""
         today = date.today()
-        window_end = date(today.year, today.month, monthrange(today.year, today.month)[1])
+        # Include the next three months so users can pay upcoming installments
+        # early without manufacturing due-date occurrences or cash movements.
+        end_month_index = today.year * 12 + (today.month - 1) + 3
+        end_year, end_month_zero = divmod(end_month_index, 12)
+        window_end = date(end_year, end_month_zero + 1, monthrange(end_year, end_month_zero + 1)[1])
         items: list[dict[str, Any]] = []
         payments = {
             (str(row.get("recurring_id")), str(row.get("due_date"))): row

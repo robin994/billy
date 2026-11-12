@@ -200,8 +200,8 @@ test('issue #17: rejected payments preserve editable amounts and show the error'
   assert.match(form.querySelector('[role="alert"]').textContent, /predates/)
 })
 
-test('issue #17: future installments have no confirm-payment action', async t => {
-  const { recurring, snapshot } = await fixture(t)
+test('issue #25: future installments can be paid early using today as payment date', async t => {
+  const { dom, recurring, snapshot, calls } = await fixture(t)
   snapshot.recurring_history.push({
     id: 'mortgage-1', name: 'My mortgage', kind: 'mortgage',
     due_date: '2099-11-02', amount: 800, paid: false,
@@ -210,7 +210,20 @@ test('issue #17: future installments have no confirm-payment action', async t =>
   const modal = recurring.shadowRoot.getElementById('recurring-modal-card')
   assert.match(modal.textContent, /Upcoming/)
   assert.equal(modal.querySelectorAll('.payment-row').length, 5)
-  assert.equal(modal.querySelectorAll('[data-payment-date]').length, 4)
+  assert.equal(modal.querySelectorAll('[data-payment-date]').length, 5)
+  modal.querySelector('[data-payment-date="2099-11-02"]').click()
+  const form = recurring.shadowRoot.getElementById('recurring-payment-form')
+  const now = recurring._today()
+  assert.equal(form.elements.namedItem('payment_date').value, now)
+  assert.equal(form.elements.namedItem('payment_date').max, now)
+  form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  await settled()
+  const saved = calls.find(call => call.type === 'bill_tracker/recurring/payment/set')
+  assert.equal(saved.due_date, '2099-11-02')
+  assert.equal(saved.payment_date, now)
+  assert.equal(snapshot.recurring_payments.length, 1)
+  recurring._openRecurringPayments('mortgage-1')
+  assert.match(recurring.shadowRoot.getElementById('recurring-modal-card').textContent, /Paid/)
 })
 
 test('v0.17.1: rejected recurring save leaves form open, preserves input and displays reason', async t => {
@@ -363,4 +376,51 @@ test('issue #17: actual dashboard spending counts payment date and skips unconfi
   const actual = dashboard._actualChartRows()
   assert.equal(actual.find(row => row.key === '2026-02').recurring_total, 0)
   assert.equal(actual.find(row => row.key === '2026-03').recurring_total, 812.37)
+})
+
+test('issue #25: dashboard includes unpaid recurring charges from month start and removes prepaid ones', async t => {
+  const { dom } = await fixture(t)
+  const dashboard = dom.window.document.createElement('billy-dashboard')
+  dashboard._hass = { language: 'en', config: { currency: 'EUR' } }
+  const now = new Date()
+  const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-`
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+  const upcoming = prefix + String(lastDay).padStart(2, '0')
+  dashboard._data = {
+    current_month_unpaid_bills: [{ category: 'Electricity', amount: 100, due_date: upcoming }],
+    current_month_recurring: [
+      { id: 'internet', name: 'Internet', amount: 40, due_date: upcoming },
+      { id: 'mortgage', name: 'Mortgage', amount: 800, due_date: upcoming },
+    ],
+    recurring_payments: [{
+      recurring_id: 'mortgage', due_date: upcoming, payment_date: prefix + '01', amount: 800,
+    }],
+  }
+  const html = dashboard._dueThisMonth()
+  assert.match(html, /Electricity/)
+  assert.match(html, /Internet/)
+  assert.doesNotMatch(html, /Mortgage/)
+  assert.match(html, /Recurring expenses/)
+  assert.match(html, /40/)
+})
+
+test('issue #25: schedule edit explains which recorded payments prevent a date change', async t => {
+  const { dom, recurring } = await fixture(t)
+  const original = recurring._hass.callWS
+  recurring._hass.callWS = async request => {
+    if (request.type === 'bill_tracker/recurring/update') {
+      const error = new Error('Invalid recurring expense')
+      error.code = 'recurring_schedule_has_payments'
+      throw error
+    }
+    return original(request)
+  }
+  recurring._openRecurring('mortgage-1')
+  const form = recurring.shadowRoot.getElementById('recurring-form')
+  form.elements.namedItem('start_date').value = '2026-03-02'
+  form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  await settled()
+  assert.equal(recurring.shadowRoot.getElementById('recurring-form'), form)
+  assert.match(form.querySelector('[data-recurring-save-error]').textContent, /invalidate recorded payments/)
+  assert.equal(form.elements.namedItem('start_date').value, '2026-03-02')
 })

@@ -99,6 +99,41 @@ test('issue #23: scheduled bills have their own status and do not appear as unpa
   assert.deepEqual(f.ids(), ['scheduled-autopay'])
 })
 
+test('issue #25: paid bill totals can be filtered by category and actual payment dates', t => {
+  const f = fixture(t, 'en')
+  f.data.categories.push({ id: 'groceries', name: 'Groceries', enabled: true })
+  f.data.expenses.push(
+    { id: 'food-first', category_id: 'groceries', category: 'Groceries',
+      amount: 30.50, paid: true, payment_date: '2026-01-12',
+      paid_year: 2025, paid_month: 12, reimbursement_status: 'none' },
+    { id: 'food-second', category_id: 'groceries', category: 'Groceries',
+      amount: 49.99, paid: true, payment_date: '2026-05-01',
+      paid_year: 2026, paid_month: 4, reimbursement_status: 'none' },
+    { id: 'food-unpaid', category_id: 'groceries', category: 'Groceries',
+      amount: 600, paid: false, payment_date: null,
+      paid_year: 2026, paid_month: 5, reimbursement_status: 'none' },
+  )
+  f.panel._render()
+  const choose = (id, value) => {
+    const el = f.panel.shadowRoot.getElementById(id)
+    el.value = value
+    el.dispatchEvent(new f.dom.window.Event('change', { bubbles: true }))
+  }
+  choose('category-spending-category', 'groceries')
+  assert.equal(f.panel._categorySpendingSummary().total, 80.49)
+  assert.equal(f.panel._categorySpendingSummary().count, 2)
+  choose('category-spending-from', '2026-02-01')
+  choose('category-spending-to', '2026-12-31')
+  assert.equal(f.panel._categorySpendingSummary().total, 49.99)
+  assert.equal(f.panel._categorySpendingSummary().count, 1)
+  assert.match(f.panel.shadowRoot.getElementById('category-spending-total').textContent, /49[.,]99/)
+  assert.match(f.panel.shadowRoot.getElementById('category-spending-count').textContent, /Paid bills: 1/)
+  choose('category-spending-to', '2026-01-01')
+  assert.equal(f.panel._categorySpendingSummary().invalid, true)
+  assert.match(f.panel.shadowRoot.getElementById('category-spending-error').textContent, /start date/)
+  assert.equal(f.panel._filtered().length, 7, 'category spending report must not change bill list filters')
+})
+
 test('sort choice persists per user across panel instances', t => {
   const f = fixture(t, 'it')
   f.sort('due')

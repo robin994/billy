@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.19.0
+
+Released: 2026-11-12.
+
+- Implemented all four requests from community issue [#25](https://github.com/robin994/billy/issues/25)
+  by **thankouv**.
+- **Early recurring payments:** record and edit payments for upcoming
+  installments (next three months) before their due date. The payment is
+  posted on the actual date, never on a future cash date; the original due
+  date remains intact. Autopay never duplicates an early payment.
+- **Monthly checklist:** Overview's *Unpaid this month* now combines unpaid
+  provider bills and upcoming recurring charges from the first day of each
+  month, excluding already confirmed recurring payments.
+- **First charge date:** changing a recurrence so that existing paid
+  installments would become invalid now shows a clear localized explanation
+  rather than a generic validation error. Recorded cash history is protected.
+- **Spending by bill type:** new Bills report with category, optional
+  inclusive actual-payment-date range and a paid total/count. It respects
+  the selected House, excludes unpaid bills and does not double-count
+  separately tracked recurring payments.
+- Extended regression coverage, updated the user guide and bumped frontend
+  cache suffix to `0.19.0-r1`. No storage migration required.
+
 ## 0.18.2
 
 Released: 2026-11-10.

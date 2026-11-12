@@ -183,6 +183,54 @@ def test_backdated_mortgage_payment_updates_actual_balance_and_cashflow_only():
     assert manager.save_count == 1
 
 
+def test_issue25_upcoming_installment_can_be_paid_early_without_double_posting():
+    manager, account, rule = setup()
+    today = date.today()
+    due = manager._next_recurring_due(rule, today + timedelta(days=1))
+    assert due is not None and due > today
+    first = pay(
+        manager, account["id"], due=due.isoformat(), on=today.isoformat(),
+    )
+    assert first["due_date"] == due.isoformat()
+    assert first["payment_date"] == today.isoformat()
+    assert manager.account_balances()["total"] == 4200
+    assert manager.save_count == 1
+    repeated = pay(
+        manager, account["id"], due=due.isoformat(), on=today.isoformat(),
+    )
+    assert repeated == first
+    assert len(manager.recurring_payments) == 1
+    assert manager.save_count == 1
+    assert any(
+        row["due_date"] == due.isoformat()
+        and row["paid"] and row["payment_date"] == today.isoformat()
+        for row in manager.recurring_history_items()
+    )
+    # The automatic recurring sync must not make a second payment on its due date.
+    method = next(node for node in manager_class.body
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "_sync_recurring_occurrences")
+    isolated = ast.Module(body=[method], type_ignores=[])
+    ast.fix_missing_locations(isolated)
+    namespace = {"date": date, "datetime": datetime}
+    exec(compile(isolated, str(ROOT / "manager.py"), "exec"), namespace)
+    rule["autopay"] = True
+    rule["reimbursement_tracking_start_date"] = due.isoformat()
+    namespace["_sync_recurring_occurrences"](manager, due)
+    assert len(manager.recurring_payments) == 1
+    assert manager.account_balances()["total"] == 4200
+
+
+def test_issue25_future_payment_date_remains_invalid():
+    manager, account, rule = setup()
+    today = date.today()
+    due = manager._next_recurring_due(rule, today + timedelta(days=1))
+    assert due is not None
+    with pytest.raises(ValueError, match="Future payment dates"):
+        pay(manager, account["id"], due=due.isoformat(), on=due.isoformat())
+    assert manager.recurring_payments == []
+
+
 def test_corrections_are_idempotent_and_undo_restores_the_account():
     manager, account, _ = setup()
     original = pay(manager, account["id"])
@@ -257,7 +305,7 @@ def test_schedule_edit_cannot_orphan_paid_occurrences_and_delete_requires_undo()
         auto_renew=True, renewal_interval_months=12, installment_count=None,
         payer_id="owner",
     )
-    with pytest.raises(ValueError, match="recorded payments"):
+    with pytest.raises(ValueError, match="recurring_schedule_has_payments"):
         run(manager.async_update_recurring("mortgage-1", **kwargs))
     with pytest.raises(ValueError, match="Undo recorded"):
         run(manager.async_delete_recurring("mortgage-1"))

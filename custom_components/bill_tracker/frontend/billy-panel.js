@@ -1,12 +1,12 @@
-import './billy-parser-manager.js?v=0.18.2-r1'
-import './billy-accounts.js?v=0.18.2-r1'
+import './billy-parser-manager.js?v=0.19.0-r1'
+import './billy-accounts.js?v=0.19.0-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.18.2-r1'
+} from './billy-extra-i18n.js?v=0.19.0-r1'
 
-const BILLY_PANEL_VERSION = '0.18.2'
+const BILLY_PANEL_VERSION = '0.19.0'
 
 const TEXT = {
   en: {
@@ -830,6 +830,62 @@ for (const [language, labels] of Object.entries({
     filterBillingMonth: 'Nach Rechnungsmonat filtern' },
   pt: { allBillingMonths: 'Todos os meses', currentBillingMonth: 'Mês atual',
     filterBillingMonth: 'Filtrar por mês de faturação' },
+})) Object.assign(TEXT[language], labels)
+for (const [language, labels] of Object.entries({
+  en: {
+    categorySpendingTitle: 'Spending by bill type',
+    categorySpendingHelp: 'Confirmed, paid bills only. Date range uses the actual payment date.',
+    categorySpendingFrom: 'Paid from',
+    categorySpendingTo: 'Paid through',
+    categorySpendingTotal: 'Total paid',
+    categorySpendingCount: 'Paid bills: {count}',
+    categorySpendingInvalid: 'The start date must not be after the end date.',
+  },
+  it: {
+    categorySpendingTitle: 'Spese per tipologia',
+    categorySpendingHelp: 'Solo bollette pagate. Il periodo usa la data effettiva di pagamento.',
+    categorySpendingFrom: 'Pagate dal',
+    categorySpendingTo: 'Pagate fino al',
+    categorySpendingTotal: 'Totale pagato',
+    categorySpendingCount: 'Bollette pagate: {count}',
+    categorySpendingInvalid: 'La data iniziale non può superare quella finale.',
+  },
+  es: {
+    categorySpendingTitle: 'Gastos por tipo de factura',
+    categorySpendingHelp: 'Solo facturas pagadas; el periodo usa la fecha real de pago.',
+    categorySpendingFrom: 'Pagadas desde',
+    categorySpendingTo: 'Pagadas hasta',
+    categorySpendingTotal: 'Total pagado',
+    categorySpendingCount: 'Facturas pagadas: {count}',
+    categorySpendingInvalid: 'La fecha inicial no puede ser posterior a la final.',
+  },
+  fr: {
+    categorySpendingTitle: 'Dépenses par type de facture',
+    categorySpendingHelp: 'Factures payées uniquement, selon leur date de paiement réelle.',
+    categorySpendingFrom: 'Payées du',
+    categorySpendingTo: 'Payées au',
+    categorySpendingTotal: 'Total payé',
+    categorySpendingCount: 'Factures payées : {count}',
+    categorySpendingInvalid: 'La date de début doit précéder la date de fin.',
+  },
+  de: {
+    categorySpendingTitle: 'Ausgaben nach Rechnungsart',
+    categorySpendingHelp: 'Nur bezahlte Rechnungen, nach dem tatsächlichen Zahlungsdatum.',
+    categorySpendingFrom: 'Bezahlt ab',
+    categorySpendingTo: 'Bezahlt bis',
+    categorySpendingTotal: 'Insgesamt bezahlt',
+    categorySpendingCount: 'Bezahlte Rechnungen: {count}',
+    categorySpendingInvalid: 'Das Startdatum darf nicht nach dem Enddatum liegen.',
+  },
+  pt: {
+    categorySpendingTitle: 'Despesas por tipo de fatura',
+    categorySpendingHelp: 'Apenas faturas pagas, pela data efetiva de pagamento.',
+    categorySpendingFrom: 'Pagas desde',
+    categorySpendingTo: 'Pagas até',
+    categorySpendingTotal: 'Total pago',
+    categorySpendingCount: 'Faturas pagas: {count}',
+    categorySpendingInvalid: 'A data inicial não pode ser posterior à data final.',
+  },
 })) Object.assign(TEXT[language], labels)
 for (const [language, labels] of Object.entries(BILLY_PLACEHOLDER_TEXT)) {
   Object.assign(TEXT[language], labels)
@@ -1872,18 +1928,27 @@ class BillyDashboard extends HTMLElement {
   _dueThisMonth() {
     const now = new Date()
     const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-`
-    const rows = (this._data?.current_month_unpaid_bills ||
+    const today = `${prefix}${String(now.getDate()).padStart(2, '0')}`
+    const bills = (this._data?.current_month_unpaid_bills ||
       (this._data?.expenses || []).filter(
         (row) => !row.paid && row.payment_status !== 'scheduled' && String(row.due_date || '').startsWith(prefix),
       ))
-      .slice()
+      .map(row => ({ ...row, source: 'bill' }))
+    const recorded = new Set((this._data?.recurring_payments || [])
+      .map(payment => `${payment.recurring_id}@${payment.due_date}`))
+    // The full month's recurring charges belong in the checklist from day
+    // one, but a payment confirmed early must never appear as still due.
+    const recurring = (this._data?.current_month_recurring || [])
+      .filter(row => !recorded.has(`${row.id}@${row.due_date}`))
+      .map(row => ({ ...row, source: 'recurring' }))
+    const rows = [...bills, ...recurring]
       .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))
     if (!rows.length)
       return `<div class="empty">${escapeHtml(this._t('noBillsDueThisMonth'))}</div>`
     return `<div class="compact-list">${rows
       .map(
         (row) => `<div class="compact-row">
-          <div><strong>${escapeHtml(row.category || '')}</strong><small>${escapeHtml([row.is_placeholder ? this._t('placeholderBill') : row.provider, row.due_date ? `${this._t('due')}: ${this._date(row.due_date)}` : this._t('unpaidThisMonth')].filter(Boolean).join(' · '))}</small></div>
+          <div><strong>${escapeHtml(row.source === 'recurring' ? row.name || '' : row.category || '')}</strong><small>${escapeHtml([row.source === 'recurring' ? this._t('recurringExpenses') : row.is_placeholder ? this._t('placeholderBill') : row.provider, row.due_date ? `${this._t('due')}: ${this._date(row.due_date)}` : this._t('unpaidThisMonth'), row.source === 'recurring' ? this._t(row.due_date > today ? 'recurringFutureInstallment' : 'recurringUnpaidInstallment') : ''].filter(Boolean).join(' · '))}</small></div>
           <strong>${escapeHtml(this._money(row.amount))}</strong>
         </div>`,
       )
@@ -2400,6 +2465,9 @@ class BillyBills extends HTMLElement {
     this._category = 'all'
     this._house = 'all'
     this._status = 'all'
+    this._spendingCategory = 'all'
+    this._spendingFrom = ''
+    this._spendingTo = ''
     this._reimbursement = 'all'
     this._year = 'all'
     this._month = 'all'
@@ -2764,6 +2832,37 @@ class BillyBills extends HTMLElement {
         month: this._month,
       }))
     } catch (_error) {}
+  }
+
+  _categorySpendingSummary() {
+    const from = this._spendingFrom
+    const to = this._spendingTo
+    if (from && to && from > to) return { total: 0, count: 0, invalid: true }
+    let cents = 0
+    let count = 0
+    for (const row of this._data?.expenses || []) {
+      if (!row.paid) continue
+      if (this._spendingCategory !== 'all' && row.category_id !== this._spendingCategory) continue
+      if (this._house !== 'all' && row.house_id !== this._house) continue
+      const paidDate = String(row.payment_date || '')
+      if ((from || to) && (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate) ||
+        (from && paidDate < from) || (to && paidDate > to))) continue
+      const amount = Number(row.amount)
+      if (!Number.isFinite(amount)) continue
+      cents += Math.round(amount * 100)
+      count++
+    }
+    return { total: cents / 100, count, invalid: false }
+  }
+
+  _refreshCategorySpending() {
+    const summary = this._categorySpendingSummary()
+    const total = this.shadowRoot.getElementById('category-spending-total')
+    const count = this.shadowRoot.getElementById('category-spending-count')
+    const error = this.shadowRoot.getElementById('category-spending-error')
+    if (total) total.textContent = this._money(summary.total)
+    if (count) count.textContent = tFor(this._hass, 'categorySpendingCount', { count: summary.count })
+    if (error) error.textContent = summary.invalid ? this._t('categorySpendingInvalid') : ''
   }
 
   _filtered() {
@@ -3132,6 +3231,10 @@ class BillyBills extends HTMLElement {
       .sort((a, b) =>
         String(a.name).localeCompare(String(b.name), localeOf(this._hass)),
       )
+    if (this._spendingCategory !== 'all' &&
+        !categories.some(category => category.id === this._spendingCategory))
+      this._spendingCategory = 'all'
+    const spending = this._categorySpendingSummary()
     const years = [
       ...new Set(
         (this._data.expenses || [])
@@ -3152,6 +3255,19 @@ class BillyBills extends HTMLElement {
         <div class="hero"><div><h1>${escapeHtml(this._t('billsTitle'))}</h1><p>${escapeHtml(this._t('billsSubtitle'))}</p></div><div class="hero-actions"><button class="secondary" id="export-bills"><ha-icon icon="mdi:tray-arrow-down"></ha-icon>${escapeHtml(this._t('exportData'))}</button><button class="primary" id="add-bill"><ha-icon icon="mdi:plus"></ha-icon>${escapeHtml(this._t('addBill'))}</button></div></div>
         ${this._error ? `<div class="notice error">${escapeHtml(this._error)}</div>` : ''}
         ${this._pendingImportsHtml()}
+        <section class="category-spending" aria-label="${escapeHtml(this._t('categorySpendingTitle'))}">
+          <div><h2>${escapeHtml(this._t('categorySpendingTitle'))}</h2><p>${escapeHtml(this._t('categorySpendingHelp'))}</p></div>
+          <div class="category-spending-controls">
+            <label><span>${escapeHtml(this._t('billType'))}</span><select id="category-spending-category">
+              <option value="all" ${this._spendingCategory === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allTypes'))}</option>
+              ${categories.map(category => `<option value="${escapeHtml(category.id)}" ${this._spendingCategory === category.id ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}
+            </select></label>
+            <label><span>${escapeHtml(this._t('categorySpendingFrom'))}</span><input id="category-spending-from" type="date" value="${escapeHtml(this._spendingFrom)}"></label>
+            <label><span>${escapeHtml(this._t('categorySpendingTo'))}</span><input id="category-spending-to" type="date" value="${escapeHtml(this._spendingTo)}"></label>
+            <div class="category-spending-result"><span>${escapeHtml(this._t('categorySpendingTotal'))}</span><strong id="category-spending-total">${escapeHtml(this._money(spending.total))}</strong><small id="category-spending-count">${escapeHtml(tFor(this._hass, 'categorySpendingCount', { count: spending.count }))}</small></div>
+          </div>
+          <small class="category-spending-error" id="category-spending-error" role="status">${escapeHtml(spending.invalid ? this._t('categorySpendingInvalid') : '')}</small>
+        </section>
         <div class="toolbar">
           <label class="search"><ha-icon icon="mdi:magnify"></ha-icon><input id="bill-search" type="search" value="${escapeHtml(this._search)}" placeholder="${escapeHtml(this._t('searchBills'))}"></label>
           <select id="bill-house" aria-label="${escapeHtml(this._t('house'))}"><option value="all" ${this._house === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allHouses'))}</option>${(this._data.houses || []).map(home => `<option value="${escapeHtml(home.id)}" ${this._house === home.id ? 'selected' : ''}>${escapeHtml(home.name)}</option>`).join('')}</select>
@@ -3189,6 +3305,16 @@ class BillyBills extends HTMLElement {
     this.shadowRoot
       .getElementById('export-bills')
       ?.addEventListener('click', () => this._openExport())
+    for (const [id, field] of [
+      ['category-spending-category', '_spendingCategory'],
+      ['category-spending-from', '_spendingFrom'],
+      ['category-spending-to', '_spendingTo'],
+    ]) {
+      this.shadowRoot.getElementById(id)?.addEventListener('change', event => {
+        this[field] = event.target.value
+        this._refreshCategorySpending()
+      })
+    }
     this.shadowRoot
       .querySelectorAll('[data-import-approve]')
       .forEach((button) =>
@@ -3246,6 +3372,7 @@ class BillyBills extends HTMLElement {
       this._saveFilterPreferences()
       this._page = 1
       this._renderListOnly()
+      this._refreshCategorySpending()
     })
     this.shadowRoot
       .getElementById('bill-status')
@@ -3715,6 +3842,19 @@ class BillyBills extends HTMLElement {
         .bill-row{column-gap:8px}
         .bill-row>.bill-actions{max-width:100%}
       }
+      .category-spending{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+      .category-spending h2{font-size:16px;margin:0 0 3px}
+      .category-spending p{font-size:12px;color:var(--secondary-text-color);margin:0}
+      .category-spending-controls{display:grid;grid-template-columns:minmax(160px,1.3fr) repeat(2,minmax(135px,1fr)) minmax(145px,1fr);gap:12px;align-items:end}
+      .category-spending-controls label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--secondary-text-color)}
+      .category-spending-controls select,.category-spending-controls input{width:100%;height:40px;min-width:0;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);border-radius:9px;padding:0 9px;font:inherit}
+      .category-spending-result{display:flex;flex-direction:column;gap:2px}
+      .category-spending-result span,.category-spending-result small{font-size:11px;color:var(--secondary-text-color)}
+      .category-spending-result strong{font-size:22px;font-variant-numeric:tabular-nums}
+      .category-spending-error{color:var(--error-color,#d32f2f)}
+      .category-spending-error:empty{display:none}
+      @media(max-width:800px){.category-spending-controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media(max-width:480px){.category-spending-controls{grid-template-columns:minmax(0,1fr)}}
     `
   }
 }
@@ -4309,7 +4449,7 @@ class BillyRecurring extends HTMLElement {
             </div>
             <strong>${escapeHtml(this._money(actual))}</strong>
             <span class="status ${paid ? 'active' : future ? 'ended' : 'inactive'}">${escapeHtml(label)}</span>
-            ${future ? '' : `<button type="button" class="secondary" data-payment-date="${escapeHtml(item.due_date)}">${escapeHtml(this._t(paid ? 'recurringEditPayment' : 'recurringRecordPayment'))}</button>`}
+            <button type="button" class="secondary" data-payment-date="${escapeHtml(item.due_date)}">${escapeHtml(this._t(paid ? 'recurringEditPayment' : 'recurringRecordPayment'))}</button>
           </div>`
         }).join('') : `<div class="empty">${escapeHtml(this._t('recurringNoPaymentsDue'))}</div>`}
       </div>
@@ -4339,7 +4479,7 @@ class BillyRecurring extends HTMLElement {
       .find(row => row.id === recurringId && row.due_date === dueDate)
     const modal = this.shadowRoot.getElementById('recurring-modal')
     const card = this.shadowRoot.getElementById('recurring-modal-card')
-    if (!installment || !modal || !card || dueDate > this._today()) return
+    if (!installment || !modal || !card) return
     const accounts = this._data?.accounts || []
     const payment = (this._data?.recurring_payments || [])
       .find(row => row.recurring_id === recurringId && row.due_date === dueDate)
@@ -4350,7 +4490,7 @@ class BillyRecurring extends HTMLElement {
         <button type="button" class="icon-close" id="recurring-close">×</button></div>
       <div class="form-grid">
         <label><span>${escapeHtml(this._t('recurringPaymentDate'))}</span>
-          <input type="date" name="payment_date" required max="${this._today()}" value="${escapeHtml(payment?.payment_date || dueDate)}"></label>
+          <input type="date" name="payment_date" required max="${this._today()}" value="${escapeHtml(payment?.payment_date || (dueDate > this._today() ? this._today() : dueDate))}"></label>
         <label><span>${escapeHtml(this._t('recurringPaymentAmount'))}</span>
           <input type="number" name="amount" required min="0.01" step="0.01" value="${escapeHtml(payment?.amount ?? installment.amount)}"></label>
         <label class="span2"><span>${escapeHtml(this._t('recurringAccount'))}</span>
@@ -5813,7 +5953,7 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.18.2-r1').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.19.0-r1').catch((error) => {
         this._incomePromise = null
         for (const id of ['income-panel', 'recurring-income-panel']) {
           const section = this.shadowRoot?.getElementById(id)
@@ -5833,7 +5973,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.18.2-r1'
+        './billy-reimbursement-history.js?v=0.19.0-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(

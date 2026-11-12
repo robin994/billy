@@ -116,11 +116,13 @@ the individual scheduled installments, including past due dates, with an
 independent **Paid / Not confirmed** status. A scheduled installment is *not*
 proof that money left an account.
 
-Choose **Record payment** on a due installment and enter its **actual payment
+Choose **Record payment** on an installment and enter its **actual payment
 date**, **actual amount**, **debited account** (if configured) and optional
 note. You can also **Edit payment** or **Undo payment** without changing the
-recurring rule or reimbursements between household members. Future due dates
-cannot be confirmed as paid before they arrive.
+recurring rule or reimbursements between household members. The next three
+months of upcoming installments are also shown, and can be **paid in advance**
+with an actual payment date of today or earlier. The due date remains unchanged.
+Future *payment* dates are never accepted.
 
 Confirmed payments affect the account balance and historical spending **on
 the actual payment date**, even if the installment was due in an earlier
@@ -139,6 +141,17 @@ installment payments and account cash outflows, not principal-versus-interest
 allocations. Do not use transfers between your own accounts as a substitute
 for mortgage payments: transfers do not create expenses.
 
+If changing the **First charge date** or payment frequency would invalidate an
+already recorded installment, Billy explains that the affected payments must
+be undone or corrected first. This avoids silently changing confirmed cash
+history. Schedule changes that preserve all confirmed installments remain
+possible.
+
+In **Overview → Unpaid this month**, scheduled recurring charges are included
+from the first day of their due month alongside unpaid bills. Future charges
+are labeled upcoming, while confirmed recurring payments (including early
+payments) are excluded from the list.
+
 **Reconciliation:** if you previously recorded mortgage installments as
 ordinary paid Bills, use the already-recorded checkbox to avoid counting the
 same cash outflow again. If you previously used a negative-opening-balance
@@ -148,6 +161,16 @@ transfers and correct opening snapshots as appropriate. Billy will **not**
 delete or reinterpret those earlier records automatically.
 
 For provider invoices that need a paid/unpaid monthly checklist, enable **Create an unpaid bill each period** in **Settings → Bill types**. See [Monthly bill checklist](docs/BILL_PLACEHOLDERS.md).
+
+## Spending totals per bill type
+
+In **Bills**, the **Spending by bill type** report lets you select a bill
+category (such as Groceries) and optionally set **Paid from** and **Paid
+through** dates. Billy shows the sum and count of confirmed paid bills in that
+period. Dates are inclusive and use the actual *payment date*, not the bill's
+billing month or due date; unpaid bills are excluded. The report respects the
+selected House but is independent from the main Bills list filters. Recurring
+payments are excluded because they are tracked separately from bill types.
 
 ## Split and reimbursements for recurring expenses
 

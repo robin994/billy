@@ -62,6 +62,7 @@ ERROR_MESSAGES: dict[str, str] = {
     "recurring_invalid_renewal": "Invalid renewal interval.",
     "recurring_invalid_installments": "Invalid number of installments.",
     "recurring_not_found": "Recurring expense not found.",
+    "recurring_schedule_has_payments": "Cannot change this schedule while recorded payments depend on its due dates. Undo or correct the affected payments first.",
     "occurrence_not_found": "Recurring charge not found.",
     # Expense split
     "split_invalid_payer": "The split contains an invalid payer.",
