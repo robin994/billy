@@ -14,6 +14,25 @@ Detailed setup and usage for provider bills, recurring expenses, reimbursements,
 - Share a custom parser with the community as Experimental without uploading the original invoice, email or PDF.
 - Use Billy either as the full `/billy` sidebar application or through compact Lovelace dashboard widgets.
 
+## PDF archive maintenance
+
+Administrators can open **Settings → Bill types → Tidy up PDF archive** to
+preview archive maintenance. Billy identifies PDFs whose folder no longer
+matches the bill's year, month or type, unreferenced Billy-named PDFs, missing
+PDFs and conflicts. No files are changed during preview. Applying requires
+confirmation and a matching preview revision; only administrators can use the
+underlying WebSocket command.
+
+Misfiled PDFs are moved to their current category/year/month folder and bill
+references are updated. Unreferenced PDFs are moved to a `trash` directory
+within the relevant archive root, **not permanently deleted**. Missing PDFs
+are reported but cannot be recreated. Files that do not match Billy's archive
+layout and filename pattern are left untouched. Administrators should review
+the preview and maintain their own media backups before applying changes.
+
+Default bill type names follow Home Assistant's language, but a custom or
+renamed bill type retains the exact name chosen by the user.
+
 ## Manage several homes with Houses
 
 Go to **Settings / Impostazioni → Houses / Case** to add or rename houses,

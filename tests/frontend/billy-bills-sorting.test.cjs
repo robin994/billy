@@ -18,7 +18,7 @@ function fixture(t, language = 'en') {
   })
   t.after(() => dom.window.close())
   dom.window.console.info = () => {}
-  dom.window.eval(source('billy-extra-i18n.js') + '\n' + source('billy-panel.js'))
+  dom.window.eval(source('bill-tracker-i18n.js') + '\n' + source('billy-extra-i18n.js') + '\n' + source('billy-panel.js'))
   const category = { id: 'power', name: 'Power', enabled: true, color: '#03a9f4' }
   const expenses = [
     { id: 'current', category_id: 'power', category: 'Power', amount: 3296.90,

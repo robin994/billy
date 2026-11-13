@@ -1,12 +1,13 @@
-import './billy-parser-manager.js?v=0.19.0-r1'
-import './billy-accounts.js?v=0.19.0-r1'
+import './billy-parser-manager.js?v=0.19.1-r1'
+import './billy-accounts.js?v=0.19.1-r1'
+import { billyCategoryLabel } from './bill-tracker-i18n.js?v=0.19.1-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.19.0-r1'
+} from './billy-extra-i18n.js?v=0.19.1-r1'
 
-const BILLY_PANEL_VERSION = '0.19.0'
+const BILLY_PANEL_VERSION = '0.19.1'
 
 const TEXT = {
   en: {
@@ -1323,6 +1324,18 @@ class BillyDashboard extends HTMLElement {
     )
   }
 
+  _categoryLabel(category) {
+    return billyCategoryLabel(this._hass, category)
+  }
+
+  _billCategoryLabel(row) {
+    return this._categoryLabel((this._data?.categories || []).find(
+      (category) => category.id === row?.category_id,
+    ) || {
+      id: row?.category_id || '', name: row?.category || '',
+    }) || row?.category || ''
+  }
+
   _currentRow() {
     const now = new Date()
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -1541,7 +1554,7 @@ class BillyDashboard extends HTMLElement {
     const allItems = [
       ...categories.map((item) => ({
         key: `bill:${item.id}`,
-        name: item.name,
+        name: this._categoryLabel(item),
       })),
       ...recurring.map((item) => ({
         key: `recurring:${item.id}`,
@@ -1574,7 +1587,7 @@ class BillyDashboard extends HTMLElement {
                 .map((category) => {
                   const key = `bill:${category.id}`
                   const enabled = this._chartItemEnabled(key)
-                  return `<label class="chart-option ${enabled ? 'active' : ''}" style="--option-color:${safeColor(category.color)}"><input type="checkbox" data-chart-toggle="${escapeHtml(key)}" ${enabled ? 'checked' : ''}><span class="chart-option-box" aria-hidden="true">✓</span><i></i><span>${escapeHtml(category.name)}</span></label>`
+                  return `<label class="chart-option ${enabled ? 'active' : ''}" style="--option-color:${safeColor(category.color)}"><input type="checkbox" data-chart-toggle="${escapeHtml(key)}" ${enabled ? 'checked' : ''}><span class="chart-option-box" aria-hidden="true">✓</span><i></i><span>${escapeHtml(this._categoryLabel(category))}</span></label>`
                 })
                 .join('')}</div></fieldset>`
             : ''
@@ -1727,7 +1740,7 @@ class BillyDashboard extends HTMLElement {
         )
         if (!this._chartItemEnabled(`bill:${expense.category_id}`)) continue
         items.push({
-          label: [expense.category, expense.provider]
+          label: [this._billCategoryLabel(expense), expense.provider]
             .filter(Boolean)
             .join(' · '),
           amount: Math.max(0, Number(expense.amount || 0)),
@@ -1738,7 +1751,7 @@ class BillyDashboard extends HTMLElement {
     } else {
       for (const [name, rawAmount] of Object.entries(row.categories || {})) {
         items.push({
-          label: name,
+          label: this._categoryLabel(this._categoryByName(name)) || name,
           amount: Math.max(0, Number(rawAmount || 0)),
           color: safeColor(this._categoryByName(name)?.color),
           forecast: true,
@@ -1859,7 +1872,7 @@ class BillyDashboard extends HTMLElement {
           const color = safeColor(this._categoryByName(name)?.color)
           const className = row.kind === 'forecast' ? 'forecast-segment' : ''
           parts.push(`<rect x="${bx}" y="${cursor}" width="${barWidth}" height="${segmentHeight}" fill="${color}" class="${className}">
-            <title>${escapeHtml(`${name} · ${this._money(value)}${row.kind === 'forecast' ? ` · ${this._t('forecast')}` : ''}`)}</title>
+            <title>${escapeHtml(`${this._categoryLabel(this._categoryByName(name)) || name} · ${this._money(value)}${row.kind === 'forecast' ? ` · ${this._t('forecast')}` : ''}`)}</title>
           </rect>`)
         }
         for (const recurring of row.recurring_items || []) {
@@ -1908,7 +1921,7 @@ class BillyDashboard extends HTMLElement {
     for (const category of this._data?.categories || []) {
       if (!this._chartItemEnabled(`bill:${category.id}`)) continue
       items.push(
-        `<span><i style="background:${safeColor(category.color)}"></i>${escapeHtml(category.name)}</span>`,
+        `<span><i style="background:${safeColor(category.color)}"></i>${escapeHtml(this._categoryLabel(category))}</span>`,
       )
     }
     for (const recurring of this._data?.recurring_expenses || []) {
@@ -1948,7 +1961,7 @@ class BillyDashboard extends HTMLElement {
     return `<div class="compact-list">${rows
       .map(
         (row) => `<div class="compact-row">
-          <div><strong>${escapeHtml(row.source === 'recurring' ? row.name || '' : row.category || '')}</strong><small>${escapeHtml([row.source === 'recurring' ? this._t('recurringExpenses') : row.is_placeholder ? this._t('placeholderBill') : row.provider, row.due_date ? `${this._t('due')}: ${this._date(row.due_date)}` : this._t('unpaidThisMonth'), row.source === 'recurring' ? this._t(row.due_date > today ? 'recurringFutureInstallment' : 'recurringUnpaidInstallment') : ''].filter(Boolean).join(' · '))}</small></div>
+          <div><strong>${escapeHtml(row.source === 'recurring' ? row.name || '' : this._billCategoryLabel(row))}</strong><small>${escapeHtml([row.source === 'recurring' ? this._t('recurringExpenses') : row.is_placeholder ? this._t('placeholderBill') : row.provider, row.due_date ? `${this._t('due')}: ${this._date(row.due_date)}` : this._t('unpaidThisMonth'), row.source === 'recurring' ? this._t(row.due_date > today ? 'recurringFutureInstallment' : 'recurringUnpaidInstallment') : ''].filter(Boolean).join(' · '))}</small></div>
           <strong>${escapeHtml(this._money(row.amount))}</strong>
         </div>`,
       )
@@ -1962,7 +1975,7 @@ class BillyDashboard extends HTMLElement {
     return `<div class="compact-list">${rows
       .map(
         (row) => `<div class="compact-row">
-        <div><strong>${escapeHtml(row.category || '')}</strong><small>${escapeHtml(row.source === 'recurring' && row.due_date ? `${row.recurring_kind === 'subscription' ? this._t('subscription') : row.recurring_kind === 'mortgage' ? this._t('mortgage') : row.recurring_kind === 'installment' ? this._t('installment') : this._t('recurringGeneric')} · ${this._date(row.due_date)}` : this._monthLabel(row, false))}</small></div>
+        <div><strong>${escapeHtml(row.category_id ? this._billCategoryLabel(row) : row.category || '')}</strong><small>${escapeHtml(row.source === 'recurring' && row.due_date ? `${row.recurring_kind === 'subscription' ? this._t('subscription') : row.recurring_kind === 'mortgage' ? this._t('mortgage') : row.recurring_kind === 'installment' ? this._t('installment') : this._t('recurringGeneric')} · ${this._date(row.due_date)}` : this._monthLabel(row, false))}</small></div>
         <b>${escapeHtml(this._money(row.amount))}</b>
       </div>`,
       )
@@ -1990,7 +2003,7 @@ class BillyDashboard extends HTMLElement {
           .join(' · ')
         return `<div class="recent-row">
           <i style="background:${safeColor(category?.color || row.category_color)}"></i>
-          <div class="recent-main"><strong>${escapeHtml(row.category || '')}</strong><small>${escapeHtml(subtitle)}</small></div>
+          <div class="recent-main"><strong>${escapeHtml(this._billCategoryLabel(row))}</strong><small>${escapeHtml(subtitle)}</small></div>
           <div class="recent-value"><b>${escapeHtml(this._money(row.amount))}</b><span class="pill ${row.paid ? 'ok' : row.payment_status === 'scheduled' ? '' : 'warn'}">${escapeHtml(row.paid ? this._t('paid') : row.payment_status === 'scheduled' ? this._t('providerScheduled') : this._t('unpaid'))}</span></div>
         </div>`
       })
@@ -2525,6 +2538,16 @@ class BillyBills extends HTMLElement {
   _t(key) {
     return tFor(this._hass, key)
   }
+
+  _categoryLabel(category) {
+    return billyCategoryLabel(this._hass, category)
+  }
+
+  _billCategoryLabel(row) {
+    return this._categoryLabel(this._categoryById(row?.category_id) || {
+      id: row?.category_id || '', name: row?.category || '',
+    }) || row?.category || ''
+  }
   _pdfT(key) {
     return (PDF_TEXT[languageOf(this._hass)] || PDF_TEXT.en)[key] || PDF_TEXT.en[key] || key
   }
@@ -2956,7 +2979,7 @@ class BillyBills extends HTMLElement {
         return `<article class="bill-row">
         <label class="paid-toggle" title="${escapeHtml(this._t('paymentStatus'))}"><input type="checkbox" data-paid-id="${escapeHtml(row.id)}" ${row.paid ? 'checked' : ''}><span></span></label>
         <i class="category-color" style="background:${safeColor(category?.color || row.category_color)}"></i>
-        <div class="bill-main"><strong>${escapeHtml(row.category || '')}</strong><small>${escapeHtml(details || '—')}</small><small>${escapeHtml([row.payer, splitText].filter(Boolean).join(' · '))}</small>${row.is_placeholder ? `<small class="estimate-excluded">${escapeHtml(this._t('placeholderBill'))}</small>` : ''}${row.exclude_from_estimates ? `<small class="estimate-excluded">${escapeHtml(this._t('excludedFromEstimates'))}</small>` : ''}</div>
+        <div class="bill-main"><strong>${escapeHtml(this._billCategoryLabel(row))}</strong><small>${escapeHtml(details || '—')}</small><small>${escapeHtml([row.payer, splitText].filter(Boolean).join(' · '))}</small>${row.is_placeholder ? `<small class="estimate-excluded">${escapeHtml(this._t('placeholderBill'))}</small>` : ''}${row.exclude_from_estimates ? `<small class="estimate-excluded">${escapeHtml(this._t('excludedFromEstimates'))}</small>` : ''}</div>
         <div class="bill-month"><span>${escapeHtml(this._monthLabel(row))}</span>${row.due_date ? `<small>${escapeHtml(`${this._t('dueDate')}: ${this._date(row.due_date)}`)}</small>` : ''}${row.paid ? `<small>${escapeHtml(`${this._t('paymentDate')}: ${this._date(row.payment_date)}`)}</small>` : ''}${row.period_type === 'short' || row.period_type === 'long' ? `<small class="period-badge ${escapeHtml(row.period_type)}">${escapeHtml(this._t(row.period_type === 'short' ? 'shortPeriod' : 'longPeriod', { days: row.period_days || 0 }))}</small>` : ''}</div>
         <div class="bill-state">
           <span class="state ${row.paid ? 'paid' : row.payment_status === 'scheduled' ? 'scheduled' : 'unpaid'}">${escapeHtml(row.paid ? this._t('providerPaid') : row.payment_status === 'scheduled' ? this._t('providerScheduled') : this._t('providerUnpaid'))}</span>
@@ -3260,7 +3283,7 @@ class BillyBills extends HTMLElement {
           <div class="category-spending-controls">
             <label><span>${escapeHtml(this._t('billType'))}</span><select id="category-spending-category">
               <option value="all" ${this._spendingCategory === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allTypes'))}</option>
-              ${categories.map(category => `<option value="${escapeHtml(category.id)}" ${this._spendingCategory === category.id ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}
+              ${categories.map(category => `<option value="${escapeHtml(category.id)}" ${this._spendingCategory === category.id ? 'selected' : ''}>${escapeHtml(this._categoryLabel(category))}</option>`).join('')}
             </select></label>
             <label><span>${escapeHtml(this._t('categorySpendingFrom'))}</span><input id="category-spending-from" type="date" value="${escapeHtml(this._spendingFrom)}"></label>
             <label><span>${escapeHtml(this._t('categorySpendingTo'))}</span><input id="category-spending-to" type="date" value="${escapeHtml(this._spendingTo)}"></label>
@@ -3271,7 +3294,7 @@ class BillyBills extends HTMLElement {
         <div class="toolbar">
           <label class="search"><ha-icon icon="mdi:magnify"></ha-icon><input id="bill-search" type="search" value="${escapeHtml(this._search)}" placeholder="${escapeHtml(this._t('searchBills'))}"></label>
           <select id="bill-house" aria-label="${escapeHtml(this._t('house'))}"><option value="all" ${this._house === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allHouses'))}</option>${(this._data.houses || []).map(home => `<option value="${escapeHtml(home.id)}" ${this._house === home.id ? 'selected' : ''}>${escapeHtml(home.name)}</option>`).join('')}</select>
-          <select id="bill-category"><option value="all">${escapeHtml(this._t('allTypes'))}</option>${categories.map((row) => `<option value="${escapeHtml(row.id)}" ${this._category === row.id ? 'selected' : ''}>${escapeHtml(row.name)}</option>`).join('')}</select>
+          <select id="bill-category"><option value="all">${escapeHtml(this._t('allTypes'))}</option>${categories.map((row) => `<option value="${escapeHtml(row.id)}" ${this._category === row.id ? 'selected' : ''}>${escapeHtml(this._categoryLabel(row))}</option>`).join('')}</select>
           <select id="bill-status"><option value="all" ${this._status === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allStatuses'))}</option><option value="unpaid" ${this._status === 'unpaid' ? 'selected' : ''}>${escapeHtml(this._t('providerUnpaid'))}</option><option value="scheduled" ${this._status === 'scheduled' ? 'selected' : ''}>${escapeHtml(this._t('providerScheduled'))}</option><option value="paid" ${this._status === 'paid' ? 'selected' : ''}>${escapeHtml(this._t('providerPaid'))}</option></select>
           <select id="bill-reimbursement"><option value="all" ${this._reimbursement === 'all' ? 'selected' : ''}>${escapeHtml(this._t('allReimbursementStatuses'))}</option><option value="pending" ${this._reimbursement === 'pending' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementPending'))}</option><option value="done" ${this._reimbursement === 'done' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementDone'))}</option><option value="none" ${this._reimbursement === 'none' ? 'selected' : ''}>${escapeHtml(this._t('reimbursementNone'))}</option></select>
           <select id="bill-year"><option value="all">${escapeHtml(this._t('allYears'))}</option>${years.map((year) => `<option value="${year}" ${String(this._year) === String(year) ? 'selected' : ''}>${year}</option>`).join('')}</select>
@@ -3470,7 +3493,7 @@ class BillyBills extends HTMLElement {
     card.innerHTML = `<form id="bill-form">
       <div class="modal-head"><h3>${escapeHtml(existing ? this._t('editBill') : this._t('addBill'))}</h3><button type="button" class="icon-close" id="bill-modal-close">×</button></div>
       <div class="form-grid">
-        <label><span>${escapeHtml(this._t('billType'))}</span><select name="category_id" id="form-category" required>${categories.map((category) => `<option value="${escapeHtml(category.id)}" ${category.id === selectedCategory.id ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label>
+        <label><span>${escapeHtml(this._t('billType'))}</span><select name="category_id" id="form-category" required>${categories.map((category) => `<option value="${escapeHtml(category.id)}" ${category.id === selectedCategory.id ? 'selected' : ''}>${escapeHtml(this._categoryLabel(category))}</option>`).join('')}</select></label>
         <label><span>${escapeHtml(this._t('house'))}</span><select name="house_id" required>${(this._data?.houses || []).map(home => `<option value="${escapeHtml(home.id)}" ${home.id === (row?.house_id || (this._house !== 'all' ? this._house : this._data?.default_house_id)) ? 'selected' : ''}>${escapeHtml(home.name)}</option>`).join('')}</select></label>
         ${row?.is_placeholder ? `<p class="span2">${escapeHtml(this._t('placeholderHelp'))}</p>` : ''}
         <label><span>${escapeHtml(this._t('billingMonth'))}</span><input name="paid_month" id="form-paid-month" type="month" required value="${escapeHtml(paidMonth)}"></label>
@@ -3732,7 +3755,7 @@ class BillyBills extends HTMLElement {
       <div class="form-grid">
         <label><span>${escapeHtml(this._t('exportFrom'))}</span><input id="export-bills-from" type="month" value="${escapeHtml(fromMonth)}"></label>
         <label><span>${escapeHtml(this._t('exportTo'))}</span><input id="export-bills-to" type="month" value="${escapeHtml(toMonth)}"></label>
-        <label><span>${escapeHtml(this._t('exportType'))}</span><select id="export-bills-category"><option value="all">${escapeHtml(this._t('allTypes'))}</option>${categories.map((row) => `<option value="${escapeHtml(row.id)}" ${this._category === row.id ? 'selected' : ''}>${escapeHtml(row.name)}</option>`).join('')}</select></label>
+        <label><span>${escapeHtml(this._t('exportType'))}</span><select id="export-bills-category"><option value="all">${escapeHtml(this._t('allTypes'))}</option>${categories.map((row) => `<option value="${escapeHtml(row.id)}" ${this._category === row.id ? 'selected' : ''}>${escapeHtml(this._categoryLabel(row))}</option>`).join('')}</select></label>
         <label><span>${escapeHtml(this._t('exportFormat'))}</span><select id="export-bills-format"><option value="csv">CSV</option><option value="xlsx">Excel (.xlsx)</option><option value="pdf">PDF</option></select></label>
       </div>
       <div class="modal-actions"><button type="button" class="secondary" id="export-cancel">${escapeHtml(this._t('cancel'))}</button><button type="button" class="primary" id="export-confirm">${escapeHtml(this._t('exportDownload'))}</button></div>`
@@ -4828,6 +4851,47 @@ class BillySettings extends HTMLElement {
     return tFor(this._hass, key)
   }
 
+  _categoryLabel(category) {
+    return billyCategoryLabel(this._hass, category)
+  }
+
+  async _maintainPdfArchive() {
+    try {
+      const isItalian = languageOf(this._hass) === 'it'
+      const plan = await this._hass.callWS({ type: 'bill_tracker/document/maintenance' })
+      const lines = [
+        `${isItalian ? 'PDF da spostare' : 'PDFs to move'}: ${plan.moves.length}`,
+        `${isItalian ? 'Orfani da mettere nel cestino' : 'Orphans to move to trash'}: ${plan.orphans.length}`,
+        `${isItalian ? 'PDF mancanti (solo segnalazione)' : 'Missing PDFs (report only)'}: ${plan.missing.length}`,
+        `${isItalian ? 'Conflitti' : 'Conflicts'}: ${plan.conflicts.length}`,
+        ...plan.moves.slice(0, 12).map(row => `${row.from} → ${row.to}`),
+        ...plan.orphans.slice(0, 12).map(row => `${isItalian ? 'Cestino' : 'Trash'}: ${row.path}`),
+        ...plan.missing.slice(0, 12).map(row => `${isItalian ? 'Mancante' : 'Missing'}: ${row.path}`),
+        ...plan.conflicts.slice(0, 12).map(row => `${isItalian ? 'Conflitto' : 'Conflict'}: ${row.path} (${row.reason})`),
+      ]
+      if (plan.conflicts.length) {
+        window.alert(lines.join('\n'))
+        return
+      }
+      if (!plan.moves.length && !plan.orphans.length) {
+        window.alert(lines.join('\n'))
+        return
+      }
+      const confirmText = isItalian
+        ? 'Applicare queste modifiche? I PDF orfani saranno spostati nel cestino, non eliminati.'
+        : 'Apply these changes? Orphans are moved to trash, not deleted.'
+      if (!window.confirm(`${lines.join('\n')}\n\n${confirmText}`)) return
+      const result = await this._hass.callWS({ type: 'bill_tracker/document/maintenance', revision: plan.revision })
+      this._notice = isItalian
+        ? `Archivio riordinato: ${result.moved} PDF spostati, ${result.trashed} nel cestino.`
+        : `Archive tidied: ${result.moved} moved, ${result.trashed} moved to trash.`
+      await this._load(false)
+    } catch (error) {
+      this._error = errorText(this._hass, error)
+      this._render()
+    }
+  }
+
   async _subscribe() {
     if (!this._hass || this._unsubscribe) return
     try {
@@ -4956,14 +5020,14 @@ class BillySettings extends HTMLElement {
 
   _categories() {
     const rows = this._data?.categories || []
-    return `<div class="section-head"><div><h2>${escapeHtml(this._t('billTypes'))}</h2><p>${escapeHtml(this._t('settingsSubtitle'))}</p></div><button class="primary" id="add-category">${escapeHtml(this._t('addBillType'))}</button></div>
+    return `<div class="section-head"><div><h2>${escapeHtml(this._t('billTypes'))}</h2><p>${escapeHtml(this._t('settingsSubtitle'))}</p></div><div class="hero-actions">${this._hass?.user?.is_admin ? `<button id="maintain-pdf-archive">${languageOf(this._hass) === 'it' ? 'Riordina archivio PDF' : 'Tidy up PDF archive'}</button>` : ''}<button class="primary" id="add-category">${escapeHtml(this._t('addBillType'))}</button></div></div>
       <div class="items">${
         rows.length
           ? rows
               .map(
                 (row) => `<article class="item-row">
             <span class="color-dot" style="background:${safeColor(row.color)}"></span>
-            <div class="item-main"><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(`${row.interval_months} ${this._t('months')}${row.default_provider ? ` · ${row.default_provider}` : ''}`)}</small></div>
+            <div class="item-main"><strong>${escapeHtml(this._categoryLabel(row))}</strong><small>${escapeHtml(`${row.interval_months} ${this._t('months')}${row.default_provider ? ` · ${row.default_provider}` : ''}`)}</small></div>
             <div class="item-statuses"><span class="status ${row.enabled ? 'enabled' : ''}">${escapeHtml(row.enabled ? this._t('enabled') : this._t('disabled'))}</span>${row.placeholder?.enabled ? `<span class="status">${escapeHtml(this._t('autoPlaceholder'))}</span>` : ''}${row.exclude_from_estimates ? `<span class="status estimate-excluded">${escapeHtml(this._t('excludedFromEstimates'))}</span>` : ''}</div>
             <div class="row-actions"><button data-edit-category="${escapeHtml(row.id)}">${escapeHtml(this._t('edit'))}</button><button class="danger" data-delete-category="${escapeHtml(row.id)}">${escapeHtml(this._t('delete'))}</button></div>
           </article>`,
@@ -5227,6 +5291,8 @@ class BillySettings extends HTMLElement {
     this.shadowRoot
       .getElementById('add-category')
       ?.addEventListener('click', () => this._openCategory())
+    this.shadowRoot.getElementById('maintain-pdf-archive')
+      ?.addEventListener('click', () => this._maintainPdfArchive())
     this.shadowRoot
       .getElementById('add-payer')
       ?.addEventListener('click', () => this._openPayer())
@@ -5953,7 +6019,7 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.19.0-r1').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.19.1-r1').catch((error) => {
         this._incomePromise = null
         for (const id of ['income-panel', 'recurring-income-panel']) {
           const section = this.shadowRoot?.getElementById(id)
@@ -5973,7 +6039,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.19.0-r1'
+        './billy-reimbursement-history.js?v=0.19.1-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(

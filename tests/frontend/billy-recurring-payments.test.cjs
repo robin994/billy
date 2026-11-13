@@ -17,7 +17,7 @@ async function fixture(t, language = 'en') {
   })
   t.after(() => dom.window.close())
   dom.window.console.info = () => {}
-  dom.window.eval([read('billy-extra-i18n.js'), read('billy-panel.js')].join('\n'))
+  dom.window.eval([read('bill-tracker-i18n.js'), read('billy-extra-i18n.js'), read('billy-panel.js')].join('\n'))
   const rule = {
     id: 'mortgage-1', name: 'My mortgage', kind: 'mortgage',
     amount: 800, interval_months: 1, start_date: '2026-02-02',

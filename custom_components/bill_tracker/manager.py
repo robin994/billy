@@ -34,6 +34,7 @@ from .errors import billy_error
 from .document_archive import (
     MAX_PDF_BYTES, archive_pdf, archive_pdf_bytes, delete_archived_pdf,
     normalize_archive_config, read_pdf, validate_owned_pdf_path,
+    archive_maintenance_plan, apply_archive_maintenance, rollback_archive_maintenance,
 )
 from .income import IncomeMixin
 from .accounts import AccountMixin, _cents, _value
@@ -80,6 +81,34 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         self.default_house_id: str | None = None
         self._logger = logging.getLogger(__name__)
         self._document_uploads: dict[tuple[str, str], dict[str, Any]] = {}
+
+    async def async_pdf_archive_maintenance(self, revision: str | None = None) -> dict:
+        """Preview or apply admin-requested archive reconciliation."""
+        plan = await self.hass.async_add_executor_job(
+            archive_maintenance_plan, self.hass, self.expenses, self.categories,
+        )
+        if revision is None:
+            return plan
+        if revision != plan["revision"]:
+            raise ValueError("Archive changed since preview; rerun preview")
+        if plan["conflicts"]:
+            raise ValueError("Resolve archive conflicts before applying maintenance")
+        completed = await self.hass.async_add_executor_job(apply_archive_maintenance, self.hass, plan)
+        previous = {bill["id"]: bill.get("document_path") for bill in self.expenses}
+        changes = {move["bill_id"]: move["to"] for move in plan["moves"]}
+        try:
+            for bill in self.expenses:
+                if bill["id"] in changes:
+                    bill["document_path"] = changes[bill["id"]]
+            if changes:
+                await self._save_and_notify()
+        except Exception:
+            for bill in self.expenses:
+                bill["document_path"] = previous[bill["id"]]
+            await self.hass.async_add_executor_job(rollback_archive_maintenance, self.hass, completed)
+            raise
+        return {"moved": len(plan["moves"]), "trashed": len(plan["orphans"]),
+                "missing": plan["missing"]}
 
     async def async_load(self) -> None:
         """Load and migrate the persistent database."""

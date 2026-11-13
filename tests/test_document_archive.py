@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import unicodedata
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -17,6 +18,8 @@ NAMES = {
     "normalize_archive_config", "allowed_document_url", "media_root",
     "safe_archive_path", "_store_pdf", "archive_pdf_bytes",
     "validate_owned_pdf_path", "_delete_archived_pdf", "delete_archived_pdf",
+    "category_folder", "_is_archive_layout", "archive_maintenance_plan", "apply_archive_maintenance",
+    "rollback_archive_maintenance",
 }
 FUNCTIONS = [
     item for item in TREE.body
@@ -25,7 +28,9 @@ FUNCTIONS = [
 ns = {
     "re": re, "Path": Path, "os": os, "urlsplit": urlsplit, "uuid4": uuid4,
     "hashlib": hashlib, "MAX_PDF_BYTES": 8 * 1024 * 1024,
+    "unicodedata": unicodedata,
     "_PART": re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$"),
+    "_OWNED_PDF": re.compile(r"^([a-zA-Z0-9][a-zA-Z0-9._-]{0,79})-([a-f0-9]{12})\.pdf$"),
 }
 MODULE = ast.Module(body=FUNCTIONS, type_ignores=[])
 ast.fix_missing_locations(MODULE)
@@ -131,3 +136,74 @@ def test_document_delete_cannot_target_non_billy_files(tmp_path):
     with pytest.raises(ValueError, match="belong"):
         asyncio.run(ns["delete_archived_pdf"](hass, "private.pdf", "bill001"))
     assert other.exists()
+
+
+def test_archive_reconciliation_moves_and_trashes_only_owned_pdfs(tmp_path):
+    hass = HassStub(tmp_path)
+    category = {"id": "electricity", "name": "Elettricità", "document_archive": {}}
+    bill = {"id": "bill001", "category_id": "electricity", "paid_year": 2026,
+            "paid_month": 11}
+    old = "billy/documents/2026/10/Elettricit/bill001-abcdef123456.pdf"
+    orphan = "billy/documents/2026/10/Elettricit/gone-abcdef123456.pdf"
+    foreign = "billy/documents/2026/10/Elettricit/manual.pdf"
+    for relative in (old, orphan, foreign):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"%PDF-1.4\ntest")
+    bill["document_path"] = old
+    plan = ns["archive_maintenance_plan"](hass, [bill], [category])
+    assert plan["moves"] == [{"bill_id": "bill001", "from": old,
+                              "to": "billy/documents/2026/11/Elettricita/bill001-abcdef123456.pdf"}]
+    assert plan["orphans"] == [{"path": orphan}]
+    completed = ns["apply_archive_maintenance"](hass, plan)
+    assert len(completed) == 2
+    assert (tmp_path / plan["moves"][0]["to"]).is_file()
+    assert (tmp_path / foreign).is_file()
+    assert not (tmp_path / orphan).exists()
+    assert any("/trash/" in new for _, new in completed)
+    ns["rollback_archive_maintenance"](hass, completed)
+    assert (tmp_path / old).is_file() and (tmp_path / orphan).is_file()
+
+
+def test_archive_reconciliation_reports_missing_and_ignores_symlinks(tmp_path):
+    hass = HassStub(tmp_path)
+    category = {"id": "power", "name": "Electricity", "document_archive": {}}
+    missing = "billy/documents/2026/10/Electricity/bill001-abcdef123456.pdf"
+    bill = {"id": "bill001", "category_id": "power", "paid_year": 2026,
+            "paid_month": 10, "document_path": missing}
+    plan = ns["archive_maintenance_plan"](hass, [bill], [category])
+    assert plan["missing"] == [{"bill_id": "bill001", "path": missing}]
+    assert not plan["moves"] and not plan["orphans"]
+
+
+def test_archive_reconciliation_rejects_references_outside_configured_roots(tmp_path):
+    hass = HassStub(tmp_path)
+    category = {"id": "power", "name": "Electricity", "document_archive": {}}
+    foreign = "other-app/2026/10/Electricity/bill001-abcdef123456.pdf"
+    target = tmp_path / foreign
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"%PDF-1.4\nforeign")
+    bill = {"id": "bill001", "category_id": "power", "paid_year": 2026,
+            "paid_month": 11, "document_path": foreign}
+    plan = ns["archive_maintenance_plan"](hass, [bill], [category])
+    assert plan["conflicts"] == [{"path": foreign, "reason": "outside_archive_layout"}]
+    assert not plan["moves"] and not plan["orphans"]
+    assert target.is_file()
+
+
+def test_archive_reconciliation_rejects_in_media_symlinked_bill_folder(tmp_path):
+    hass = HassStub(tmp_path)
+    category = {"id": "power", "name": "Electricity", "document_archive": {}}
+    real = tmp_path / "other-app"
+    real.mkdir()
+    (real / "bill001-abcdef123456.pdf").write_bytes(b"%PDF-1.4\nforeign")
+    parent = tmp_path / "billy/documents/2026/10"
+    parent.mkdir(parents=True)
+    (parent / "Electricity").symlink_to(real, target_is_directory=True)
+    bill = {"id": "bill001", "category_id": "power", "paid_year": 2026,
+            "paid_month": 11,
+            "document_path": "billy/documents/2026/10/Electricity/bill001-abcdef123456.pdf"}
+    plan = ns["archive_maintenance_plan"](hass, [bill], [category])
+    assert plan["conflicts"][0]["reason"] == "outside_archive_layout"
+    assert not plan["moves"] and not plan["orphans"]
+    assert (real / "bill001-abcdef123456.pdf").is_file()

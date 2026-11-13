@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.19.1
+
+Released: 2026-11-13.
+
+- Issue #26: added administrator-only PDF archive reconciliation with a
+  read-only preview, explicit confirmation, relocation of misfiled PDFs,
+  recoverable `trash` for unreferenced Billy files, and missing-file reports.
+  Existing bill editing and deletion permissions remain unchanged.
+- Issue #27: panel and card now translate default bill types consistently
+  while retaining user-renamed and custom names. Newly archived PDF folders
+  transliterate accented category names instead of dropping letters.
+- Patch release with regression coverage; frontend cache version bumped to
+  `0.19.1-r1`. No storage migration required.
+
+
 ## 0.19.0
 
 Released: 2026-11-12.

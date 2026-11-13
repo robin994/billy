@@ -17,7 +17,7 @@ function fixture(t) {
   t.after(() => dom.window.close())
   dom.window.console.info = () => {}
   dom.window.confirm = () => true
-  dom.window.eval([src('billy-extra-i18n.js'), src('billy-accounts.js'),
+  dom.window.eval([src('bill-tracker-i18n.js'), src('billy-extra-i18n.js'), src('billy-accounts.js'),
     src('billy-income.js'), src('billy-panel.js')].join('\n'))
   const houses = [{ id: 'a', name: 'Main home' }, { id: 'b', name: 'Vacation' }]
   const bills = [

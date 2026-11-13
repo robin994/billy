@@ -193,6 +193,7 @@ export const BILLY_TRANSLATIONS = {
     'category.phone': 'Phone',
     'category.tari': 'Waste / tax',
     'category.other': 'Other',
+    'category.removed': 'Removed bill type',
     'interval.1': 'Monthly',
     'interval.2': 'Every 2 months',
     'interval.3': 'Quarterly',
@@ -403,6 +404,7 @@ export const BILLY_TRANSLATIONS = {
     'category.phone': 'Telefono',
     'category.tari': 'TARI / Rifiuti',
     'category.other': 'Altro',
+    'category.removed': 'Bolletta rimossa',
     'interval.1': 'Mensile',
     'interval.2': 'Bimestrale',
     'interval.3': 'Trimestrale',
@@ -612,6 +614,7 @@ export const BILLY_TRANSLATIONS = {
     'category.phone': 'Teléfono',
     'category.tari': 'Residuos / impuestos',
     'category.other': 'Otro',
+    'category.removed': 'Tipo de factura eliminado',
     'interval.1': 'Mensual',
     'interval.2': 'Cada 2 meses',
     'interval.3': 'Trimestral',
@@ -822,6 +825,7 @@ export const BILLY_TRANSLATIONS = {
     'category.phone': 'Téléphone',
     'category.tari': 'Déchets / taxe',
     'category.other': 'Autre',
+    'category.removed': 'Type de facture supprimé',
     'interval.1': 'Mensuelle',
     'interval.2': 'Tous les 2 mois',
     'interval.3': 'Trimestrielle',
@@ -1031,6 +1035,7 @@ export const BILLY_TRANSLATIONS = {
     'category.phone': 'Telefon',
     'category.tari': 'Abfall / Steuer',
     'category.other': 'Sonstiges',
+    'category.removed': 'Entfernter Rechnungstyp',
     'interval.1': 'Monatlich',
     'interval.2': 'Alle 2 Monate',
     'interval.3': 'Vierteljährlich',
@@ -1239,6 +1244,7 @@ export const BILLY_TRANSLATIONS = {
     'category.phone': 'Telefone',
     'category.tari': 'Resíduos / imposto',
     'category.other': 'Outro',
+    'category.removed': 'Tipo de fatura removido',
     'interval.1': 'Mensal',
     'interval.2': 'A cada 2 meses',
     'interval.3': 'Trimestral',
@@ -1300,7 +1306,16 @@ export function billyCategoryLabel(source, category) {
   const id = typeof category === 'string' ? category : String(category.id || '')
   const fallback =
     typeof category === 'string' ? category : String(category.name || id)
+  if (fallback === 'Bolletta rimossa') return billyT(source, 'category.removed')
   const key = `category.${id}`
   const translated = billyT(source, key)
-  return translated === key ? fallback : translated
+  if (translated === key) return fallback
+  const storedName = fallback.trim()
+  if (storedName && storedName !== id) {
+    const isDefaultName = Object.values(BILLY_TRANSLATIONS).some(
+      (labels) => labels[key] === storedName,
+    )
+    if (!isDefaultName) return storedName
+  }
+  return translated
 }

@@ -15,6 +15,7 @@ function fixture(t, url = 'https://ha.example/billy') {
   t.after(() => dom.window.close())
   dom.window.console.info = () => {}
   dom.window.eval([
+    script('bill-tracker-i18n.js'),
     script('billy-extra-i18n.js'),
     script('billy-accounts.js'),
     script('billy-income.js'),

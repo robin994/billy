@@ -156,6 +156,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         ws_document_read,
         ws_document_upload,
         ws_document_delete,
+        ws_document_maintenance,
         ws_income_add,
         ws_income_update,
         ws_income_delete,
@@ -612,6 +613,23 @@ async def ws_document_delete(hass, connection, msg):
         result = await _manager(hass).async_delete_document(msg["expense_id"])
     except (ValueError, RuntimeError, OSError) as err:
         _ws_error(connection, msg, err, "document_delete_failed")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "bill_tracker/document/maintenance",
+    vol.Optional("revision"): str,
+})
+@websocket_api.async_response
+async def ws_document_maintenance(hass, connection, msg):
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Only administrators can maintain PDFs")
+        return
+    try:
+        result = await _manager(hass).async_pdf_archive_maintenance(msg.get("revision"))
+    except (ValueError, RuntimeError, OSError) as err:
+        _ws_error(connection, msg, err, "archive_maintenance_failed")
         return
     connection.send_result(msg["id"], result)
 

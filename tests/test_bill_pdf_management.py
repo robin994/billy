@@ -16,6 +16,7 @@ METHODS = [
     method for method in CLASS.body
     if isinstance(method, ast.AsyncFunctionDef) and method.name in {
         "async_receive_document_chunk", "async_upload_document", "async_delete_document",
+        "async_pdf_archive_maintenance",
     }
 ]
 NAMESPACE = {
@@ -25,6 +26,9 @@ NAMESPACE = {
     "archive_pdf_bytes": archive_ns["archive_pdf_bytes"],
     "delete_archived_pdf": archive_ns["delete_archived_pdf"],
     "validate_owned_pdf_path": archive_ns["validate_owned_pdf_path"],
+    "archive_maintenance_plan": archive_ns["archive_maintenance_plan"],
+    "apply_archive_maintenance": archive_ns["apply_archive_maintenance"],
+    "rollback_archive_maintenance": archive_ns["rollback_archive_maintenance"],
 }
 EXTRACTED = ast.Module(body=METHODS, type_ignores=[])
 ast.fix_missing_locations(EXTRACTED)
@@ -35,6 +39,7 @@ class DocumentHarness:
     async_receive_document_chunk = NAMESPACE["async_receive_document_chunk"]
     async_upload_document = NAMESPACE["async_upload_document"]
     async_delete_document = NAMESPACE["async_delete_document"]
+    async_pdf_archive_maintenance = NAMESPACE["async_pdf_archive_maintenance"]
 
     def __init__(self, root):
         self.hass = HassStub(root)
@@ -47,6 +52,7 @@ class DocumentHarness:
         self._category = {
             "name": "Electricity", "document_archive": {"enabled": False},
         }
+        self.categories = [{"id": "power", **self._category}]
         self.saved = 0
         self.fail_next_save = False
 
@@ -144,3 +150,35 @@ def test_chunked_upload_assembles_pdf_and_rejects_out_of_order_chunks(tmp_path):
             "user", "bill001", "wrong-order", 1, 2, len(pdf), pdf[:100],
         ))
     assert manager._document_uploads == {}
+
+
+def test_admin_archive_maintenance_requires_fresh_preview_and_persists_paths(tmp_path):
+    manager = DocumentHarness(tmp_path)
+    first = run(manager.async_upload_document("bill001", b"%PDF-1.4\nfirst"))
+    old_path = first["document_path"]
+    manager.expenses[0]["paid_month"] = 11
+    plan = run(manager.async_pdf_archive_maintenance())
+    assert len(plan["moves"]) == 1
+    new_path = plan["moves"][0]["to"]
+    assert new_path != old_path
+    with pytest.raises(ValueError, match="preview"):
+        run(manager.async_pdf_archive_maintenance("stale-revision"))
+    assert (tmp_path / old_path).is_file()
+    result = run(manager.async_pdf_archive_maintenance(plan["revision"]))
+    assert result["moved"] == 1 and result["trashed"] == 0
+    assert manager.expenses[0]["document_path"] == new_path
+    assert (tmp_path / new_path).is_file() and not (tmp_path / old_path).exists()
+
+
+def test_archive_maintenance_rolls_back_files_and_links_when_save_fails(tmp_path):
+    manager = DocumentHarness(tmp_path)
+    original = run(manager.async_upload_document("bill001", b"%PDF-1.4\nfirst"))
+    old_path = original["document_path"]
+    manager.expenses[0]["paid_month"] = 11
+    plan = run(manager.async_pdf_archive_maintenance())
+    manager.fail_next_save = True
+    with pytest.raises(RuntimeError, match="persistence"):
+        run(manager.async_pdf_archive_maintenance(plan["revision"]))
+    assert manager.expenses[0]["document_path"] == old_path
+    assert (tmp_path / old_path).is_file()
+    assert not (tmp_path / plan["moves"][0]["to"]).exists()

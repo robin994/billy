@@ -33,7 +33,7 @@ function fixture(t, { userAgent = 'Mozilla/5.0 (X11; Linux x86_64)', androidApp 
   }
   const timers = []
   dom.window.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length }
-  dom.window.eval(source('billy-extra-i18n.js') + '\n' + source('billy-panel.js'))
+  dom.window.eval(source('bill-tracker-i18n.js') + '\n' + source('billy-extra-i18n.js') + '\n' + source('billy-panel.js'))
   const calls = []
   const hass = {
     language: 'en', user: { id: 'test-user', is_admin: true }, config: { currency: 'EUR' },
