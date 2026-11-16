@@ -3,9 +3,10 @@ from __future__ import annotations
 import ast
 from calendar import monthrange
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timedelta
 from math import isfinite
 from pathlib import Path
+from uuid import uuid4
 from test_accounts import MODULE as _accounts_module
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,9 @@ def _recurring_helper_class():
         "_validate_optional_payer",
         "_resolve_expense_split",
         "_normalize_split",
+        "_resolve_house_id",
+        "_recurring_tracking_start",
+        "_migrate_recurring_expenses",
     }
     methods = [
         node for node in source_cls.body
@@ -61,6 +65,9 @@ def _recurring_helper_class():
     ns = {
         "Any": object,
         "date": date,
+        "datetime": datetime,
+        "timedelta": timedelta,
+        "uuid4": uuid4,
         "monthrange": monthrange,
         "isfinite": isfinite,
         "defaultdict": defaultdict,
@@ -119,6 +126,39 @@ def test_recurring_without_payers_keeps_requested_active_state():
     )
     assert item["active"] is True
     assert item["payer_id"] is None
+
+
+def test_storage_migration_preserves_recurring_autopay_flags():
+    """Issue #28: reloading storage must not reset autopay on recurring rules."""
+    manager = _recurring_helper_class()()
+    manager.payers = []
+    manager.default_house_id = "house-1"
+    manager.house = lambda house_id: {"id": house_id} if house_id == "house-1" else None
+    base = {
+        "kind": "subscription",
+        "amount": 9.99,
+        "interval_months": 1,
+        "start_date": "2026-01-15",
+        "house_id": "house-1",
+        "active": True,
+    }
+    manager.recurring_expenses = [
+        {**base, "id": "both", "name": "Streaming", "autopay": True, "autopay_joint": True},
+        {**base, "id": "single", "name": "Gym", "autopay": True, "autopay_joint": False},
+        {**base, "id": "off", "name": "Cloud", "autopay": False, "autopay_joint": True},
+        {**base, "id": "legacy", "name": "Legacy"},
+    ]
+
+    manager._migrate_recurring_expenses()
+    by_id = {item["id"]: item for item in manager.recurring_expenses}
+    assert (by_id["both"]["autopay"], by_id["both"]["autopay_joint"]) == (True, True)
+    assert (by_id["single"]["autopay"], by_id["single"]["autopay_joint"]) == (True, False)
+    assert (by_id["off"]["autopay"], by_id["off"]["autopay_joint"]) == (False, False)
+    assert (by_id["legacy"]["autopay"], by_id["legacy"]["autopay_joint"]) == (False, False)
+
+    # A second load (the next restart) must be stable and report no change.
+    assert manager._migrate_recurring_expenses() is False
+    assert manager.recurring_expenses[0]["autopay"] is True
 
 
 def test_monthly_cashflow_includes_only_confirmed_recurring_payments_in_payment_month():

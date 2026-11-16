@@ -1,6 +1,6 @@
-import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.19.1-r1'
+import { BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.19.2-r1'
 
-const BILLY_WIDGETS_VERSION = '0.19.1'
+const BILLY_WIDGETS_VERSION = '0.19.2'
 
 const WIDGET_TEXT = {
   en: {

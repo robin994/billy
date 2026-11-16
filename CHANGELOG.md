@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.19.1
+## 0.19.2
+
+Released: 2026-11-16.
+
+- Issue [#28](https://github.com/robin994/billy/issues/28): the *Autopay* and
+  *Autopay joint* settings of recurring expenses are no longer reset to off on
+  every Home Assistant restart (or backup restore). The storage normalization
+  that runs at load time dropped both flags; it now preserves them.
+- Patch release with regression coverage; frontend cache version bumped to
+  `0.19.2-r1`. No storage migration required. Recurring expenses whose
+  autopay was already switched off by the bug must be re-enabled once.
+
+## 0.19.2
 
 Released: 2026-11-13.
 
@@ -12,7 +24,7 @@ Released: 2026-11-13.
   while retaining user-renamed and custom names. Newly archived PDF folders
   transliterate accented category names instead of dropping letters.
 - Patch release with regression coverage; frontend cache version bumped to
-  `0.19.1-r1`. No storage migration required.
+  `0.19.2-r1`. No storage migration required.
 
 
 ## 0.19.0

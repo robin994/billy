@@ -4084,6 +4084,8 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                     color=str(raw.get("color", "")) or None,
                     note=str(raw.get("note", "")),
                     active=bool(raw.get("active", True)),
+                    autopay=bool(raw.get("autopay", False)),
+                    autopay_joint=bool(raw.get("autopay_joint", False)),
                 )
             except (ValueError, TypeError, OverflowError):
                 changed = True
