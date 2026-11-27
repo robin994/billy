@@ -127,6 +127,24 @@ Recurring charges are included in the regular **forecast** on their exact due mo
 
 Provider bills and recurring rules remain separate concepts: a recurring rule predicts a cost; it does not mark a provider invoice as paid and it is not an email-parser result.
 
+### Default cost allocation by bill type
+
+Open **Settings → Bill types**, then create or edit a bill type. The default
+cost allocation is equal across active payers (50/50 for two, 100% for one).
+Enable **Customize percentages** to set a different allocation totaling 100%,
+such as 100/0 or 70/30. The default payer is still the person who actually
+pays the invoice, independently of who bears the cost.
+
+New bills, automatic placeholders and imports without a parser-specific
+allocation use the selected bill type's percentages. In **Recurring →
+Expenses**, the optional bill type also prefills the payer and allocation,
+without replacing the recurring kind (subscription, mortgage, installment or
+other recurring cost). Individual bills and recurring rules can override the
+suggested percentages. Changing a bill type does not rewrite existing bills,
+recurring rules, payment history or reimbursements. To change an existing
+rule, edit its own percentages. Disable customization to return to equal
+shares. Global payer weights remain available to existing parser settings.
+
 ### Record historical or current recurring payments
 
 Under **Recurring / Ricorrenti → Expenses / Spese**, choose **Payments** on

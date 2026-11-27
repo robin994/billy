@@ -75,6 +75,95 @@ test('new types remain opt in and allow an absent due day', async t => {
   assert.equal(posted.placeholder.due_day, null)
 })
 
+function categoryAllocations(f) {
+  f.data.payers = [
+    { id: 'a', name: 'A', enabled: true },
+    { id: 'b', name: 'B', enabled: true },
+  ]
+  f.data.default_split = [{ payer_id: 'a', percentage: 80 }, { payer_id: 'b', percentage: 20 }]
+  f.data.equal_split = [{ payer_id: 'a', percentage: 50 }, { payer_id: 'b', percentage: 50 }]
+  f.category.default_split = []
+  f.category.effective_default_split = f.data.equal_split
+  const water = { ...f.category, id: 'water', name: 'Water', default_payer_id: 'b',
+    default_split: [{ payer_id: 'b', percentage: 100 }],
+    effective_default_split: [{ payer_id: 'b', percentage: 100 }] }
+  f.data.categories.push(water)
+  f.data.active_categories.push(water)
+  f.data.houses = [{ id: 'home', name: 'Home' }]
+  f.data.default_house_id = 'home'
+  f.data.recurring_expenses = []
+}
+
+function splitValues(form, selector) {
+  return Array.from(form.querySelectorAll(selector), input => [input.dataset.payer, Number(input.value)])
+}
+
+test('issue #29: category editor defaults to equal shares, saves custom shares and resets them', async t => {
+  const f = fixture(t)
+  categoryAllocations(f)
+  const panel = f.element('billy-settings')
+  panel._openCategory('power')
+  let form = panel.shadowRoot.querySelector('#category-form')
+  assert.deepEqual(splitValues(form, '.category-split-input'), [['a', 50], ['b', 50]])
+  const toggle = form.elements.custom_split
+  assert.equal(toggle.checked, false)
+  toggle.checked = true
+  toggle.dispatchEvent(new f.dom.window.Event('change'))
+  const [a, b] = form.querySelectorAll('.category-split-input')
+  assert.equal(a.disabled, false)
+  a.value = '100'; b.value = '0'
+  await panel._saveCategory({ preventDefault() {}, currentTarget: form }, 'power')
+  const sent = f.calls.find(row => row.type === 'bill_tracker/category/update')
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.default_split)), [
+    { payer_id: 'a', percentage: 100 }, { payer_id: 'b', percentage: 0 },
+  ])
+  panel._openCategory('water')
+  form = panel.shadowRoot.querySelector('#category-form')
+  assert.deepEqual(splitValues(form, '.category-split-input'), [['a', 0], ['b', 100]])
+  form.elements.custom_split.checked = false
+  form.elements.custom_split.dispatchEvent(new f.dom.window.Event('change'))
+  assert.deepEqual(splitValues(form, '.category-split-input'), [['a', 50], ['b', 50]])
+  await panel._saveCategory({ preventDefault() {}, currentTarget: form }, 'water')
+  assert.deepEqual(JSON.parse(JSON.stringify(f.calls.filter(row => row.type === 'bill_tracker/category/update').at(-1).default_split)), [])
+})
+
+test('issue #29: bills and recurring expenses inherit category allocation and allow manual overrides', async t => {
+  const f = fixture(t)
+  categoryAllocations(f)
+  const bills = f.element('billy-bills')
+  bills._load = async () => {}
+  bills._openBill()
+  const billForm = bills.shadowRoot.querySelector('#bill-form')
+  assert.deepEqual(splitValues(billForm, '.split-input'), [['a', 50], ['b', 50]])
+  billForm.elements.category_id.value = 'water'
+  billForm.elements.category_id.dispatchEvent(new f.dom.window.Event('change'))
+  assert.deepEqual(splitValues(billForm, '.split-input'), [['a', 0], ['b', 100]])
+  assert.equal(billForm.elements.payer_id.value, 'b')
+  billForm.querySelector('[data-payer="a"]').value = '25'
+  billForm.querySelector('[data-payer="b"]').value = '75'
+  billForm.elements.amount.value = '100'
+  await bills._submitBill({ preventDefault() {}, currentTarget: billForm }, () => {})
+  const bill = f.calls.find(row => row.type === 'bill_tracker/add')
+  assert.deepEqual(JSON.parse(JSON.stringify(bill.split)), [
+    { payer_id: 'a', percentage: 25 }, { payer_id: 'b', percentage: 75 },
+  ])
+  const recurring = f.element('billy-recurring')
+  recurring._load = async () => {}
+  recurring._openRecurring()
+  const form = recurring.shadowRoot.querySelector('#recurring-form')
+  assert.deepEqual(splitValues(form, '.recurring-split-input'), [['a', 50], ['b', 50]])
+  form.elements.category_id.value = 'water'
+  form.elements.category_id.dispatchEvent(new f.dom.window.Event('change'))
+  assert.deepEqual(splitValues(form, '.recurring-split-input'), [['a', 0], ['b', 100]])
+  assert.equal(form.elements.payer_id.value, 'b')
+  form.elements.name.value = 'Water service'
+  form.elements.amount.value = '25'
+  await recurring._saveRecurring({ preventDefault() {}, currentTarget: form }, null, () => {})
+  const rule = f.calls.find(row => row.type === 'bill_tracker/recurring/add')
+  assert.equal(rule.category_id, 'water')
+  assert.deepEqual(JSON.parse(JSON.stringify(rule.split)), [{ payer_id: 'b', percentage: 100 }])
+})
+
 test('v0.17.1: bill types configure independent automatic bills for two houses', async t => {
   const f = fixture(t)
   f.data.houses = [{ id: 'home-a', name: 'Main house' }, { id: 'home-b', name: 'Holiday house' }]
@@ -301,6 +390,21 @@ test('compact bill card opens the same amount confirmation before paying a provi
   assert.equal(card.shadowRoot.getElementById('paid-status').checked, true)
   assert.equal(card.shadowRoot.getElementById('amount').value, '40')
   assert.equal(card._t('placeholderBill'), 'Bolletta provvisoria — conferma l’importo')
+})
+
+test('issue #29: legacy Lovelace editor applies category allocation on selection', t => {
+  const f = fixture(t)
+  categoryAllocations(f)
+  const card = f.element('bill-tracker-card-impl')
+  card._formOpen = true
+  card._render()
+  const form = card.shadowRoot.getElementById('expense-form')
+  assert.deepEqual(splitValues(form, '.split-input'), [['a', 50], ['b', 50]])
+  const category = card.shadowRoot.getElementById('category')
+  category.value = 'water'
+  category.dispatchEvent(new f.dom.window.Event('change'))
+  assert.deepEqual(splitValues(form, '.split-input'), [['a', 0], ['b', 100]])
+  assert.equal(card.shadowRoot.getElementById('payer').value, 'b')
 })
 
 test('overview shows a provisional bill with no due date', t => {

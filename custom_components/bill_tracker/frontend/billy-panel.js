@@ -1,13 +1,13 @@
-import './billy-parser-manager.js?v=0.19.2-r1'
-import './billy-accounts.js?v=0.19.2-r1'
-import { billyCategoryLabel } from './bill-tracker-i18n.js?v=0.19.2-r1'
+import './billy-parser-manager.js?v=0.20.0-r1'
+import './billy-accounts.js?v=0.20.0-r1'
+import { billyCategoryLabel } from './bill-tracker-i18n.js?v=0.20.0-r1'
 import {
   BILLY_ERROR_TEXT,
   BILLY_PANEL_EXTRA_TEXT,
   BILLY_PLACEHOLDER_TEXT,
-} from './billy-extra-i18n.js?v=0.19.2-r1'
+} from './billy-extra-i18n.js?v=0.20.0-r1'
 
-const BILLY_PANEL_VERSION = '0.19.2'
+const BILLY_PANEL_VERSION = '0.20.0'
 
 const TEXT = {
   en: {
@@ -823,6 +823,14 @@ const TEXT = {
 }
 Object.assign(TEXT, BILLY_PANEL_EXTRA_TEXT)
 for (const [language, labels] of Object.entries({
+  en: { defaultSplit: 'Default cost allocation', customSplit: 'Customize percentages', equalSplit: 'Equal shares among active payers', optionalCategory: 'Bill type (optional)' },
+  it: { defaultSplit: 'Ripartizione predefinita', customSplit: 'Personalizza percentuali', equalSplit: 'Quote uguali tra i paganti attivi', optionalCategory: 'Tipo di bolletta (facoltativo)' },
+  es: { defaultSplit: 'Reparto predeterminado', customSplit: 'Personalizar porcentajes', equalSplit: 'Partes iguales entre pagadores activos', optionalCategory: 'Tipo de factura (opcional)' },
+  fr: { defaultSplit: 'Répartition par défaut', customSplit: 'Personnaliser les pourcentages', equalSplit: 'Parts égales entre les payeurs actifs', optionalCategory: 'Type de facture (facultatif)' },
+  de: { defaultSplit: 'Standardaufteilung', customSplit: 'Prozentsätze anpassen', equalSplit: 'Gleiche Anteile der aktiven Zahler', optionalCategory: 'Rechnungstyp (optional)' },
+  pt: { defaultSplit: 'Repartição predefinida', customSplit: 'Personalizar percentagens', equalSplit: 'Partes iguais entre pagadores ativos', optionalCategory: 'Tipo de conta (opcional)' },
+})) Object.assign(TEXT[language], labels)
+for (const [language, labels] of Object.entries({
   es: { allBillingMonths: 'Todos los meses', currentBillingMonth: 'Mes actual',
     filterBillingMonth: 'Filtrar por mes de facturación' },
   fr: { allBillingMonths: 'Tous les mois', currentBillingMonth: 'Mois en cours',
@@ -954,6 +962,27 @@ function tFor(hass, key, vars = {}) {
     text = text.replaceAll(`{${name}}`, String(value))
   }
   return text
+}
+
+function categorySplit(data, category) {
+  if (Array.isArray(category?.effective_default_split)) return category.effective_default_split
+  if (category?.default_split?.length) return category.default_split
+  return data?.equal_split ?? data?.default_split ?? []
+}
+
+function allocationPayers(data, row) {
+  const ids = new Set([row?.payer_id, ...(row?.split || []).map(part => part.payer_id)])
+  for (const category of data?.categories || []) {
+    ids.add(category.default_payer_id)
+    for (const part of categorySplit(data, category)) ids.add(part.payer_id)
+  }
+  return (data?.payers || []).filter(payer => payer.enabled || ids.has(payer.id))
+}
+
+function applyAllocation(card, selector, split) {
+  const shares = new Map((split || []).map(part => [String(part.payer_id), Number(part.percentage)]))
+  for (const input of card.querySelectorAll(selector))
+    input.value = shares.get(input.dataset.payer) ?? 0
 }
 
 function paymentMethodName(hass, method) {
@@ -3461,11 +3490,9 @@ class BillyBills extends HTMLElement {
     }
     const selectedCategory =
       this._categoryById(row?.category_id) || categories[0]
-    const payers = (this._data?.payers || []).filter(
-      (payer) => payer.enabled || payer.id === row?.payer_id,
-    )
+    const payers = allocationPayers(this._data, row)
     const payerId =
-      row?.payer_id || selectedCategory?.default_payer_id || payers[0]?.id || ''
+      row?.payer_id || selectedCategory?.default_payer_id || payers.find(payer => payer.enabled)?.id || categorySplit(this._data, selectedCategory)[0]?.payer_id || ''
     const paidMonth = row
       ? this._monthValue(row.paid_year || row.year, row.paid_month || row.month)
       : this._defaultMonth()
@@ -3483,7 +3510,7 @@ class BillyBills extends HTMLElement {
       ? this._monthValue(row.period_end_year, row.period_end_month)
       : paidMonth
     const splitMap = this._splitMap(
-      row?.split?.length ? row.split : this._data?.default_split || [],
+      row?.split?.length ? row.split : categorySplit(this._data, selectedCategory),
     )
     const modal = this.shadowRoot.getElementById('bill-modal')
     const card = this.shadowRoot.getElementById('bill-modal-card')
@@ -3578,6 +3605,10 @@ class BillyBills extends HTMLElement {
     if (contract) contract.value = category.default_contract || ''
     if (payer && category.default_payer_id)
       payer.value = category.default_payer_id
+    else if (payer)
+      payer.value = (this._data?.payers || []).find(part => part.enabled)?.id || categorySplit(this._data, category)[0]?.payer_id || ''
+    applyAllocation(card, '.split-input', categorySplit(this._data, category))
+    this._updateSplitTotal(card)
     if (consumption) consumption.disabled = !unit
     if (consumptionLabel)
       consumptionLabel.textContent = `${this._t('consumption')}${unit ? ` (${unit})` : ''}`
@@ -4260,18 +4291,19 @@ class BillyRecurring extends HTMLElement {
     const card = this.shadowRoot.getElementById('recurring-modal-card')
     if (!modal || !card) return
     const intervals = [1, 2, 3, 4, 6, 12]
-    const payers = (this._data?.payers || []).filter(
-      (payer) => payer.enabled || payer.id === row?.payer_id,
-    )
-    const payerId = row?.payer_id || payers[0]?.id || ''
+    const categories = (this._data?.categories || []).filter(category => category.enabled || category.id === row?.category_id)
+    const selectedCategory = categories.find(category => category.id === row?.category_id)
+    const payers = allocationPayers(this._data, row)
+    const payerId = row?.payer_id || selectedCategory?.default_payer_id || payers.find(payer => payer.enabled)?.id || categorySplit(this._data, selectedCategory)[0]?.payer_id || ''
     const splitMap = this._splitMap(
-      row?.split?.length ? row.split : this._data?.default_split || [],
+      row?.split?.length ? row.split : categorySplit(this._data, selectedCategory),
     )
     card.innerHTML = `<form id="recurring-form">
       <div class="modal-head"><h3>${escapeHtml(row ? this._t('edit') : this._t('addRecurring'))}</h3><button type="button" class="icon-close" id="recurring-close">×</button></div>
       <div class="form-grid">
         <label><span>${escapeHtml(this._t('billType'))}</span><select name="kind"><option value="subscription" ${row?.kind === 'subscription' || !row ? 'selected' : ''}>${escapeHtml(this._t('subscription'))}</option><option value="mortgage" ${row?.kind === 'mortgage' ? 'selected' : ''}>${escapeHtml(this._t('mortgage'))}</option><option value="installment" ${row?.kind === 'installment' ? 'selected' : ''}>${escapeHtml(this._t('installment'))}</option><option value="recurring" ${row?.kind === 'recurring' ? 'selected' : ''}>${escapeHtml(this._t('recurringGeneric'))}</option></select></label>
         <label><span>${escapeHtml(this._t('house'))}</span><select name="house_id" required>${(this._data?.houses || []).map(home => `<option value="${escapeHtml(home.id)}" ${home.id === (row?.house_id || (this._house !== 'all' ? this._house : this._data?.default_house_id)) ? 'selected' : ''}>${escapeHtml(home.name)}</option>`).join('')}</select></label>
+        <label><span>${escapeHtml(this._t('optionalCategory'))}</span><select name="category_id"><option value="">${escapeHtml(this._t('none'))}</option>${categories.map(category => `<option value="${escapeHtml(category.id)}" ${category.id === selectedCategory?.id ? 'selected' : ''}>${escapeHtml(billyCategoryLabel(this._hass, category))}</option>`).join('')}</select></label>
         <label><span>${escapeHtml(this._t('name'))}</span><input name="name" required maxlength="120" value="${escapeHtml(row?.name || '')}"></label>
         <label><span id="recurring-amount-label">${escapeHtml(row?.kind === 'installment' || row?.kind === 'mortgage' ? this._t('recurringRegularAmount') : this._t('amount'))}</span><input name="amount" type="number" min="0.01" step="0.01" required value="${escapeHtml(row?.amount ?? '')}"></label>
         <label><span>${escapeHtml(this._t('interval'))}</span><select name="interval_months">${intervals.map((value) => `<option value="${value}" ${Number(row?.interval_months || 1) === value ? 'selected' : ''}>${escapeHtml(this._frequency(value))}</option>`).join('')}</select></label>
@@ -4317,6 +4349,14 @@ class BillyRecurring extends HTMLElement {
       input.addEventListener('input', () =>
         this._updateRecurringSplitTotal(card),
       )
+    card.querySelector('[name="category_id"]')?.addEventListener('change', (event) => {
+      const category = categories.find(item => item.id === event.target.value)
+      const split = categorySplit(this._data, category)
+      const payer = card.querySelector('[name="payer_id"]')
+      if (payer) payer.value = category?.default_payer_id || payers.find(item => item.enabled)?.id || split[0]?.payer_id || ''
+      applyAllocation(card, '.recurring-split-input', split)
+      this._updateRecurringSplitTotal(card)
+    })
     const updateType = () => {
       const kind = card.querySelector('[name="kind"]').value
       const fixed = kind === 'installment' || kind === 'mortgage'
@@ -4397,6 +4437,7 @@ class BillyRecurring extends HTMLElement {
       ...(id ? { recurring_id: id } : {}),
       name: String(values.get('name') || '').trim(),
       kind: String(values.get('kind') || 'recurring'),
+      category_id: String(values.get('category_id') || ''),
       house_id: String(values.get('house_id') || ''),
       amount: Number(values.get('amount') || 0),
       interval_months: Number(values.get('interval_months') || 1),
@@ -5497,6 +5538,7 @@ class BillySettings extends HTMLElement {
       ? (this._data?.categories || []).find((item) => item.id === id)
       : null
     const payers = this._data?.payers || []
+    const allocation = new Map(categorySplit(this._data, row).map(part => [String(part.payer_id), part.percentage]))
     const houses = this._data?.houses || []
     const primaryHouseId = row?.placeholder?.house_id || this._data?.default_house_id || houses[0]?.id
     const houseRules = row?.house_placeholders || {}
@@ -5513,6 +5555,7 @@ class BillySettings extends HTMLElement {
         <label><span>${escapeHtml(this._t('color'))}</span><input name="color" type="color" value="${safeColor(row?.color || '#03a9f4')}"></label>
         <label><span>${escapeHtml(this._t('consumptionUnit'))}</span><input name="consumption_unit" value="${escapeHtml(row?.consumption_unit || '')}" placeholder="kWh, Smc…"></label>
         <label><span>${escapeHtml(this._t('defaultPayer'))}</span><select name="default_payer_id"><option value="">${escapeHtml(this._t('none'))}</option>${payers.map((payer) => `<option value="${escapeHtml(payer.id)}" ${row?.default_payer_id === payer.id ? 'selected' : ''}>${escapeHtml(payer.name)}</option>`).join('')}</select></label>
+        ${payers.length ? `<div class="span2 split-box"><strong>${escapeHtml(this._t('defaultSplit'))}</strong><label class="check"><input type="checkbox" name="custom_split" ${row?.default_split?.length ? 'checked' : ''}><span>${escapeHtml(this._t('customSplit'))}<small>${escapeHtml(this._t('equalSplit'))}</small></span></label><div class="form-grid">${payers.map(payer => `<label><span>${escapeHtml(payer.name)} (%)</span><input class="category-split-input" data-payer="${escapeHtml(payer.id)}" type="number" min="0" max="100" step="0.01" required value="${escapeHtml(allocation.get(String(payer.id)) ?? 0)}"></label>`).join('')}</div><div class="split-total" id="category-split-total"></div></div>` : ''}
         <label><span>${escapeHtml(this._t('defaultProvider'))}</span><input name="default_provider" value="${escapeHtml(row?.default_provider || '')}"></label>
         <label><span>${escapeHtml(this._t('defaultContract'))}</span><input name="default_contract" value="${escapeHtml(row?.default_contract || '')}"></label>
         <label class="check span2"><input name="archive_enabled" type="checkbox" ${row?.document_archive?.enabled ? 'checked' : ''}><span><strong>${escapeHtml(this._t('archiveAuto'))}</strong><small>${escapeHtml(this._t('archiveHelp'))}</small></span></label>
@@ -5556,6 +5599,24 @@ class BillySettings extends HTMLElement {
     card.querySelector('#modal-close')?.addEventListener('click', close)
     card.querySelector('#modal-cancel')?.addEventListener('click', close)
     modal.querySelector('.modal-backdrop')?.addEventListener('click', close)
+    const customSplit = card.querySelector('[name="custom_split"]')
+    const updateAllocation = () => {
+      const inputs = [...card.querySelectorAll('.category-split-input')]
+      const total = inputs.reduce((sum, input) => sum + Number(input.value || 0), 0)
+      const label = card.querySelector('#category-split-total')
+      if (label) {
+        label.textContent = `${total.toFixed(2)}%`
+        label.classList.toggle('bad', Math.abs(total - 100) > 0.05)
+      }
+      for (const input of inputs) input.disabled = !customSplit?.checked
+    }
+    customSplit?.addEventListener('change', () => {
+      if (!customSplit.checked) applyAllocation(card, '.category-split-input', categorySplit(this._data, null))
+      updateAllocation()
+    })
+    for (const input of card.querySelectorAll('.category-split-input'))
+      input.addEventListener('input', updateAllocation)
+    updateAllocation()
     const placeholderToggle = card.querySelector('[name="placeholder_enabled"]')
     const updatePlaceholderFields = () => {
       const fields = card.querySelector('#placeholder-settings')
@@ -5593,6 +5654,11 @@ class BillySettings extends HTMLElement {
       enabled: values.get('enabled') === 'on',
       exclude_from_estimates: values.get('exclude_from_estimates') === 'on',
       default_payer_id: String(values.get('default_payer_id') || ''),
+      default_split: values.get('custom_split') === 'on'
+        ? [...form.querySelectorAll('.category-split-input')].map(input => ({
+            payer_id: input.dataset.payer, percentage: Number(input.value || 0),
+          }))
+        : [],
       color: String(values.get('color') || ''),
       consumption_unit: String(values.get('consumption_unit') || '').trim(),
       default_provider: String(values.get('default_provider') || '').trim(),
@@ -6019,7 +6085,7 @@ class BillyPanel extends HTMLElement {
       return
     }
     if (!this._incomePromise) {
-      this._incomePromise = import('./billy-income.js?v=0.19.2-r1').catch((error) => {
+      this._incomePromise = import('./billy-income.js?v=0.20.0-r1').catch((error) => {
         this._incomePromise = null
         for (const id of ['income-panel', 'recurring-income-panel']) {
           const section = this.shadowRoot?.getElementById(id)
@@ -6039,7 +6105,7 @@ class BillyPanel extends HTMLElement {
     }
     if (!this._reimbursementHistoryPromise) {
       this._reimbursementHistoryPromise = import(
-        './billy-reimbursement-history.js?v=0.19.2-r1'
+        './billy-reimbursement-history.js?v=0.20.0-r1'
       ).catch((error) => {
         this._reimbursementHistoryPromise = null
         const section = this.shadowRoot?.querySelector(

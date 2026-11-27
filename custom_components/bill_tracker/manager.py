@@ -377,7 +377,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             for x in self.recurring_occurrences
         ):
             raise billy_error("payer_in_recurring_history")
-        if any(x.get("default_payer_id") == payer_id for x in self.categories):
+        if any(
+            x.get("default_payer_id") == payer_id
+            or any(part.get("payer_id") == payer_id for part in (x.get("default_split") or []))
+            for x in self.categories
+        ):
             raise billy_error("payer_is_default")
         if any(
             x.get("from_payer_id") == payer_id or x.get("to_payer_id") == payer_id
@@ -415,6 +419,22 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             result.append({"payer_id": str(payer["id"]), "percentage": pct})
         return result
 
+    def equal_split(self) -> list[dict[str, Any]]:
+        active = self.active_payers()
+        if not active:
+            return []
+        share, remainder = divmod(10000, len(active))
+        return [
+            {"payer_id": str(payer["id"]), "percentage": (share + (index < remainder)) / 100}
+            for index, payer in enumerate(active)
+        ]
+
+    def category_default_split(self, category: dict[str, Any], payer_id: str | None = None) -> list[dict[str, Any]]:
+        """Resolve a category's explicit allocation or equal shares for active payers."""
+        if category.get("default_split"):
+            return [dict(part) for part in category["default_split"]]
+        return self.equal_split() or ([{"payer_id": payer_id, "percentage": 100.0}] if payer_id else [])
+
     # ------------------------------------------------------------------
     # Categories
     # ------------------------------------------------------------------
@@ -436,6 +456,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         enabled: bool = True,
         exclude_from_estimates: bool = False,
         default_payer_id: str | None = None,
+        default_split: list[dict[str, Any]] | None = None,
         color: str | None = None,
         consumption_unit: str = "",
         default_provider: str = "",
@@ -456,6 +477,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "enabled": bool(enabled),
             "exclude_from_estimates": bool(exclude_from_estimates),
             "default_payer_id": payer_id,
+            "default_split": self._normalize_split(default_split) if default_split else [],
             "color": self._normalize_color(color, len(self.categories)),
             "consumption_unit": self._normalize_consumption_unit(consumption_unit),
             "default_provider": self._normalize_optional_text(default_provider, 100),
@@ -479,6 +501,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         enabled: bool,
         exclude_from_estimates: bool | None = None,
         default_payer_id: str | None = None,
+        default_split: list[dict[str, Any]] | None = None,
         color: str | None = None,
         consumption_unit: str = "",
         default_provider: str = "",
@@ -496,6 +519,9 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         if item is None:
             return None
         payer_id = self._validate_optional_payer(default_payer_id)
+        allocation = (
+            self._normalize_split(default_split) if default_split else []
+        ) if default_split is not None else item.get("default_split", [])
         placeholder_config = self._normalize_placeholder_config(
             item, placeholder if placeholder is not None else item.get("placeholder"),
             interval_months=int(interval_months),
@@ -517,6 +543,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                     else bool(item.get("exclude_from_estimates", False))
                 ),
                 "default_payer_id": payer_id,
+                "default_split": allocation,
                 "color": self._normalize_color(color or item.get("color"), 0),
                 "consumption_unit": self._normalize_consumption_unit(consumption_unit),
                 "default_provider": self._normalize_optional_text(default_provider, 100),
@@ -534,7 +561,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         return dict(item)
 
     async def async_delete_category(self, category_id: str) -> bool:
-        if any(x.get("category_id") == category_id for x in self.expenses):
+        if any(x.get("category_id") == category_id for x in self.expenses + self.recurring_expenses):
             raise billy_error("category_has_history")
         before = len(self.categories)
         self.categories = [x for x in self.categories if x.get("id") != category_id]
@@ -583,7 +610,10 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             period_start_year, period_start_month, period_end_year, period_end_month,
         )
         resolved_payer = self._resolve_expense_payer(category, payer_id)
-        normalized_split = self._resolve_expense_split(split, resolved_payer)
+        normalized_split = self._resolve_expense_split(
+            self.category_default_split(category, resolved_payer) if split is None else split,
+            resolved_payer,
+        )
         normalized_payment_date = self._normalize_optional_iso_date(payment_date)
         normalized_due_date = self._normalize_optional_iso_date(due_date)
         scheduled_date = self._normalize_optional_iso_date(scheduled_autopay_date)
@@ -684,8 +714,18 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             year, month, int(category["interval_months"]),
             period_start_year, period_start_month, period_end_year, period_end_month,
         )
-        resolved_payer = self._resolve_expense_payer(category, payer_id)
-        normalized_split = self._resolve_expense_split(split, resolved_payer)
+        previous = next((x for x in self.expenses if x.get("id") == expense_id), None)
+        if previous is None:
+            return None
+        resolved_payer = self._resolve_expense_payer(category, payer_id or previous.get("payer_id"))
+        normalized_split = (
+            [dict(part) for part in previous.get("split", [])]
+            if split is None and previous.get("split")
+            else self._resolve_expense_split(
+                self.category_default_split(category, resolved_payer) if split is None else split,
+                resolved_payer,
+            )
+        )
         normalized_payment_date = (
             self._normalize_optional_iso_date(payment_date) if payment_date is not None else None
         )
@@ -1029,10 +1069,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 else:
                     amount = history[-1]["amount"] if history else 0.0
                 payer_id = self._resolve_expense_payer(category, None)
-                default_split = self.default_split()
-                if payer_id and not default_split:
-                    default_split = [{"payer_id": payer_id, "percentage": 100.0}]
-                split = self._resolve_expense_split(default_split or None, payer_id)
+                split = self._resolve_expense_split(self.category_default_split(category, payer_id), payer_id)
                 sy, sm = self._add_months(today.year, today.month, -(int(category["interval_months"]) - 1))
                 due_day = config.get("due_day")
                 self.expenses.append({
@@ -1131,7 +1168,13 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         autopay: bool = False,
         autopay_joint: bool = False,
         house_id: str | None = None,
+        category_id: str | None = None,
     ) -> dict[str, Any]:
+        category = self._resolve_category(category_id, None) if category_id else None
+        if category is not None:
+            payer_id = self._resolve_expense_payer(category, payer_id)
+        if split is None:
+            split = self.category_default_split(category or {}, payer_id) or None
         item = self._normalize_recurring_payload(
             name=name,
             kind=kind,
@@ -1154,6 +1197,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             autopay_joint=autopay_joint,
         )
         item["house_id"] = self._resolve_house_id(house_id)
+        item["category_id"] = str(category["id"]) if category else None
         item.update(
             {
                 "id": uuid4().hex,
@@ -1191,11 +1235,23 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         autopay: bool = False,
         autopay_joint: bool = False,
         house_id: str | None = None,
+        category_id: str | None = None,
     ) -> dict[str, Any] | None:
         current = self.recurring_expense(recurring_id)
         if current is None:
             return None
         was_active = bool(current.get("active", True))
+        selected_id = current.get("category_id") if category_id is None else category_id
+        category = self._resolve_category(selected_id, None) if selected_id else None
+        if category_id is not None and (selected_id or None) != current.get("category_id"):
+            if category is not None:
+                payer_id = self._resolve_expense_payer(category, payer_id)
+            if split is None:
+                split = self.category_default_split(category or {}, payer_id) or None
+        else:
+            payer_id = payer_id or current.get("payer_id")
+            if split is None:
+                split = current.get("split") or None
         normalized = self._normalize_recurring_payload(
             name=name,
             kind=kind,
@@ -1224,6 +1280,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
         normalized["house_id"] = self._resolve_house_id(
             house_id if house_id is not None else current.get("house_id")
         )
+        normalized["category_id"] = str(category["id"]) if category else None
         schedule_changed = any(
             current.get(key) != normalized.get(key)
             for key in ("start_date", "end_date", "interval_months", "installment_count")
@@ -1574,7 +1631,10 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                         participant = ensure_payer(split_name.strip(), pct)
                         parsed_split.append({"payer_id": str(participant["id"]), "percentage": pct})
                     split = parsed_split
-                normalized_split = self._resolve_expense_split(split, resolved_payer)
+                normalized_split = self._resolve_expense_split(
+                    self.category_default_split(category, resolved_payer) if split is None else split,
+                    resolved_payer,
+                )
 
                 paid = parse_csv_bool(row.get("paid", ""))
                 payment_date = self._normalize_optional_iso_date(row.get("payment_date"))
@@ -2289,11 +2349,12 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             "currency": self.currency,
             "houses": [dict(x) for x in self.houses],
             "default_house_id": self.default_house_id,
-            "categories": [dict(x) for x in self.categories],
-            "active_categories": [dict(x) for x in self.categories if x.get("enabled", True)],
+            "categories": [self._public_category(x) for x in self.categories],
+            "active_categories": [self._public_category(x) for x in self.categories if x.get("enabled", True)],
             "payers": [dict(x) for x in self.payers],
             "active_payers": self.active_payers(),
             "default_split": self.default_split(),
+            "equal_split": self.equal_split(),
             "expenses": [self._public_expense(x) for x in self.expenses],
             "current_month_unpaid_bills": self.current_month_unpaid_bills(),
             "settlements": [self._public_settlement(x) for x in self.settlements],
@@ -3704,7 +3765,16 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 raise billy_error("payer_invalid")
             return wanted
         active = self.active_payers()
-        return str(active[0]["id"]) if active else None
+        if active:
+            return str(active[0]["id"])
+        allocation = category.get("default_split") or []
+        return str(allocation[0]["payer_id"]) if allocation else None
+
+    def _public_category(self, category: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **category,
+            "effective_default_split": self.category_default_split(category, self._resolve_expense_payer(category, None)),
+        }
 
     def _resolve_expense_split(self, split: list[dict[str, Any]] | None, payer_id: str | None) -> list[dict[str, Any]]:
         if payer_id is None:
@@ -3831,6 +3901,11 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
                 "default_provider": self._normalize_optional_text(raw.get("default_provider", ""), 100),
                 "default_contract": self._normalize_optional_text(raw.get("default_contract", ""), 100),
             }
+            try:
+                item["default_split"] = self._normalize_split(raw["default_split"]) if raw.get("default_split") else []
+            except (ValueError, TypeError, AttributeError, OverflowError):
+                item["default_split"] = []
+                changed = True
             try:
                 item["document_archive"] = normalize_archive_config(raw.get("document_archive"))
             except ValueError:
@@ -4093,6 +4168,7 @@ class BillTrackerManager(IncomeMixin, AccountMixin):
             item = {
                 "id": str(raw.get("id") or uuid4().hex),
                 **normalized,
+                "category_id": raw.get("category_id") if raw.get("category_id") and self.category(str(raw["category_id"])) else None,
                 "house_id": self._resolve_house_id(raw.get("house_id")),
                 "created_at": str(
                     raw.get("created_at")

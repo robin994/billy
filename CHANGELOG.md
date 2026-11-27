@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.20.0
+
+Released: 2026-11-27.
+
+- Issue [#29](https://github.com/robin994/billy/issues/29): configure default
+  payer percentages for each bill type. New bills default to equal shares
+  among active payers (50/50 for two), with customizable allocations totaling
+  100%. The actual payer remains independent of cost allocation.
+- Apply category defaults to new bills, automatic placeholders, CSV imports,
+  parser imports without their own allocation, and the legacy Lovelace editor.
+  Explicit parser and individual expense allocations take precedence.
+- Recurring expenses can optionally select a bill type independently of their
+  recurring kind. New rules inherit its defaults and can override them.
+- Preserve existing bills, recurring rules and reimbursement history;
+  round-trip the new optional fields through storage and backups. Updated
+  the UI in all six supported languages and added regression tests.
+
 ## 0.19.2
 
 Released: 2026-11-16.

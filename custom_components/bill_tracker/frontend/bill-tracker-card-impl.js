@@ -3,8 +3,8 @@ import {
   billyLanguage,
   billyLocale,
   billyT,
-} from './bill-tracker-i18n.js?v=0.19.2-r1'
-import { BILLY_ERROR_TEXT, BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.19.2-r1'
+} from './bill-tracker-i18n.js?v=0.20.0-r1'
+import { BILLY_ERROR_TEXT, BILLY_PLACEHOLDER_TEXT } from './billy-extra-i18n.js?v=0.20.0-r1'
 
 // Resolve a websocket/runtime error to a message in the user's language via its
 // stable `code`, falling back to the English text the backend sends with it.
@@ -18,7 +18,7 @@ function billyErrorText(hass, error, fallback = '') {
   return String(error?.message || fallback || error)
 }
 
-const BILL_TRACKER_VERSION = '0.19.2'
+const BILL_TRACKER_VERSION = '0.20.0'
 
 class BillTrackerCard extends HTMLElement {
   constructor() {
@@ -586,14 +586,23 @@ class BillTrackerCard extends HTMLElement {
   }
 
   _expenseFormPayers(editing) {
-    if (!editing) return this._activePayers()
     const ids = new Set(
       [
-        editing.payer_id,
-        ...(editing.split || []).map((x) => x.payer_id),
+        editing?.payer_id,
+        ...(editing?.split || []).map((x) => x.payer_id),
       ].filter(Boolean),
     )
+    for (const category of this._data?.categories || []) {
+      ids.add(category.default_payer_id)
+      for (const part of this._categorySplit(category)) ids.add(part.payer_id)
+    }
     return (this._data?.payers || []).filter((p) => p.enabled || ids.has(p.id))
+  }
+
+  _categorySplit(category) {
+    if (Array.isArray(category?.effective_default_split)) return category.effective_default_split
+    if (category?.default_split?.length) return category.default_split
+    return this._data?.equal_split ?? this._data?.default_split ?? []
   }
 
   _allBillsYears(expenses) {
@@ -743,9 +752,10 @@ class BillTrackerCard extends HTMLElement {
       editing?.payer_id ||
       selectedCategory?.default_payer_id ||
       activePayers[0]?.id ||
+      this._categorySplit(selectedCategory)[0]?.payer_id ||
       ''
     const splitMap = this._splitMap(
-      editing?.split?.length ? editing.split : this._data.default_split || [],
+      editing?.split?.length ? editing.split : this._categorySplit(selectedCategory),
     )
     const allExpenses = this._data.expenses || []
     const currentMonthExpenses = allExpenses.filter(
@@ -2173,7 +2183,13 @@ class BillTrackerCard extends HTMLElement {
       [...payer.options].some((x) => x.value === category.default_payer_id)
     ) {
       payer.value = category.default_payer_id
+    } else if (payer) {
+      payer.value = this._activePayers()[0]?.id || this._categorySplit(category)[0]?.payer_id || ''
     }
+    const split = this._splitMap(this._categorySplit(category))
+    for (const input of this.shadowRoot.querySelectorAll('.split-input'))
+      input.value = split[input.dataset.payer] ?? 0
+    this._updateSplitTotal()
     const provider = this.shadowRoot.getElementById('provider')
     const contract = this.shadowRoot.getElementById('contract')
     if (provider) provider.value = String(category?.default_provider || '')

@@ -357,7 +357,7 @@ def test_invalid_settings_are_rejected_without_mutation(manager, settings):
 def test_category_websocket_schema_round_trips_optional_placeholder_settings():
     tree = ast.parse((COMPONENT / "__init__.py").read_text())
     assignment = next(n for n in tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_CATEGORY_COMMON" for t in n.targets))
-    schema = vol.Schema(eval(compile(ast.Expression(assignment.value), str(COMPONENT / "__init__.py"), "eval"), {"vol": vol, "SUPPORTED_INTERVALS": (1, 2, 3, 4, 6, 12)}))
+    schema = vol.Schema(eval(compile(ast.Expression(assignment.value), str(COMPONENT / "__init__.py"), "eval"), {"vol": vol, "SUPPORTED_INTERVALS": (1, 2, 3, 4, 6, 12), "_SPLIT_ITEM_SCHEMA": {vol.Required("payer_id"): str, vol.Required("percentage"): vol.Coerce(float)}}))
     request = {"name": "Power", "interval_months": 2, "placeholder": {"enabled": True, "day": 31, "amount_mode": "forecast", "due_day": None}}
     assert schema(request)["placeholder"]["day"] == 31
     with pytest.raises(vol.Invalid):
